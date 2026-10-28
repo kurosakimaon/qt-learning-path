@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解专区 · 16 个分步动画 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="../README.md">README</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">VISUALS · 图解专区</span>
+    <h1>十六张会动的图，把 Qt 里最绕的那几层讲透</h1>
+    <p>每一页都是同一套骨架：左边一张 SVG，右边一段讲解加一段代码，底下是步骤条。按 <strong>▶ 自动播放</strong> 会一步步推进，也可以点步骤条跳到某一步；键盘 <code>←</code> <code>→</code> 翻步，<code>Home</code> / <code>End</code> 到头尾。图是画给你看「东西在哪儿、按什么顺序动」的，代码是给你对回讲义的具体文件的——两样一起看，才不容易记混。</p>
+  </header>
+
+  <div class="hub-section">START · 起步<a class="top-link" href="../start/index.html">讲义 start/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="startup_flow.html">
+      <div class="hub-icon">🚀</div>
+      <h2>从 main() 到窗口出现</h2>
+      <p>一行 <code>w.show()</code> 背后到底发生了七件事：进程启动、<code>QApplication</code> 与平台插件、构造控件时还没有原生窗口、<code>exec()</code> 接管、布局与绘制、退出与析构顺序。</p>
+      <span class="hub-tag">第壹阶段 · 起步</span>
+    </a>
+  </div>
+
+  <div class="hub-section">METAOBJECT · 元对象系统<a class="top-link" href="../metaobject/index.html">讲义 metaobject/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="moc_signal_slot.html">
+      <div class="hub-icon">⚙️</div>
+      <h2>信号槽与 moc 到底生成了什么</h2>
+      <p><code>emit clicked()</code> 展开成什么、moc 吐出的 <code>qt_static_metacall</code> 长什么样、连接是怎么在 <code>connect</code> 时就把指针换成分发表下标的，以及四种常见报错各对应哪一步断了。</p>
+      <span class="hub-tag">第肆阶段 · 元对象</span>
+    </a>
+    <a class="hub-card" href="connection_types.html">
+      <div class="hub-icon">🔀</div>
+      <h2>五种连接类型与跨线程排队</h2>
+      <p>同一个 <code>connect</code>，槽可能在哪个线程跑？<code>Auto</code> 是在发信号那一刻按接收者线程判的；排队连接会把参数拷贝成事件塞进队列；<code>BlockingQueued</code> 在同线程直接死锁。</p>
+      <span class="hub-tag">第肆阶段 · 元对象</span>
+    </a>
+    <a class="hub-card" href="qobject_tree.html">
+      <div class="hub-icon">🌳</div>
+      <h2>QObject 对象树与所有权</h2>
+      <p><code>setParent</code> 只是记账，真正的清理发生在父对象析构时；<code>children()</code> 只给直接子对象，<code>findChild</code> 默认递归；<code>deleteLater</code> 靠一个 <code>DeferredDelete</code> 事件完成。</p>
+      <span class="hub-tag">第肆阶段 · 元对象</span>
+    </a>
+  </div>
+
+  <div class="hub-section">EVENTS · 事件系统<a class="top-link" href="../events/index.html">讲义 events/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="event_loop.html">
+      <div class="hub-icon">🔄</div>
+      <h2>事件循环到底在转什么</h2>
+      <p><code>app.exec()</code> 不是让程序停住，是开始分拣。同步的 <code>sendEvent</code> 与异步的 <code>postEvent</code> 谁拥有事件、一轮循环不等于一个事件、<code>processEvents</code> 怎么用、嵌套循环从哪来、怎么优雅退出。</p>
+      <span class="hub-tag">第叁阶段 · 事件</span>
+    </a>
+    <a class="hub-card" href="event_filter.html">
+      <div class="hub-icon">🧩</div>
+      <h2>事件过滤器：装在事件路上的关卡</h2>
+      <p>三个安装位置（<code>qApp</code> / 目标对象 / 自己）、应用级到对象级到 <code>event()</code> 再到具体处理器的顺序、<code>return true</code> 为什么能把事件彻底掐掉，以及什么时候该用过滤器、什么时候宁可直接改写。</p>
+      <span class="hub-tag">第叁阶段 · 事件</span>
+    </a>
+  </div>
+
+  <div class="hub-section">WIDGETS · 控件与布局<a class="top-link" href="../widgets/index.html">讲义 widgets/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="layout_negotiation.html">
+      <div class="hub-icon">📐</div>
+      <h2>布局协商：谁决定控件多大</h2>
+      <p>控件的大小不是「设」出来的，是「谈」出来的。四路输入（<code>sizeHint</code> / <code>minimumSizeHint</code> / <code>QSizePolicy</code> / stretch）怎么汇成一次 <code>setGeometry</code>，以及为什么构造函数里读 <code>width()</code> 拿到的是草稿。</p>
+      <span class="hub-tag">第贰阶段 · 控件</span>
+    </a>
+  </div>
+
+  <div class="hub-section">PAINTING · 绘图<a class="top-link" href="../painting/index.html">讲义 painting/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="painting_pipeline.html">
+      <div class="hub-icon">🎨</div>
+      <h2>绘制管线：从 paintEvent 到屏幕</h2>
+      <p><code>paintEvent</code> 不是往屏幕上画，是往一张缓冲图上画。为什么双击缓冲是白送的、<code>update()</code> 为什么要合并、脏区是怎么省下来的、<code>devicePixelRatio</code> 不管会出现什么糊图。</p>
+      <span class="hub-tag">第伍阶段 · 绘图</span>
+    </a>
+    <a class="hub-card" href="coordinates.html">
+      <div class="hub-icon">🧭</div>
+      <h2>坐标系与变换：画到哪儿去了</h2>
+      <p>「画错位置」和「点不准」其实是同一个问题。<code>mapTo</code> / <code>mapFrom</code> 的方向怎么记、<code>pos()</code> 与 <code>geometry()</code> 差在哪、变换的叠加顺序为什么不能反、命中测试怎么反着算回去。</p>
+      <span class="hub-tag">第伍阶段 · 绘图</span>
+    </a>
+  </div>
+
+  <div class="hub-section">MODEL/VIEW · 模型视图<a class="top-link" href="../model_view/index.html">讲义 model_view/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="model_view.html">
+      <div class="hub-icon">🗂️</div>
+      <h2>模型/视图：数据流的四个角色</h2>
+      <p>一屏格子背后是一个 <code>QTableView</code> 和零个子控件。<code>QModelIndex</code> 是坐标不是身份、每个角色各问一次 <code>data()</code>、只问可见的那几十格、一次写回要经过哪几站。</p>
+      <span class="hub-tag">第陆阶段 · 模型视图</span>
+    </a>
+    <a class="hub-card" href="delegate_lifecycle.html">
+      <div class="hub-icon">✏️</div>
+      <h2>委托的生命周期：画一格与管一个编辑器</h2>
+      <p><code>paint</code> 会被调成千上万次，编辑器却只在真正编辑时才造。四个编辑器函数的调用时机与数据流向、<code>updateEditorGeometry</code> 忘了写编辑器会跑到 (0,0)、提交时 <code>commitData</code> 与 <code>closeEditor</code> 的顺序。</p>
+      <span class="hub-tag">第陆阶段 · 模型视图</span>
+    </a>
+  </div>
+
+  <div class="hub-section">THREADS · 并发与线程<a class="top-link" href="../threads/index.html">讲义 threads/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="thread_affinity.html">
+      <div class="hub-icon">🧵</div>
+      <h2>线程归属：QThread 到底让哪段代码跑在新线程</h2>
+      <p>只有 <code>run()</code> 跑在新线程里，别的都在原线程。继承 <code>run()</code> 与 <code>moveToThread</code> 两条路的差别、跨线程信号为什么是唯一正路、共享数据的三档做法、以及怎么在不调 <code>terminate()</code> 的前提下收摊。</p>
+      <span class="hub-tag">第柒阶段 · 线程</span>
+    </a>
+  </div>
+
+  <div class="hub-section">STORAGE · 数据与持久化<a class="top-link" href="../storage/index.html">讲义 storage/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="resource_pipeline.html">
+      <div class="hub-icon">📦</div>
+      <h2>资源系统：把文件编进 exe</h2>
+      <p><code>:/icons/save.png</code> 这个路径在磁盘上并不存在。rcc 把文件变成一段 <code>unsigned char[]</code> 链进可执行文件，运行时读法和读普通文件一模一样；还有静态库里的 <code>Q_INIT_RESOURCE</code>、<code>@2x</code> 命名和缺插件这三类坑。</p>
+      <span class="hub-tag">第捌阶段 · 存储</span>
+    </a>
+  </div>
+
+  <div class="hub-section">NETWORK · 网络<a class="top-link" href="../network/index.html">讲义 network/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="network_async.html">
+      <div class="hub-icon">🌐</div>
+      <h2>异步网络：一个请求的一生</h2>
+      <p><code>get()</code> 立刻返回，真正的工作在没有你的地方发生。三个对象的三个生命周期、正文只有 <code>finished</code> 之后才存在、两场考试（传输错误与状态码）、静默超时、进度里的 -1 总量，以及为什么取消要 <code>abort()</code> 而不是删对象。</p>
+      <span class="hub-tag">第玖阶段 · 网络</span>
+    </a>
+  </div>
+
+  <div class="hub-section">QUALITY · 工程质量<a class="top-link" href="../quality/index.html">讲义 quality/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="quality_gate.html">
+      <div class="hub-icon">✅</div>
+      <h2>四道质量门：让 bug 在最便宜的地方被抓住</h2>
+      <p>静态门拦「写错」、单元门拦「算错」、界面门拦「接错」、交付门拦「带错」。每一道门用什么工具、失败时拿什么当证据、为什么顺序不能倒，以及 <code>--self-check</code> 与 <code>ctest</code> 的退出码为什么比日志更可信。</p>
+      <span class="hub-tag">第拾阶段 · 工程质量</span>
+    </a>
+  </div>
+
+  <div class="hub-section">BUILD/DEPLOY · 构建与部署<a class="top-link" href="../build_deploy/index.html">讲义 build_deploy/</a></div>
+  <div class="hub-grid">
+    <a class="hub-card" href="deployment_tree.html">
+      <div class="hub-icon">🚚</div>
+      <h2>部署：从 build 目录到别人电脑</h2>
+      <p>「我这儿能跑」到「他那儿能跑」，中间隔着一个 deploy。<code>windeployqt</code> 读的是什么、带走的目录长什么样、<code>0xC0000135</code> 与「no Qt platform plugin」各缺哪块、<code>qt.conf</code> 与静态链接的代价。</p>
+      <span class="hub-tag">第拾壹阶段 · 构建部署</span>
+    </a>
+  </div>
+
+  <footer class="page-foot">
+    用法：每页右上角的步骤条可以直接跳；<code>▶ 自动播放</code> 用每步预设的停留时间推进，看完自动停在最后一步。<br>
+    页面源码里 <code>window.STEPS</code> 是纯数据：改 SVG、改讲解、改代码都只动这一处，不需要碰渲染脚本。<br>
+    图里出现的文件名与行号，都能在对应讲义里找到原文件，例如 <a href="../events/01_event_loop.cpp">events/01_event_loop.cpp</a>、<a href="../painting/02_coordinates_and_transforms.cpp">painting/02_coordinates_and_transforms.cpp</a>。
+  </footer>
+</div>
+</body>
+</html>

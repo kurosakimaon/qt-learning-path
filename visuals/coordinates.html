@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 坐标系与变换：画到哪儿去了 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../painting/index.html">第伍阶段 · 绘制</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">PAINTING · 坐标系</span>
+    <h1>「画错位置」和「点不准」，其实是同一个问题</h1>
+    <p>每个控件都有自己的原点，<code>QPainter</code> 还能再叠一层变换。当你搞不清「这个坐标是相对谁的」，就会出现两种症状：画到了意料之外的地方、点击命中测试偏了。<strong>它们都是坐标系问题，不是绘制 API 用错。</strong>这一页把三套坐标与变换的顺序讲清。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../painting/02_coordinates_and_transforms.cpp">painting/02_coordinates_and_transforms.cpp</a> ·
+    <a href="../events/05_mouse_keyboard_focus.cpp">events/05_mouse_keyboard_focus.cpp</a> ·
+    头文件：<code>QtWidgets/qwidget.h</code>（<code>mapTo</code> / <code>mapFrom</code> / <code>mapToGlobal</code>）
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '三套坐标：局部、父、全局',
+    nav: '三套坐标',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="局部、父、全局三套坐标">
+        <rect class="svg-box" x="40" y="40" width="400" height="270" rx="10"/>
+        <text class="svg-small" x="60" y="66">父控件 / 窗口（原点在客户区左上角）</text>
+
+        <text class="svg-mono" x="60" y="92">(0,0)</text>
+        <path class="svg-arrow" d="M60 96 L120 96"/>
+        <path class="svg-arrow" d="M60 96 L60 146"/>
+
+        <rect class="svg-box-accent" x="180" y="130" width="200" height="130" rx="6"/>
+        <text class="svg-small" x="200" y="156">子控件</text>
+        <text class="svg-mono" x="200" y="182">局部 (0,0)</text>
+        <text class="svg-small" x="200" y="208">pos() 相对父客户区</text>
+        <text class="svg-small" x="200" y="232">= (140, 90) 在这个例子里</text>
+
+        <circle class="svg-dot" cx="300" cy="200" r="5"/>
+        <text class="svg-small" x="312" y="196">一个点</text>
+        <text class="svg-small" x="312" y="218">局部(100,70)</text>
+
+        <rect class="svg-field" x="470" y="40" width="265" height="270" rx="10"/>
+        <text class="svg-small" x="490" y="68">同一个点的三种说法：</text>
+        <text class="svg-mono" x="490" y="100">局部：(100, 70)</text>
+        <text class="svg-mono" x="490" y="126">父：  (240, 160)</text>
+        <text class="svg-mono" x="490" y="152">全局：(240+sx, 160+sy)</text>
+        <text class="svg-small" x="490" y="184">sx / sy 是窗口在屏幕上的位置</text>
+        <text class="svg-small" x="490" y="210">（含标题栏与边框）</text>
+        <text class="svg-small" x="490" y="248">★ 三者之间只能靠 mapTo / mapFrom 换算，</text>
+        <text class="svg-small" x="490" y="272">  不能自己加减 pos() —— 嵌套三层就错。</text>
+
+        <text class="svg-small" x="60" y="340">默认情况下，你写 setGeometry / drawText 用的都是「局部坐标」—— 相对本控件客户区左上角。</text>
+        <text class="svg-small" x="60" y="366">而鼠标事件给的位置也是局部的，所以「画」和「点」天然对得上 —— 既然对得上，什么时候会错？</text>
+        <text class="svg-small" x="60" y="392">答：当你把坐标交给了「别的坐标系」的对象，或者自己加了变换之后。</text>
+      </svg>`,
+    caption: '常用的是三套：<strong>局部</strong>（相对本控件客户区左上角）、<strong>父</strong>（相对父客户区）、<strong>全局</strong>（屏幕）。绘制与鼠标事件默认都用局部坐标，所以「画」和「点」本该天然对得上。出错永远是因为<strong>把坐标交给了属于另一套坐标系的接收者</strong>，或者自己加了变换。换算是 <code>mapTo</code> / <code>mapFrom</code> 的事，别手工加 <code>pos()</code>。',
+    code: `// 三种坐标之间的换算（都在 QWidget 上）
+QPoint local(100, 70);
+QPoint inParent = mapTo(parentWidget(), local);
+QPoint global   = mapToGlobal(local);
+QPoint back     = mapFromGlobal(global);   // 回到 local
+
+// 鼠标事件给的是局部坐标
+void Cell::mousePressEvent(QMouseEvent *e) {
+    qInfo() << e->position() << mapToGlobal(e->position().toPoint());
+}`,
+    highlight: [2, 3, 4, 8]
+  },
+  {
+    title: 'mapTo 与 mapFrom：方向最容易弄反的一对',
+    nav: 'map 方向',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="mapTo 与 mapFrom 的方向">
+        <rect class="svg-box" x="40" y="45" width="240" height="90" rx="10"/>
+        <text class="svg-title" x="160" y="75" text-anchor="middle">这样写</text>
+        <text class="svg-mono" x="60" y="105">child-&gt;mapTo(parent, p)</text>
+        <text class="svg-small" x="60" y="126">p 是 child 的局部点</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M280 90 L360 90"/>
+        <rect class="svg-box-good" x="360" y="45" width="180" height="90" rx="10"/>
+        <text class="svg-small" x="450" y="75" text-anchor="middle">得到 parent 坐标系</text>
+        <text class="svg-small" x="450" y="100" text-anchor="middle">里的点</text>
+        <text class="svg-small" x="450" y="122" text-anchor="middle">「把点送到父的坐标系」</text>
+
+        <rect class="svg-box" x="40" y="170" width="240" height="90" rx="10"/>
+        <text class="svg-title" x="160" y="200" text-anchor="middle">反过来</text>
+        <text class="svg-mono" x="60" y="230">child-&gt;mapFrom(parent, q)</text>
+        <text class="svg-small" x="60" y="251">q 是 parent 坐标系里的点</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M280 215 L360 215"/>
+        <rect class="svg-box-good" x="360" y="170" width="180" height="90" rx="10"/>
+        <text class="svg-small" x="450" y="200" text-anchor="middle">得到 child 的局部点</text>
+        <text class="svg-small" x="450" y="225" text-anchor="middle">「把点收进我的坐标系」</text>
+
+        <rect class="svg-field" x="40" y="290" width="690" height="115" rx="10"/>
+        <text class="svg-small" x="60" y="318">记忆法：<strong>函数名说的是「这个点要去哪儿」</strong>，不是「我从哪来」。</text>
+        <text class="svg-text" x="60" y="348">mapTo(target, p)   —— p 从「我」出发，去 target。</text>
+        <text class="svg-text" x="60" y="374">mapFrom(source, p) —— p 从 source 出发，回「我」。</text>
+        <text class="svg-small" x="60" y="398">两者都调用在接收点上；target/source 通常就是 parentWidget()。</text>
+      </svg>`,
+    caption: '记法只有一句：<strong>函数名说的是「这个点要去哪儿」</strong>。<code>mapTo(target, p)</code> = p 从我这里出发去 target；<code>mapFrom(source, p)</code> = p 从 source 出发回到我这里。<strong>函数都调在接收点上</strong>，参数里的 target/source 通常是 <code>parentWidget()</code>。方向反了不会编译报错，只会得到差一个偏移量——这类 bug 最难查，因为看起来「只是歪了一点」。',
+    code: `// 子控件想把「父给的坐标」转成自己的
+void Child::someHandler(const QPoint &parentPoint)
+{
+    const QPoint mine = mapFrom(parentWidget(), parentPoint);
+    // 反过来
+    const QPoint back = mapTo(parentWidget(), mine);
+}
+
+// 一句话检验方向对不对：把结果 map 回去，应该等于原值
+Q_ASSERT(mapTo(parentWidget(), mine) == parentPoint);`,
+    highlight: [4, 6, 9]
+  },
+  {
+    title: 'pos / geometry / frameGeometry：三个矩形别混',
+    nav: '三个矩形',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="pos、geometry、frameGeometry 的区别">
+        <rect class="svg-box-ghost" x="60" y="45" width="420" height="260" rx="10"/>
+        <text class="svg-small" x="80" y="70">frameGeometry()：含标题栏与边框（相对屏幕）</text>
+
+        <rect class="svg-box" x="60" y="100" width="420" height="205" rx="6"/>
+        <text class="svg-small" x="80" y="126">geometry()：客户区（相对父客户区）</text>
+        <rect class="svg-box-accent" x="90" y="140" width="360" height="140" rx="4"/>
+        <text class="svg-small" x="110" y="190">你自己的绘制区域 = rect()</text>
+        <text class="svg-small" x="110" y="216">原点 (0,0) 在这里</text>
+
+        <rect class="svg-field" x="500" y="45" width="235" height="260" rx="10"/>
+        <text class="svg-small" x="520" y="73">三个 API 的关系：</text>
+        <text class="svg-mono" x="520" y="105">pos()</text>
+        <text class="svg-small" x="520" y="128">= geometry().topLeft()</text>
+        <text class="svg-mono" x="520" y="160">geometry()</text>
+        <text class="svg-small" x="520" y="183">不含边框</text>
+        <text class="svg-mono" x="520" y="215">frameGeometry()</text>
+        <text class="svg-small" x="520" y="238">含边框，相对屏幕</text>
+        <text class="svg-small" x="520" y="272">★ 无边框窗口时两者相同 ——</text>
+        <text class="svg-small" x="520" y="292">这正是「本地看着对、换平台就偏」的原因。</text>
+
+        <rect class="svg-box-warn" x="60" y="325" width="675" height="80" rx="10"/>
+        <text class="svg-small" x="80" y="351">要「窗口中心」时用 frameGeometry().center()；要「内容中心」用 rect().center()。</text>
+        <text class="svg-small" x="80" y="377">混用 → 弹出框稍微偏一点，看起来像「像素对齐问题」，实际是取错了矩形。</text>
+      </svg>`,
+    caption: '<code>pos()</code> = <code>geometry().topLeft()</code>（相对父客户区），<code>geometry()</code> 是<strong>客户区、不含边框</strong>，<code>frameGeometry()</code> <strong>含边框、相对屏幕</strong>。无边框窗口下两者相同——这就是「本地看着对、换平台偏几像素」的原因。要窗口中心用 <code>frameGeometry().center()</code>，要内容中心用 <code>rect().center()</code>。',
+    code: `// 把对话框摆到窗口中心
+void CenterDialog::showCentered(QWidget *parent)
+{
+    adjustSize();
+    const QRect host = parent
+        ? parent->frameGeometry()
+        : screen()->availableGeometry();
+    move(host.center() - rect().center());
+    show();
+}`,
+    highlight: [5, 6, 7]
+  },
+  {
+    title: 'QPainter 变换：叠加顺序决定结果',
+    nav: '绘制变换',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QPainter 变换的叠加顺序">
+        <rect class="svg-box" x="30" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-small" x="50" y="58">写法 A：先平移再旋转</text>
+        <text class="svg-mono" x="50" y="86">p.translate(200, 150);</text>
+        <text class="svg-mono" x="50" y="110">p.rotate(30);</text>
+        <text class="svg-mono" x="50" y="134">p.drawRect(0, 0, 100, 60);</text>
+        <text class="svg-small" x="50" y="162">→ 在 (200,150) 处画一个转了 30° 的盒子</text>
+
+        <rect class="svg-box" x="390" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-small" x="410" y="58">写法 B：先旋转再平移</text>
+        <text class="svg-mono" x="410" y="86">p.rotate(30);</text>
+        <text class="svg-mono" x="410" y="110">p.translate(200, 150);</text>
+        <text class="svg-mono" x="410" y="134">p.drawRect(0, 0, 100, 60);</text>
+        <text class="svg-bad-text" x="410" y="162">→ 位置被旋转过，落点完全不同</text>
+
+        <rect class="svg-field" x="30" y="205" width="690" height="130" rx="10"/>
+        <text class="svg-small" x="50" y="233">原因：变换是「左乘」叠加的，后写的作用在「当前坐标系」上。</text>
+        <text class="svg-text" x="50" y="263">A 的结果：世界 = 平移 ∘ 旋转   —— 先转到本地，再搬到位置</text>
+        <text class="svg-text" x="50" y="291">B 的结果：世界 = 旋转 ∘ 平移   —— 先搬走，再整体绕原点转</text>
+        <text class="svg-small" x="50" y="319">所以「把图形摆到某处再自转」永远是先 translate 再 rotate，顺序别倒。</text>
+
+        <rect class="svg-box-warn" x="30" y="350" width="690" height="55" rx="10"/>
+        <text class="svg-small" x="50" y="375">还有一个免费的提醒：变换会影响画笔宽度与字体大小 —— scale(2,2) 之后 1px 的线会变成 2px。</text>
+      </svg>`,
+    caption: '变换是<strong>左乘叠加</strong>的，后写的作用在「当前坐标系」上。所以「把图形摆到某处再自转」必须先 <code>translate</code> 再 <code>rotate</code>；反过来写，位置会被旋转带走，落点完全不同。<strong>变换同样作用于画笔宽度与字号</strong>——<code>scale(2,2)</code> 之后 1px 的线会变 2px，字也会变大。',
+    code: `// 在 (200,150) 处画一个转了 30° 的盒子：顺序不能倒
+p.translate(200, 150);
+p.rotate(30);
+p.drawRect(0, 0, 100, 60);
+
+// 想只对一部分绘制生效：用 save / restore 包起来
+p.save();
+p.translate(cx, cy);
+p.scale(2.0, 2.0);
+drawGlyph(p);          // 只影响这里
+p.restore();`,
+    highlight: [2, 3, 7, 8, 9]
+  },
+  {
+    title: 'save / restore：变换的状态栈',
+    nav: '状态栈',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QPainter save 与 restore 的状态栈">
+        <rect class="svg-box" x="30" y="30" width="330" height="250" rx="10"/>
+        <text class="svg-small" x="50" y="56">栈里存什么（每次 save 压一份）</text>
+        <text class="svg-small" x="50" y="84">· 当前的变换矩阵</text>
+        <text class="svg-small" x="50" y="108">· 画笔 / 画刷</text>
+        <text class="svg-small" x="50" y="132">· 字体、透明度、裁剪区</text>
+        <text class="svg-small" x="50" y="156">· 组合模式、渲染提示</text>
+        <text class="svg-small" x="50" y="188">restore 弹出上一份，全部还原</text>
+        <text class="svg-bad-text" x="50" y="220">不留栈：状态会一直留到下一次修改</text>
+        <text class="svg-small" x="50" y="246">→ 一个函数的变换「漏」到后面的绘制里</text>
+
+        <rect class="svg-box" x="390" y="30" width="330" height="250" rx="10"/>
+        <text class="svg-small" x="410" y="56">推荐的结构（每个绘制单元自闭合）</text>
+        <text class="svg-mono" x="410" y="88">p.save();</text>
+        <text class="svg-mono" x="410" y="112">p.translate(x, y);</text>
+        <text class="svg-mono" x="410" y="136">p.setPen(myPen);</text>
+        <text class="svg-mono" x="410" y="160">drawPart(p);</text>
+        <text class="svg-mono" x="410" y="184">p.restore();</text>
+        <text class="svg-small" x="410" y="214">进出成对 → 各段互不影响</text>
+        <text class="svg-good-text" x="410" y="244">也能防「catch 到一半」的脏状态</text>
+
+        <rect class="svg-field" x="30" y="300" width="690" height="105" rx="10"/>
+        <text class="svg-small" x="50" y="328">更省事的写法：局部 QPainter 或 setWorldTransform 直接给绝对矩阵。</text>
+        <text class="svg-mono" x="50" y="356">p.setWorldTransform(base);          // 不叠加，直接设为想要的状态</text>
+        <text class="svg-small" x="50" y="384">适合「我知道每个元素该在哪儿」的批量绘制 —— 但它跳过了父级已有的变换，慎用。</text>
+      </svg>`,
+    caption: '<code>save()</code> 会把当前<strong>变换矩阵、画笔、画刷、字体、透明度、裁剪区</strong>全部压栈；<code>restore()</code> 弹回上一份。每个绘制单元都该自闭合地 <code>save/restore</code>——否则一次变换会「漏」到后面所有绘制里，表现为「后面的东西也歪了」。另一种做法是 <code>setWorldTransform</code> 直接设绝对矩阵，但它会丢掉父级已有变换。',
+    code: `void Canvas::paintEvent(QPaintEvent *)
+{
+    QPainter p(this);
+
+    p.save();
+    p.translate(40, 40);
+    p.rotate(-15);
+    p.setPen(QPen(Qt::darkGreen, 2));
+    p.drawText(0, 0, QStringLiteral("旋转标签"));
+    p.restore();          // 画完立刻还原，后面的绘制不受影响
+
+    p.drawRect(0, 0, 100, 100);   // 仍然在未变换的坐标系里
+}`,
+    highlight: [5, 6, 7, 10]
+  },
+  {
+    title: '反向变换：命中测试要把鼠标「送进去」',
+    nav: '命中测试',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="命中测试的反向映射">
+        <rect class="svg-box" x="30" y="35" width="230" height="160" rx="10"/>
+        <text class="svg-small" x="50" y="62">绘制时（正向）</text>
+        <text class="svg-mono" x="50" y="92">p.translate(ax, ay);</text>
+        <text class="svg-mono" x="50" y="116">p.rotate(angle);</text>
+        <text class="svg-mono" x="50" y="140">p.drawRect(itemRect);</text>
+        <text class="svg-small" x="50" y="170">鼠标想知道「点中了哪个」 </text>
+
+        <path class="svg-arrow-accent svg-flow" d="M260 115 L330 115"/>
+        <rect class="svg-box-warn" x="330" y="55" width="180" height="120" rx="10"/>
+        <text class="svg-small" x="348" y="82">不能直接比！</text>
+        <text class="svg-small" x="348" y="108">鼠标是屏幕/控件坐标，</text>
+        <text class="svg-small" x="348" y="132">itemRect 是「变换后的」</text>
+        <text class="svg-small" x="348" y="156">两套坐标不能相交判断</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M510 115 L580 115"/>
+        <rect class="svg-box-good svg-pulse" x="580" y="45" width="150" height="140" rx="10"/>
+        <text class="svg-small" x="598" y="72">正确做法：</text>
+        <text class="svg-small" x="598" y="98">把鼠标点用</text>
+        <text class="svg-small" x="598" y="122">逆矩阵变回去</text>
+        <text class="svg-small" x="598" y="146">再和原始矩形比</text>
+        <text class="svg-small" x="598" y="170">（或先算包围盒）</text>
+
+        <rect class="svg-field" x="30" y="225" width="700" height="180" rx="10"/>
+        <text class="svg-small" x="50" y="253">三种做法，按从易到难：</text>
+        <text class="svg-text" x="50" y="283">① 只平移不旋转 → 鼠标坐标减去偏移量即可（最常见）。</text>
+        <text class="svg-text" x="50" y="309">② 有旋转/缩放 → 用 QTransform 的逆变换，把点变到元素本地坐标。</text>
+        <text class="svg-text" x="50" y="335">③ 形状不规则 → 用 QPainterPath::contains() 做精确命中（路径本身就是形状）。</text>
+        <text class="svg-small" x="50" y="370">★ 三者都要注意：paintEvent 里的临时变换，必须在 paintEvent 之外能重算出来，</text>
+        <text class="svg-small" x="50" y="392">  否则你根本没法反推 —— 把变换参数存成成员，别只写在绘制函数里。</text>
+      </svg>`,
+    caption: '鼠标事件给的是<strong>控件坐标</strong>，而元素矩形是<strong>变换之后</strong>的——两套坐标不能直接相交判断。三种做法：只平移就减去偏移；有旋转缩放就<strong>用逆变换把鼠标点送回元素本地坐标</strong>；形状不规则就用 <code>QPainterPath::contains()</code>。<strong>关键前提是把变换参数存成成员</strong>，否则你没法在 <code>paintEvent</code> 之外重算它。',
+    code: `// 绘制与命中共用同一份变换参数
+QTransform Canvas::itemTransform(int i) const
+{
+    QTransform t;
+    t.translate(m_items[i].x, m_items[i].y);
+    t.rotate(m_items[i].angle);
+    return t;
+}
+
+int Canvas::hitTest(const QPoint &widgetPos) const
+{
+    for (int i = 0; i < m_items.size(); ++i) {
+        QTransform inv;
+        if (!itemTransform(i).inverted(&inv)) continue;
+        const QPoint local = inv.map(widgetPos);   // 变回元素本地坐标
+        if (QRectF(0, 0, 80, 40).contains(local)) return i;
+    }
+    return -1;
+}`,
+    highlight: [15, 16, 17, 18]
+  },
+  {
+    title: '四类症状对照：这次错在哪套坐标',
+    nav: '症状对照',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="坐标错误的症状对照">
+        <rect class="svg-box-bad" x="20" y="25" width="235" height="150" rx="10"/>
+        <text class="svg-title" x="137" y="52" text-anchor="middle">画到了隔壁控件上</text>
+        <text class="svg-small" x="40" y="80">原因：把父/全局坐标直接用</text>
+        <text class="svg-small" x="40" y="104"> 在了子控件的 QPainter 里</text>
+        <text class="svg-small" x="40" y="128">修法：mapFrom(parent, p)</text>
+        <text class="svg-small" x="40" y="156">症状：偏移量正好等于 pos()</text>
+
+        <rect class="svg-box-bad" x="265" y="25" width="235" height="150" rx="10"/>
+        <text class="svg-title" x="382" y="52" text-anchor="middle">点了没反应 / 点偏</text>
+        <text class="svg-small" x="285" y="80">原因：命中测试没反变换</text>
+        <text class="svg-small" x="285" y="104">  或用了 cached 的旧偏移</text>
+        <text class="svg-small" x="285" y="128">修法：逆矩阵 / 重算变换</text>
+        <text class="svg-small" x="285" y="156">症状：靠右下角偏得越远</text>
+
+        <rect class="svg-box-bad" x="510" y="25" width="235" height="150" rx="10"/>
+        <text class="svg-title" x="627" y="52" text-anchor="middle">弹出框位置歪</text>
+        <text class="svg-small" x="530" y="80">原因：geometry 与 frameGeometry</text>
+        <text class="svg-small" x="530" y="104">  混用（边框/标题栏差）</text>
+        <text class="svg-small" x="530" y="128">修法：明确要「内容」还是「框」</text>
+        <text class="svg-small" x="530" y="156">症状：只在带边框平台偏</text>
+
+        <rect class="svg-box-warn" x="20" y="195" width="725" height="120" rx="10"/>
+        <text class="svg-title" x="42" y="222">高 DPI 下的「变糊 / 点不准」</text>
+        <text class="svg-small" x="42" y="250">原因：自造位图没按 devicePixelRatio 放大；或像素级比较时混了逻辑/物理像素。</text>
+        <text class="svg-small" x="42" y="276">修法：位图按 dpr 建并 setDevicePixelRatio；命中测试统一用逻辑坐标。</text>
+        <text class="svg-small" x="42" y="302">症状：拖动窗口到另一块屏，比例不对或边缘发虚。</text>
+
+        <rect class="svg-field" x="20" y="335" width="725" height="72" rx="10"/>
+        <text class="svg-small" x="42" y="360">通用诊断：在怀疑的地方把同一个点打印三次（局部 / 父 / 全局），</text>
+        <text class="svg-small" x="42" y="386">再用 mapTo 互相验证 —— 不一致的那一步就是 bug 的所在。</text>
+      </svg>`,
+    caption: '四类症状各有固定的病因：<strong>画到隔壁</strong>=把父/全局坐标用进子控件的绘制（偏移量正好等于 <code>pos()</code>）；<strong>点偏</strong>=命中测试没反变换；<strong>弹窗位置歪</strong>=<code>geometry</code> 与 <code>frameGeometry</code> 混用；<strong>变糊/点不准</strong>=高 DPI 下逻辑与物理像素混用。<strong>通用诊断</strong>：把同一个点打印三遍（局部/父/全局），用 <code>mapTo</code> 互相验证。',
+    code: `// 通用诊断三连：一眼看出哪套坐标错了
+const QPoint local = e->position().toPoint();
+qInfo() << "local "  << local;
+qInfo() << "parent " << mapTo(parentWidget(), local);
+qInfo() << "global " << mapToGlobal(local);
+qInfo() << "pos    " << pos();       // 与「本地 vs 父」的差对照`,
+    highlight: [2, 3, 4, 5]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第陆阶段 · 模型/视图与委托 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🧩 第陆阶段 · 模型/视图与委托</h1>
+    <p>把「数据」和「画出来的那一格」彻底分开 · 8 章循序渐进，从五角色总览到 10 万行不卡</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      这里是全课程<strong>真正换脑子</strong>的地方。前几阶段是「一个控件一份状态」，从本阶段开始，
+      Qt 的列表/表格/树走的是 <strong>Model / View / Delegate / Selection / Proxy</strong> 五角色分工：
+      数据<strong>只住在模型里</strong>，视图每画一格都现场来问 <code>data(index, role)</code>；
+      <strong>委托</strong>决定这一格怎么画、编辑器怎么造、怎么把编辑结果写回模型；
+      <strong>选中了哪些</strong>不归视图管，它是一份住在 <code>QItemSelectionModel</code> 里的模型侧状态；
+      要排序过滤，就在源模型前面再套一层<strong>代理模型</strong>的坐标系。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块共 <strong>8 章</strong>：第 1 讲摆清五角色与「拉取式（pull-based）」这条主线；第 2、3 讲手写模型，
+      把「答话」和「接活」两半都自己实现一遍；第 4 讲把委托这一层的接口与生命周期讲透；第 5 讲上代理模型
+      （两套坐标系，本模块最容易翻车的一层）；第 6 讲讲选择模型；第 7 讲评价便利类
+      <code>QStandardItemModel</code> 的账；第 8 讲收在视图侧的调优——为什么 10 万行不卡、又是怎么被人一句话弄卡的。
+      每一讲都是<strong>完整可编译的示例 + 详细注释</strong>，全部设计成<strong>无人值守跑完、自己吐证据</strong>：
+      用 <code>QTimer::singleShot</code> 排动作、用 <code>data()</code> 计数器与 <code>QElapsedTimer</code> 拿数据、
+      用 <code>qInfo()</code> 打印结论，最后 <code>QCoreApplication::quit()</code>。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。构建目标名就写在各文件顶部注释块里
+      （形如 <code>model_view_05_proxy_model</code>），8 个目标在顶层 <code>CMakeLists.txt</code> 的
+      「第陆阶段 · 模型/视图与委托（model_view/）」一节里已登记。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级）。本模块示例
+      <strong>未链接、未运行</strong>；但每个 .cpp 都过了 <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
+      的编译期核对（零 error、零 warning），文中每一个类、函数、重载、枚举值都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
+      示例里出现的「预期」都是推理，不是实测数字。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/model_view.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 模型/视图数据流
+      </a>
+      <a href="../visuals/delegate_lifecycle.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 委托生命周期
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>8 张卡片 = 8 章</strong>，按 <strong>第 1 步 → 第 8 步</strong> 一张张往下学，别跳。
+    这条主线是「先换脑子、再造模型、再打通编辑回路、再讲画与选、最后算性能账」：
+    <strong>第 1 步</strong>认清五角色与拉取式 → <strong>第 2 步</strong>手写模型把「答话」写对 →
+    <strong>第 3 步</strong>把「接活 + 发信号」这条回路补上 → <strong>第 4 步</strong>委托管画与编辑 →
+    <strong>第 5 步</strong>代理模型（坐标系换了）→ <strong>第 6 步</strong>选择模型（选择不在视图里）→
+    <strong>第 7 步</strong>便利类的账 → <strong>第 8 步</strong>视图侧调优收尾。
+    本模块有<strong>四道硬坎</strong>，每一道都会真的咬人：
+    <strong>① 第 1 步「观念转变」坎</strong>——数据不在控件里、<code>QModelIndex</code> 只是带内部指针的坐标，
+    这一步没转过来，后面全是背 API；
+    <strong>② 第 2 步「手写模型」坎</strong>——五个纯虚函数的签名（<code>const</code>、参数表）差一个字就编不过，
+    <code>createIndex</code> / <code>internalPointer</code> 的生命周期差一点就是悬垂指针；
+    <strong>③ 第 4 步「委托」坎</strong>——<code>setEditorData</code> 与 <code>setModelData</code> 方向相反，
+    画一格与造编辑器的时机又不一样，搞混就会写出「一编辑就丢值」的代码；
+    <strong>④ 第 5 步「索引映射」坎</strong>——套了代理之后视图手里的 index 属于代理，
+    拿它直接问源模型不报错、只给空值，这是「偶现空表格 / 删错行」这类线上事故的经典病根。
+    <strong>模型/视图是全模块里最容易被跳过的一段</strong>：界面照样能摆出来，就以为懂了；
+    可它恰恰是<strong>最容易被面试追问、也最容易被线上事故追回来</strong>的一段
+    （「为什么你一千行就卡」「删完行选中怎么错位了」「过滤后为什么取到空」）。别跳。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_architecture.cpp" class="card">
+      <div class="card-step">第 1 步 · 观念坎</div>
+      <div class="card-icon">🧭</div>
+      <div class="card-title">01 · 五角色总览</div>
+      <div class="card-desc">Model / View / Delegate / Selection / Proxy 一次性摆清；用「视图子对象数量与行数无关」证明格子不是控件；QModelIndex 只是带内部指针的坐标（不持数据、会失效、不能跨模型混用）；data(index, role) 是拉取式；最后用 QStandardItemModel + QTableView 跑通最小闭环。</div>
+      <div class="card-meta"><span class="tag framework">范式转变</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="02_custom_table_model.cpp" class="card">
+      <div class="card-step">第 2 步 · 第二道坎</div>
+      <div class="card-icon">🛠️</div>
+      <div class="card-title">02 · 手写 QAbstractTableModel</div>
+      <div class="card-desc">把便利类扔掉：index / parent / rowCount / columnCount / data 逐个逐字核对签名；加 headerData 与 roleNames；角色枚举真名真值（Qt::DisplayRole=0 … Qt::UserRole=0x0100，Qt6 已无 Qt::SortRole）；createIndex 与 internalPointer 存什么、std::vector 扩容为何让旧 index 悬垂；挂 5000 行 × 4 列用计数器证明视图只问可见那几格。</div>
+      <div class="card-meta"><span class="tag hard">手写模型</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="03_editing_and_flags.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">✏️</div>
+      <div class="card-title">03 · 可编辑模型：flags / setData / dataChanged</div>
+      <div class="card-desc">把「接」这一半补上，并画清回路：setModelData → setData → emit dataChanged → 视图标脏 → 重绘再问 data()。两个模型实例 + 两个视图做对照，漏发信号那个的 dataChanged 槽计数为 0，强制重绘才「露馅」——这就是「一改就错、一滚就对」的病根；另讲 flags() 各值真名、setData 的校验顺序、beginInsertRows/endInsertRows 与 reset 的取舍。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="04_delegate.cpp" class="card">
+      <div class="card-step">第 4 步 · 第三道坎</div>
+      <div class="card-icon">🎨</div>
+      <div class="card-title">04 · 自定义委托（Delegate）</div>
+      <div class="card-desc">视图与模型之间那个「画一格 + 管编辑器」的角色：paint(QPainter*, QStyleOptionViewItem, QModelIndex) 怎么画、sizeHint 怎么定尺寸、createEditor / setEditorData / setModelData / updateEditorGeometry 这条编辑链的方向与时机（入数据与回数据是两回事），以及 editorEvent / helpEvent / destroyEditor。接口按本机 qabstractitemdelegate.h 的公开虚函数核对。</div>
+      <div class="card-meta"><span class="tag hard">委托</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_proxy_model.cpp" class="card">
+      <div class="card-step">第 5 步 · 第四道坎</div>
+      <div class="card-icon">🪞</div>
+      <div class="card-title">05 · QSortFilterProxyModel</div>
+      <div class="card-desc">在源模型前再套一层坐标系：源模型 1 万行 × 4 列，代理只露过滤后的行；mapToSource / mapFromSource 与 mapSelectionToSource 做成硬证据（拿代理 index 直接问源，拿到的是空 QVariant）；静态匹配 setFilterFixedString + filterKeyColumn，与重写 filterAcceptsRow / filterAcceptsColumn / lessThan 两条路的分工；外部判据变了要 invalidate() 或 begin/endFilterChange()（老的 invalidateFilter 在本机已 protected 且标废弃）；dynamicSortFilter 与视图 setSortingEnabled 的关系。</div>
+      <div class="card-meta"><span class="tag hard">两套坐标系</span><span class="tag framework">框架机制</span></div>
+    </a>
+
+    <a href="06_selection_model.cpp" class="card">
+      <div class="card-step">第 6 步</div>
+      <div class="card-icon">🖱️</div>
+      <div class="card-title">06 · QItemSelectionModel</div>
+      <div class="card-desc">「选中了哪些」是模型侧的一份数据，视图只是读写面板：三个视图共用一个选择模型会同时高亮；QItemSelection 是矩形范围列表（不是逐格索引），范围两角本身就是 QPersistentModelIndex；逐条打印 SelectionFlags 真值（Qt 6.12 里没有 CommandMask），并说清 selectionChanged 不带命令、flags 是视图侧 selectionCommand() 翻译出来的；裸 QModelIndex 与持久索引在插一行后的两种下场。</div>
+      <div class="card-meta"><span class="tag framework">框架机制</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="07_item_models.cpp" class="card">
+      <div class="card-step">第 7 步</div>
+      <div class="card-icon">📦</div>
+      <div class="card-title">07 · QStandardItemModel / QStandardItem</div>
+      <div class="card-desc">便利类的账怎么算：卖点是不写五个虚函数、也不用自己 emit dataChanged（内部 _q_emitItemChanged 代劳，用信号计数证明）；代价是每格一个独立堆对象 + d-pointer（Qt6 里 QStandardItem 已不继承 QObject，流行说法要纠正）；树和表共用同一套 item；takeRow / takeItem 的所有权陷阱；findItems ≠ 过滤；10 万行 × 4 列两份模型并排计时，最后给「三档判断」什么时候必须自己写。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="08_view_tuning.cpp" class="card">
+      <div class="card-step">第 8 步 · 性能账</div>
+      <div class="card-icon">⚡</div>
+      <div class="card-title">08 · 视图侧调优与行为</div>
+      <div class="card-desc">10 万行为什么不卡、又是怎么被弄卡的：拉取式只问可见区（打印被问到的行区间）；隐藏的两笔开销是表头 headerData 与每格 sizeHint；resizeColumnsToContents() 会遍历所有行（用计数器数出来），写成 ResizeToContents 动态模式后每次 dataChanged 都重来；verticalHeader()->hide()、ScrollMode（枚举属于 QAbstractItemView）、QTreeView::setUniformRowHeights、EditTrigger、wordWrap / iconSize / updateThreshold、setModel 后 view->reset() 清了什么，末尾给「默认 vs 调优」总账。</div>
+      <div class="card-meta"><span class="tag hard">性能</span><span class="tag framework">框架机制</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>按顺序学，尤其别跳第 5、6 步</strong>：很多人「界面能摆出来」就以为模型视图懂了，代理与选择这两层一碰到真实需求（过滤后取数据、批量选中删行）就露底。</li>
+      <li><strong>先读指南和顶部注释块</strong>：每一讲动手前先读本页 📖 学习指南 和该 .cpp 顶部「本讲解决什么问题」，把「这一讲要钉死哪几条事实」弄清楚再敲。</li>
+      <li><strong>签名逐字抄头文件，别凭记忆</strong>：第 2 步的五个虚函数、第 5 步的 filterAcceptsRow/filterAcceptsColumn/lessThan，都要带 <code>const</code> 并写 <code>override</code>；写错不是「不工作」，是「变成另一个函数」。</li>
+      <li><strong>跑之前先想清楚要拿什么证据</strong>：本模块每讲都是「计数器 + 计时 + 打印区间」的取证式示例。你改代码时也要留这套习惯——性能问题、坐标系问题的结论只能来自被数出来的东西。</li>
+      <li><strong>把四道坎各撞一遍</strong>：第 1 步的观念（格子不是控件）、第 2 步的 internalPointer 悬垂、第 4 步的 setEditorData/setModelData 方向、第 5 步的「拿代理 index 问源」，每道坎都亲手改错一次再改回来。</li>
+      <li><strong>记住「未链接未运行」</strong>：本机此刻编不动 Qt 运行时，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，换到能链接的环境按注释里的目标名构建即可（<code>-platform offscreen</code> 可无头跑）。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，这一阶段是 Qt 里「第一道真正的工程分水岭」。前面学控件，拼的是「会不会摆」；到这里拼的是<strong>想没想清楚数据住在哪儿</strong>。模型/视图这套不是 Qt 发明的花样，它是 MVC 在 GUI 里最落地的一次实现——你把它想通，以后看任何表格控件、列表控件、甚至别人家的前端框架，都是同一副骨架。</p>
+    <p>师傅给你几条压箱底的忠告：</p>
+    <ul>
+      <li><strong>第一条：先把「拉取式」刻进脑子。</strong> 视图不问「你变了吗」，它问「现在是什么」。你在 <code>data()</code> 里省下的每一分力气，都会翻倍还到滚动条上；你在 <code>data()</code> 里藏的每一分重活，都会变成「一滚就顿」。第 1、2、8 步三次给你数出来，不是吓你。</li>
+      <li><strong>第二条：改完数据必须发信号，顺序不能反。</strong> <code>beginInsertRows</code> → 改容器 → <code>endInsertRows</code>；改完格子 → <code>emit dataChanged</code>。反了或者忘了，症状是「一改就错、一滚就对」这种最耗人的玄学 bug。第 3 步那个对照实验，你要能自己复述出结论。</li>
+      <li><strong>第三条：索引是坐标，不是身份证。</strong> <code>QModelIndex</code> 会失效、不能跨模型混用；要跨结构性变更留住一个格子，用 <code>QPersistentModelIndex</code>，但要知道它是登记在册的开销。套了代理之后，视图给的 index 一律先 <code>mapToSource</code> 再问源模型——这一条值一次线上事故。</li>
+      <li><strong>第四条：便利类要用得明白，不是用得省事。</strong> <code>QStandardItemModel</code> 三十行出一屏，是好事；拿它撑十万行数据，就是自己给自己埋雷。判断标准只有三个问题：数据本来是谁的、规模多大、要不要自己控角色与信号。</li>
+      <li><strong>第五条：不确定的 API 一律查头文件。</strong> 本模块里师傅把好几条「网上人人都在背」的说法当场拆了（<code>filterFixedColumn</code> 根本不存在、Qt6.12 的 SelectionFlag 里没有 <code>CommandMask</code>、<code>ScrollMode</code> 不属于 <code>QAbstractScrollArea</code>、Qt6 的 <code>QStandardItem</code> 不再是 QObject）。写 Qt 和做人一样：<strong>编不出来的名字就别写进去</strong>。</li>
+    </ul>
+    <p>慢慢啃，这一块值得你多花两个周末。把这 8 讲拿下，你写的就不再是「能看的界面」，而是<strong>撑得住数据、也撑得住面试和线上</strong>的界面。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

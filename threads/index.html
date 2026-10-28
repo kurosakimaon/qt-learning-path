@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第柒阶段 · 并发与线程 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🧵 第柒阶段 · 并发与线程</h1>
+    <p>「只有 run() 跑在新线程里」 · 8 章从亲和性讲到跨进程，全程不调 <code>terminate()</code></p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      到这一阶段，你写的界面已经能动、能画、能编辑了。但只要有一件活超过 100 毫秒——读个大文件、解一次压、连一次网——
+      界面就会「未响应」，因为<strong>所有槽、所有事件处理器，都跑在同一个线程里</strong>。这个线程既要分拣事件，又要干活，
+      它只能一次干一件。并发这一阶段，就是学「怎么把活分出去，又不把自己弄死」。
+    </p>
+    <p style="margin-top: 10px;">
+      Qt 的多线程有一句必须刻进脑子的话：<strong>只有 <code>run()</code> 跑在新线程里，别的都在原线程</strong>。
+      <code>QThread</code> 对象本身住在创建它的线程，它的槽、它的信号、它的定时器，全都在那条线程上执行——它只是
+      「一个新线程的遥控器」。第 1 讲先把这句话用可打印的三个线程身份钉死，第 2 讲把「每个 QObject 归哪条线程」
+      这条第一原理讲透，第 3 讲才让这两条线交汇成跨线程信号槽的完整规则。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块共 <strong>8 章</strong>：第 1 讲两条写法对照（继承 <code>run()</code> vs worker-object + <code>moveToThread</code>）；
+      第 2 讲线程亲和性；第 3 讲连接类型与参数跨线程搬运；第 4 讲锁、原子、等待条件、信号量各自的失效形状；
+      第 5 讲 <code>QtConcurrent</code>（不想自己管线程时）；第 6 讲 <code>QRunnable</code> + <code>QThreadPool</code>（线程池是 QtConcurrent 的底座）；
+      第 7 讲协作式取消与收尾；第 8 讲本地进程间通信（<code>QLocalServer</code> / <code>QLocalSocket</code>，Windows 上是命名管道）。
+      每一讲都是完整示例，<strong>自己置标志、自己取证据、自己吐结论</strong>，跑完就退出，不留后台线程。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。8 个目标（<code>threads_01_thread_basics</code> …
+      <code>threads_08_local_ipc</code>）已在顶层 <code>CMakeLists.txt</code> 的「第柒阶段 · 并发与线程（threads/）」一节登记；
+      第 5、8 讲分别多链了 <code>Qt6::Concurrent</code> 与 <code>Qt6::Network</code>。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级）。本模块示例
+      <strong>未链接、未运行</strong>；但每个 .cpp 都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
+      的编译期核对（零 error、零 warning）。文中每一个类、函数、枚举值都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
+      示例里出现的「预期」都是推理，不是实测数字；凡是依赖调度时序的结论，文中一律标成<strong>概率</strong>或<strong>关系</strong>，不冒充实测。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+        📖 学习指南
+      </a>
+      <a href="../visuals/thread_affinity.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 线程归属
+      </a>
+      <a href="../visuals/connection_types.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 连接类型
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>8 张卡片 = 8 章</strong>，按 <strong>第 1 步 → 第 8 步</strong> 一张张往下学，别跳。
+    这条主线是「先会分活、再懂归属、再打通通信、再学同步、最后学会停下来」：
+    <strong>第 1 步</strong>两条写法对照 → <strong>第 2 步</strong>对象归哪条线程 →
+    <strong>第 3 步</strong>跨线程信号（连接类型 + 元类型）→ <strong>第 4 步</strong>共享内存时怎么办 →
+    <strong>第 5 步</strong>把活交给 <code>QtConcurrent</code> → <strong>第 6 步</strong>线程池 →
+    <strong>第 7 步</strong>协作式取消 → <strong>第 8 步</strong>跨进程。
+    本模块有<strong>三道硬坎</strong>，每一道都会真的咬人：
+    <strong>① 第 1 步「run() 里没有事件循环」坎</strong>——你在子线程里 <code>new</code> 的定时器一个 tick 都不走，
+    因为它没有循环可投递；<code>run()</code> 里不 <code>exec()</code>，那个线程就只有一段顺序代码，没有「一直在跑」的机器；
+    <strong>② 第 2 步「亲和性」坎</strong>——对象的线程归属只由<strong>谁创建它</strong>决定，跟你打算让它干哪份活毫无关系；
+    有 parent 的对象挪不动；在别的线程 <code>delete</code> 一个对象，析构就跑在错误的线程上；
+    <strong>③ 第 3、4 步「共享」坎</strong>——跨线程只传值、不传引用；真要共享就先想「能不能不共享」，不能再用锁，
+    最后才轮得到原子。顺序反了，你会写出一堆「十次都对、第十一次崩」的代码。
+    <strong>并发是全模块里最容易「跑起来看着对」的一段</strong>：竞态不保证出错，所以<strong>能跑通不等于写对了</strong>。
+    这一阶段的每个示例都在教你一件事：<strong>把结论变成能核对的数</strong>——步数、校验和、线程 id、计数器的差。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_thread_basics.cpp" class="card">
+      <div class="card-step">第 1 步 · 第一道坎</div>
+      <div class="card-icon">🚦</div>
+      <div class="card-title">01 · QThread 的两条路</div>
+      <div class="card-desc">继承 QThread 重写 run()，和 worker-object + moveToThread，两条都跑一遍并打印三个线程身份。核心证据：同一个 QTimer 在 run() 里不 exec() 时零 tick，exec() 后开始走；currentThread() == this 只在 run() 里成立。另讲 QThread::create()（静态模板、返回堆上的 QThread*、标了 [[nodiscard]]）与 idealThreadCount()，以及为什么 terminate() 一次都不调用。</div>
+      <div class="card-meta"><span class="tag framework">范式转变</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="02_thread_affinity.cpp" class="card">
+      <div class="card-step">第 2 步 · 第二道坎</div>
+      <div class="card-icon">🧭</div>
+      <div class="card-title">02 · 线程亲和性</div>
+      <div class="card-desc">每个 QObject 心里揣着一条线程（qobject.h 第 143 行 thread()，第 147 行 moveToThread 返回 bool——成败当场告诉你）。谁创建就归谁；有 parent 挪不动；QTimer 必须由它所属线程 start()（正例在 worker 的槽里 new，反例在主线程 start）；loopLevel() 当场验证有没有事件循环；跨线程 delete 的代价与 deleteLater 的正解。</div>
+      <div class="card-meta"><span class="tag hard">亲和性</span><span class="tag framework">框架机制</span></div>
+    </a>
+
+    <a href="03_cross_thread_signals.cpp" class="card">
+      <div class="card-step">第 3 步 · 第三道坎</div>
+      <div class="card-icon">📡</div>
+      <div class="card-title">03 · 跨线程信号</div>
+      <div class="card-desc">Auto 不是「自动挑更好的」，它只是一条规则：发射那一刻比 currentThread() 与接收者 thread()，相等按 Direct、否则按 Queued。Direct 在子线程栈上跑槽；Queued 立刻返回、槽等接收者循环；参数按值拷进事件，所以自定义类型要过元类型登记这一关（QMetaType::fromType 能编译 ≠ isRegistered() 为真）。附「队列里压着几个事件」的原子计数证据。</div>
+      <div class="card-meta"><span class="tag hard">线程判定</span><span class="tag framework">框架机制</span></div>
+    </a>
+
+    <a href="04_synchronization.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">🔒</div>
+      <div class="card-title">04 · 同步：锁、原子、等待条件、信号量</div>
+      <div class="card-desc">四件工具按「线程封闭 &gt; 消息传递 &gt; 原子 &gt; 锁」的优先顺序讲。裸 ++ 的丢更新先用手工交错演一遍（必然错），再真并发跑（概率）；两个原子操作拼不成一个复合原子操作；QMutexLocker 的四种写错形状里两种编不过、两种静默；QWaitCondition 必须配锁用、醒来必须重查条件（虚假唤醒）；QSemaphore 的生产者消费者账本。</div>
+      <div class="card-meta"><span class="tag hard">并发正确性</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_qtconcurrent.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">⚡</div>
+      <div class="card-title">05 · QtConcurrent</div>
+      <div class="card-desc">「活交出去、结果拿回来、线程我不管」。run 的四条签名与 Q_NODISCARD（不要结果就别用 run，去第 6 讲）；参数被拷贝进 tuple；QFutureWatcher 每个回调打印所在线程（watcher 活在哪条线程，信号就在哪发）；result() 会阻塞而 isFinished() 不会；mapped / mappedReduced / filtered 是命名空间自由函数、不是 QFuture 成员；filter 原地改容器这一坑。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span><span class="tag framework">框架机制</span></div>
+    </a>
+
+    <a href="06_qrunnable_threadpool.cpp" class="card">
+      <div class="card-step">第 6 步</div>
+      <div class="card-icon">🧰</div>
+      <div class="card-title">06 · QRunnable 与 QThreadPool</div>
+      <div class="card-desc">QRunnable 不是 QObject：没有元对象、没有亲和性、不能 emit，想把结果送回去必须另攥一个 QObject（三个 static_assert 钉死）。autoDelete 默认 true 决定谁 delete（析构计数器为证）；start 的裸 int 优先级与 QThread::Priority 不是一回事；tryStart 不排队；maxThreadCount 压到 1 把队列排出来核对顺序；waitForDone 的期限。</div>
+      <div class="card-meta"><span class="tag elementary">线程池</span><span class="tag framework">框架机制</span></div>
+    </a>
+
+    <a href="07_cancel_and_shutdown.cpp" class="card">
+      <div class="card-step">第 7 步</div>
+      <div class="card-icon">🛑</div>
+      <div class="card-title">07 · 取消与收尾</div>
+      <div class="card-desc">「停」只有一种正确形状：任务自己在检查点看标志再 return。三种局面对应三套 API：requestInterruption / isInterruptionRequested 管线程（池里的线程拿不到）；QFuture::cancel() 对「排队中 / 正在跑 / 已跑完」做三件不同的事；QtConcurrent 在空池上会同步在调用者线程走完。前提不成立的实验记 stalled，不硬拗成绿；收尾一律 quit + wait(期限)，绝不 terminate。</div>
+      <div class="card-meta"><span class="tag hard">并发正确性</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="08_local_ipc.cpp" class="card">
+      <div class="card-step">第 8 步 · 换战场</div>
+      <div class="card-icon">🔌</div>
+      <div class="card-title">08 · 本地进程间通信</div>
+      <div class="card-desc">QLocalServer/QLocalSocket（Windows 命名管道、Linux macOS 本地 socket）。同名第二个服务端被拒——这就是「单实例」的地基。管道里没有「消息」只有字节：五条消息拆三段发，用长度前缀找回来，并打印「第一块只有 7 字节」的半包现场；帧头不可信（声称 1 GiB 必须拒且已解析的不回滚）；每连接一份解析器与生命周期。</div>
+      <div class="card-meta"><span class="tag framework">进程间</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>先跑第 1 讲，把三个线程 id 抄在纸上</strong>：主线程、<code>run()</code> 里的线程、<code>QThread</code> 对象所在线程。这三个 id 的关系，是你后面所有判断的地基。</li>
+      <li><strong>每写一个 <code>moveToThread</code>，先问两件事</strong>：对象有没有 parent？它是不是在「当前线程」被创建、然后要挪去别处？前者让挪动失败，后者要保证挪动发生在它开始干活之前。</li>
+      <li><strong>跨线程只传值</strong>：信号参数按值拷贝，所以传引用/指针等于把别人的内存地址递出去。真要共享，先回到第 4 讲那四个字的顺序：封闭 → 消息 → 原子 → 锁。</li>
+      <li><strong>把「跑通」和「写对」分开</strong>：第 4 讲故意先用手工交错把错演出来，就是因为并发 bug 只靠「跑一次没崩」发现不了。你改代码时也要保留这套取证习惯。</li>
+      <li><strong>所有等待都带期限</strong>：<code>wait(3000)</code>、<code>QSignalSpy::wait(2000)</code>、<code>waitForDone(5000)</code>。没有期限的等待，在别人的机器上就是一次挂死。</li>
+      <li><strong>记住「未链接未运行」</strong>：本机此刻编不动 Qt 运行时；换到能链接的环境按注释里的目标名构建（<code>-platform offscreen</code> 可无头跑），再和你抄下的线程 id 对一遍。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，线程这一块，师傅见过太多人「会用」却「用错」。它跟别的地方不一样：别的地方写错了当场报错，这里写错了<strong>十次都对，第十一次在客户现场崩</strong>。所以这一阶段我不教你写得多花，只教你两件事——<strong>知道东西在哪条线程上</strong>，以及<strong>把结论变成能核对的数</strong>。</p>
+    <p>几条压箱底的忠告：</p>
+    <ul>
+      <li><strong>第一条：<code>QThread</code> 不是线程，是遥控器。</strong> 只有 <code>run()</code> 在新线程里跑；<code>QThread</code> 对象自己的槽还在老线程。你把它当「线程对象」用，就会写出「我在子线程里 new 的定时器怎么不响」。</li>
+      <li><strong>第二条：归属只认创建者。</strong> 想让一个 QObject 在 worker 线程里活，就得让它在 worker 线程里被创建（或者在它开始干活前 <code>moveToThread</code> 过去），而且它不能有 parent。这一条解释了 Qt 里九成的「偶发崩溃」。</li>
+      <li><strong>第三条：能用消息就不用锁。</strong> 线程封闭（每个线程自己的数据）最好；跨线程信号次之；原子只解决单个变量的单步操作；锁是最后的工具，也是最贵的工具。顺序反了，你就是在用最贵的方式换最少的确定性。</li>
+      <li><strong>第四条：<code>terminate()</code> 永远不是选项。</strong> 它杀掉整条线程：锁还攥着、半截数据结构还写着、栈还没返回。协作式取消 + <code>quit</code> + 带期限的 <code>wait</code>，才是「停下来了，而且还能继续用」。</li>
+      <li><strong>第五条：凡是「时序」结论，只能来自被数出来的东西。</strong> 线程调度不欠你任何承诺。所以示例里凡是概率性的结果我都标了概率，凡是关系性的结论我都写成关系（Queued 返回时槽还没跑、Direct 在同一条栈上）。你也照这个标准要求自己。</li>
+    </ul>
+    <p>慢慢来。这一关过了，你写的东西才真正经得起「用户点得快一点、机器慢一点、网差一点」这三件事。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

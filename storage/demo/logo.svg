@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  storage/demo/logo.svg · 第 4 讲的图片素材（被 resource_demo.qrc 挂两次）
+  纯几何图形，深绿底 + 亮绿圆环/菱形 + 一个「Q」的尾巴；
+  中心 (64,64) 一定落在最亮的那个小圆上，所以演示里取中心像素当证据是可核对的。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Qt 学习之路 · 演示标志</title>
+  <rect x="0" y="0" width="128" height="128" rx="26" ry="26" fill="#0d3b2e"/>
+  <circle cx="64" cy="64" r="44" fill="none" stroke="#41cd52" stroke-width="5"/>
+  <path d="M64 24 L104 64 L64 104 L24 64 Z" fill="#41cd52" fill-opacity="0.92"/>
+  <path d="M64 40 L88 64 L64 88 L40 64 Z" fill="#0d3b2e"/>
+  <line x1="72" y1="72" x2="100" y2="100" stroke="#7ee787" stroke-width="9" stroke-linecap="round"/>
+  <circle cx="64" cy="64" r="10" fill="#7ee787"/>
+</svg>

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 事件循环到底在转什么 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../events/index.html">第叁阶段 · 事件</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">EVENTS · 事件循环</span>
+    <h1><code>app.exec()</code> 不是「让程序停住」，是「开始分拣」</h1>
+    <p>很多人把事件循环理解成一个死循环。<strong>它确实是一个循环，但每一轮都在做具体的事</strong>：把系统消息翻成 Qt 事件、把排队的调用派发出去、把到期的定时器触发掉。搞清这一轮里的三路来源和派发顺序，你才能解释「为什么界面卡住时定时器也不走了」。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../events/01_event_loop.cpp">events/01_event_loop.cpp</a> ·
+    <a href="../events/04_timers.cpp">events/04_timers.cpp</a> ·
+    <a href="../start/03_application_object.cpp">start/03_application_object.cpp</a>
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '循环的三个输入口',
+    nav: '三路输入',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="事件循环的三路事件来源">
+        <rect class="svg-box" x="20" y="30" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="120" y="58" text-anchor="middle">系统消息</text>
+        <text class="svg-small" x="120" y="80" text-anchor="middle">鼠标、键盘、窗口重绘</text>
+
+        <rect class="svg-box" x="20" y="120" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="120" y="148" text-anchor="middle">投递的事件</text>
+        <text class="svg-small" x="120" y="170" text-anchor="middle">postEvent / 排队信号 / deleteLater</text>
+
+        <rect class="svg-box" x="20" y="210" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="120" y="238" text-anchor="middle">定时器</text>
+        <text class="svg-small" x="120" y="260" text-anchor="middle">QTimer / QElapsedTimer 不在此列</text>
+
+        <path class="svg-arrow svg-flow" d="M220 65 L300 140"/>
+        <path class="svg-arrow svg-flow" d="M220 155 L300 155"/>
+        <path class="svg-arrow svg-flow" d="M220 245 L300 170"/>
+
+        <rect class="svg-box-accent svg-pulse" x="300" y="105" width="180" height="100" rx="12"/>
+        <text class="svg-title" x="390" y="138" text-anchor="middle">exec() 一轮</text>
+        <text class="svg-small" x="390" y="162" text-anchor="middle">收集 → 排序 → 派发</text>
+        <text class="svg-small" x="390" y="184" text-anchor="middle">处理一个还是若干个，是策略</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M480 155 L540 155"/>
+        <rect class="svg-box-good" x="540" y="105" width="200" height="100" rx="10"/>
+        <text class="svg-title" x="640" y="135" text-anchor="middle">QCoreApplication</text>
+        <text class="svg-small" x="640" y="158" text-anchor="middle">notify(receiver, event)</text>
+        <text class="svg-small" x="640" y="180" text-anchor="middle">→ 事件过滤器 → event()</text>
+
+        <rect class="svg-field" x="20" y="300" width="720" height="105" rx="10"/>
+        <text class="svg-small" x="40" y="328">最容易搞混的一点：</text>
+        <text class="svg-text" x="40" y="356">QTimer 到期并不会「打断」你的代码 —— 它只是变成一个「该触发了」的标记，等你回到事件循环才执行。</text>
+        <text class="svg-small" x="40" y="384">所以 while 循环里不回到 exec()，定时器就永远不走。这不是 bug，是循环的本性。</text>
+      </svg>`,
+    caption: '事件循环每轮从<strong>三个口</strong>收东西：系统消息、别人投递的事件（<code>postEvent</code> / 排队信号 / <code>deleteLater</code>）、到期定时器。收来之后交给 <code>QCoreApplication::notify</code>，再走事件过滤器与 <code>event()</code>。<strong>定时器不会打断你的代码</strong>——只要你不回到循环，它就不触发。',
+    code: `// 三路来源，在代码里分别长这样
+QApplication::postEvent(w, new QEvent(QEvent::User));   // 投递
+QTimer::singleShot(0, w, &Widget::later);               // 定时器
+QMetaObject::invokeMethod(w, "slot", Qt::QueuedConnection); // 排队调用
+
+// 系统消息由平台插件翻译，你不直接接触`,
+    highlight: [1, 2]
+  },
+  {
+    title: 'postEvent 与 sendEvent：异步与同步',
+    nav: 'post vs send',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="postEvent 与 sendEvent 的差别">
+        <rect class="svg-box" x="30" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="195" y="58" text-anchor="middle">sendEvent：直接调用</text>
+        <text class="svg-small" x="50" y="86">· 立刻进 notify()，同步执行完才返回</text>
+        <text class="svg-small" x="50" y="110">· 事件对象归调用方 —— 栈上就行</text>
+        <text class="svg-small" x="50" y="134">· 返回值是接收者的处理结果</text>
+        <text class="svg-bad-text" x="50" y="162">· 接收者在别的线程？别这么干</text>
+
+        <rect class="svg-box" x="400" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">postEvent：排队</text>
+        <text class="svg-small" x="420" y="86">· 放进接收者所在线程的队列，立刻返回</text>
+        <text class="svg-small" x="420" y="110">· 事件对象归 Qt 所有 —— <strong>必须 new</strong></text>
+        <text class="svg-small" x="420" y="134">· 可带优先级（Qt::HighEventPriority 等）</text>
+        <text class="svg-good-text" x="420" y="162">· 跨线程投递的正确方式</text>
+
+        <rect class="svg-field" x="30" y="210" width="700" height="185" rx="10"/>
+        <text class="svg-small" x="50" y="238">这条差别带来的两个真实坑：</text>
+
+        <rect class="svg-box-bad" x="50" y="254" width="320" height="60" rx="8"/>
+        <text class="svg-small" x="68" y="278">① 栈上对象 postEvent → 队列里悬垂</text>
+        <text class="svg-small" x="68" y="300">Qt 取到事件时，那块栈早被复用了</text>
+
+        <rect class="svg-box-bad" x="390" y="254" width="320" height="60" rx="8"/>
+        <text class="svg-small" x="408" y="278">② sendEvent 跨线程 → 在调用方线程跑</text>
+        <text class="svg-small" x="408" y="300">和「跨线程直连信号」是同一个错误</text>
+
+        <text class="svg-small" x="50" y="345">记忆法：<strong>send = 现在就办</strong>（像函数调用），<strong>post = 贴上便签等会办</strong>（便签的纸归 Qt）。</text>
+        <text class="svg-small" x="50" y="375">派发优先级：HighEventPriority &gt; Normal &gt; Low，同优先级先进先出。</text>
+      </svg>`,
+    caption: '<code>sendEvent</code> 是<strong>同步</strong>的直接派发，事件对象归调用方（栈上即可）；<code>postEvent</code> 是<strong>异步</strong>排队，事件对象<strong>归 Qt 所有，必须 new</strong>。所以「栈上对象 <code>postEvent</code>」是必崩的，「<code>sendEvent</code> 到别的线程」是把槽跑到调用方线程——和跨线程直连是同一个错误。',
+    code: `// 同步：栈上事件对象，立刻处理
+QEvent ev(QEvent::User);
+QCoreApplication::sendEvent(target, &ev);
+bool handled = ev.isAccepted();
+
+// 异步：new 出来，所有权交给 Qt，不要 delete
+QCoreApplication::postEvent(target, new QEvent(QEvent::User),
+                            Qt::HighEventPriority);`,
+    highlight: [1, 2, 6]
+  },
+  {
+    title: '一轮里派发多少个？这决定了「响应」与「吞吐」',
+    nav: '一轮多深',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="队列与一轮处理数量">
+        <rect class="svg-box-warn" x="30" y="35" width="150" height="250" rx="10"/>
+        <text class="svg-small" x="105" y="60" text-anchor="middle">待处理队列</text>
+        <rect class="svg-field" x="48" y="75" width="114" height="30" rx="4"/>
+        <text class="svg-small" x="105" y="96" text-anchor="middle">事件 1</text>
+        <rect class="svg-field" x="48" y="112" width="114" height="30" rx="4"/>
+        <text class="svg-small" x="105" y="133" text-anchor="middle">事件 2</text>
+        <rect class="svg-field" x="48" y="149" width="114" height="30" rx="4"/>
+        <text class="svg-small" x="105" y="170" text-anchor="middle">事件 3 …</text>
+        <rect class="svg-field" x="48" y="186" width="114" height="30" rx="4"/>
+        <text class="svg-small" x="105" y="207" text-anchor="middle">… 队列很长</text>
+        <text class="svg-small" x="105" y="246" text-anchor="middle">生产者可能比消费者快</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M180 150 L240 150"/>
+
+        <rect class="svg-box-accent" x="240" y="60" width="230" height="180" rx="10"/>
+        <text class="svg-small" x="258" y="88">每一轮都会先问平台：</text>
+        <text class="svg-small" x="258" y="112">「有没有新消息？等一会儿还是立刻走？」</text>
+        <text class="svg-mono" x="258" y="146">processEvents(AllEvents)</text>
+        <text class="svg-small" x="258" y="172">→ 把当前能取到的都处理掉</text>
+        <text class="svg-small" x="258" y="198">→ 窗口重画、输入优先于长任务</text>
+        <text class="svg-small" x="258" y="224">→ 再进入下一轮</text>
+
+        <rect class="svg-field" x="490" y="60" width="240" height="180" rx="10"/>
+        <text class="svg-small" x="508" y="88">如果某一轮处理太久：</text>
+        <text class="svg-text" x="508" y="116">界面「未响应」</text>
+        <text class="svg-small" x="508" y="142">系统会以为你挂了</text>
+        <text class="svg-text" x="508" y="170">重绘全部积压</text>
+        <text class="svg-small" x="508" y="196">回来时一次性补画</text>
+        <text class="svg-small" x="508" y="222">用户感觉「卡一下然后跳」</text>
+
+        <rect class="svg-field" x="30" y="305" width="700" height="95" rx="10"/>
+        <text class="svg-small" x="50" y="333">结论：一「轮」不是一「个」。判断卡顿要找的是「哪一个处理器占用太久」，</text>
+        <text class="svg-small" x="50" y="359">而不是「事件太多」—— 事件多只会让队列变长，处理得快就不会卡。</text>
+        <text class="svg-small" x="50" y="385">工具：把耗时打印出来；或者用 QElapsedTimer 量出某个槽的真实耗时。</text>
+      </svg>`,
+    caption: '一轮<strong>不只是一个事件</strong>：它会把当前排队且可处理的事件成批消化，再回去等新消息。所以卡顿的病因几乎从来不是「事件太多」，而是<strong>某个处理器占用太久</strong>——它让队列积压，系统判定「未响应」，回来时又一次性补画，用户看到的就是「卡一下然后跳」。',
+    code: `// 定位卡顿：量单个处理的耗时，别猜「事件太多」
+QElapsedTimer t;
+t.start();
+handleHeavyWork();
+const qint64 ms = t.elapsed();
+if (ms > 50)
+    qWarning() << "单个处理器耗时" << ms << "ms，已经影响手感";`,
+    highlight: [4, 5]
+  },
+  {
+    title: 'processEvents：手动转一圈，代价是什么',
+    nav: 'processEvents',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="processEvents 的用法与风险">
+        <rect class="svg-box-good" x="30" y="30" width="330" height="170" rx="10"/>
+        <text class="svg-title" x="195" y="58" text-anchor="middle">它能解决的问题</text>
+        <text class="svg-small" x="50" y="88">· 长任务中让界面「喘口气」</text>
+        <text class="svg-small" x="50" y="112">· 控制台程序里等一个短暂事件</text>
+        <text class="svg-small" x="50" y="136">· 测试里推动事件（配合超时）</text>
+        <text class="svg-small" x="50" y="164">· 启动时先显示窗口再干活</text>
+
+        <rect class="svg-box-bad" x="400" y="30" width="330" height="170" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">它带来的风险</text>
+        <text class="svg-small" x="420" y="88">· 重入：同一个槽可能被再进一次</text>
+        <text class="svg-small" x="420" y="112">· 用户在「不该能点」的时候点了</text>
+        <text class="svg-small" x="420" y="136">· 对象在处理中途被删掉</text>
+        <text class="svg-small" x="420" y="164">· 状态机被打断，出现半成品状态</text>
+
+        <rect class="svg-field" x="30" y="220" width="700" height="105" rx="10"/>
+        <text class="svg-small" x="50" y="248">所以 processEvents 的正确姿势是「限制范围 + 加时间上限」：</text>
+        <text class="svg-mono" x="50" y="278">QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, 50);</text>
+        <text class="svg-small" x="50" y="306">排除用户输入 → 用户点不到；50ms 上限 → 不会无限延长。</text>
+
+        <rect class="svg-box-warn" x="30" y="340" width="700" height="62" rx="10"/>
+        <text class="svg-small" x="50" y="366">循环里反复 processEvents 来「假装多线程」，是最常见的反模式 —— 该上线程就上线程。</text>
+        <text class="svg-small" x="50" y="390">真正的异步任务：后台线程算，主线程只收结果。</text>
+      </svg>`,
+    caption: '<code>processEvents()</code> 是手动转一圈循环：能让长任务期间界面喘气，但代价是<strong>重入</strong>（槽被再进一次）、用户在你没准备好的时候点了、对象处理到一半被删。正确姿势是<strong>限制范围 + 时间上限</strong>：<code>ExcludeUserInputEvents</code> 加 50ms。用「循环里反复 processEvents」冒充多线程，是最常见的反模式。',
+    code: `for (int i = 0; i < total; ++i) {
+    doOnePiece(i);
+    if (i % 100 == 0) {
+        // 排除输入，最多 50ms —— 有边界才敢用
+        QCoreApplication::processEvents(
+            QEventLoop::ExcludeUserInputEvents, 50);
+    }
+}
+// 更好的做法：整段搬到工作线程，主线程只收进度信号`,
+    highlight: [4, 5]
+  },
+  {
+    title: '嵌套循环：对话框的 exec() 为什么危险',
+    nav: '嵌套循环',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="嵌套事件循环">
+        <rect class="svg-box-accent" x="30" y="30" width="700" height="120" rx="10"/>
+        <text class="svg-small" x="50" y="58">外层循环：主窗口的事件循环</text>
+        <rect class="svg-field" x="50" y="70" width="660" height="30" rx="4"/>
+        <text class="svg-small" x="66" y="91">onOpenClicked() 正在跑 …</text>
+
+        <rect class="svg-box-warn svg-pulse" x="150" y="115" width="460" height="95" rx="8"/>
+        <text class="svg-small" x="170" y="140">内层循环：dialog-&gt;exec()</text>
+        <text class="svg-small" x="170" y="164">在这个循环里，主窗口的事件照样被派发</text>
+        <text class="svg-bad-text" x="170" y="190">→ 用户能再点一次「打开」，于是你有两层、三层…</text>
+
+        <rect class="svg-field" x="30" y="230" width="700" height="170" rx="10"/>
+        <text class="svg-small" x="50" y="258">嵌套循环带来的三个具体问题：</text>
+        <text class="svg-text" x="50" y="288">① 重入：同一个按钮能再触发一次，状态被改两次</text>
+        <text class="svg-text" x="50" y="314">② 顺序：你在 exec() 之后写的代码，可能在主窗口已经关掉之后才跑</text>
+        <text class="svg-text" x="50" y="340">③ 清理：exec() 期间对象可能被 deleteLater 掉，返回后不能用</text>
+        <text class="svg-small" x="50" y="372">推荐：对话框用 open() + finished 信号 / accepted 信号，不阻塞调用方。</text>
+      </svg>`,
+    caption: '<code>dialog-&gt;exec()</code> 启动的是<strong>嵌套</strong>事件循环——主窗口的事件在里面照样派发。所以用户能再点一次按钮，于是两层、三层循环叠起来；你在 <code>exec()</code> 之后写的代码，可能在主窗口都关掉之后才跑。现代写法用 <code>open()</code> + <code>finished</code> 信号（或 <code>accepted</code>），把「等结果」变成回调，不嵌套。',
+    code: `// 旧写法：阻塞，嵌套循环
+if (dlg.exec() == QDialog::Accepted) save();
+// 上面这行返回时，世界可能已经变了
+
+// 新写法：非阻塞 + 信号
+dlg.open();
+connect(&dlg, &QDialog::accepted, this, &Page::save);
+connect(&dlg, &QDialog::finished, this, &Page::onDlgClosed);`,
+    highlight: [1, 2, 6, 8]
+  },
+  {
+    title: 'quit 与 exit：怎么让循环停下来',
+    nav: '退出',
+    ms: 6000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="退出事件循环的几种方式">
+        <rect class="svg-box" x="30" y="30" width="220" height="80" rx="10"/>
+        <text class="svg-mono" x="48" y="58">QCoreApplication::quit()</text>
+        <text class="svg-small" x="48" y="84">等价于 exit(0)</text>
+
+        <rect class="svg-box" x="30" y="125" width="220" height="80" rx="10"/>
+        <text class="svg-mono" x="48" y="153">QCoreApplication::exit(n)</text>
+        <text class="svg-small" x="48" y="179">返回码 = n</text>
+
+        <rect class="svg-box" x="30" y="220" width="220" height="80" rx="10"/>
+        <text class="svg-mono" x="48" y="248">loop.quit()</text>
+        <text class="svg-small" x="48" y="274">只退出那一个 QEventLoop</text>
+
+        <path class="svg-arrow svg-flow" d="M250 70 L310 140"/>
+        <path class="svg-arrow svg-flow" d="M250 165 L310 165"/>
+        <path class="svg-arrow svg-flow" d="M250 260 L310 190"/>
+
+        <rect class="svg-box-accent svg-pulse" x="310" y="110" width="200" height="110" rx="10"/>
+        <text class="svg-small" x="330" y="140">exec() 返回</text>
+        <text class="svg-small" x="330" y="164">返回码来自 exit(n)</text>
+        <text class="svg-small" x="330" y="190">然后才是 main 的 return</text>
+
+        <rect class="svg-field" x="530" y="30" width="200" height="270" rx="10"/>
+        <text class="svg-small" x="548" y="58">三个易错点</text>
+        <text class="svg-small" x="548" y="88">· 必须在管线里</text>
+        <text class="svg-small" x="548" y="112">  quit 才会生效</text>
+        <text class="svg-small" x="548" y="144">· 事件循环不在跑时</text>
+        <text class="svg-small" x="548" y="168">  quit 是个哑弹</text>
+        <text class="svg-small" x="548" y="200">· quit 不析构对象，</text>
+        <text class="svg-small" x="548" y="224">  只是让 exec 返回</text>
+        <text class="svg-small" x="548" y="256">· 别在析构里</text>
+        <text class="svg-small" x="548" y="280">  等事件循环</text>
+
+        <rect class="svg-box-warn" x="30" y="320" width="700" height="82" rx="10"/>
+        <text class="svg-small" x="50" y="346">开发时的实用写法：定时退出，避免示例/测试挂死。</text>
+        <text class="svg-mono" x="50" y="372">QTimer::singleShot(3000, &amp;app, &amp;QCoreApplication::quit);</text>
+        <text class="svg-small" x="50" y="394">（本仓库所有无人值守示例都靠这一行收尾）</text>
+      </svg>`,
+    caption: '<code>quit()</code> 等于 <code>exit(0)</code>，作用是<strong>让 <code>exec()</code> 返回</strong>——它不析构任何对象。事件循环没在跑时调 <code>quit</code> 是个哑弹（Qt 会打警告）。局部的 <code>QEventLoop::quit()</code> 只退出那一个嵌套循环。开发时最实用的一招：<code>QTimer::singleShot(3000, &amp;app, &amp;QCoreApplication::quit)</code>。',
+    code: `int main(int argc, char *argv[])
+{
+    QApplication app(argc, argv);
+    Window w; w.show();
+    QTimer::singleShot(3000, &app, &QCoreApplication::quit);
+    return app.exec();      // 3 秒后这里返回 0
+}`,
+    highlight: [4, 5]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

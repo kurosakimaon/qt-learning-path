@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 线程归属：QThread 到底让哪段代码跑在新线程 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../threads/index.html">第捌阶段 · 线程</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">THREADS · 线程归属</span>
+    <h1>只有 <code>run()</code> 跑在新线程里，别的都在原线程</h1>
+    <p>Qt 线程最容易错的一条：<strong>并不是「QThread 的所有代码都在新线程」。<code>QThread</code> 对象本身住在创建它的线程，只有 <code>run()</code> 里的代码在新线程执行。</strong>这一条想通了，<code>moveToThread</code> 的整套用法才能顺理成章；想不通，会写出「线程起来了但界面还是卡」的代码。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../threads/01_thread_basics.cpp">threads/01_thread_basics.cpp</a> ·
+    <a href="../threads/02_thread_affinity.cpp">threads/02_thread_affinity.cpp</a> ·
+    <a href="../threads/03_cross_thread_signals.cpp">threads/03_cross_thread_signals.cpp</a> ·
+    头文件：<code>QtCore/qthread.h</code> 第 68~96 行、<code>QtCore/qobject.h</code> 第 147 行
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '两个线程，两条代码路径',
+    nav: '哪段在哪个线程',
+    ms: 7500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QThread 对象与 run 代码的线程归属">
+        <rect class="svg-box" x="25" y="30" width="330" height="330" rx="10"/>
+        <text class="svg-title" x="190" y="58" text-anchor="middle">主线程</text>
+        <rect class="svg-field" x="45" y="72" width="290" height="40" rx="6"/>
+        <text class="svg-mono" x="60" y="98">Worker *w = new Worker;</text>
+        <rect class="svg-field" x="45" y="120" width="290" height="40" rx="6"/>
+        <text class="svg-mono" x="60" y="146">QThread t;</text>
+        <text class="svg-small" x="60" y="180">t 这个对象住在主线程</text>
+        <rect class="svg-field" x="45" y="192" width="290" height="40" rx="6"/>
+        <text class="svg-mono" x="60" y="218">t.start();</text>
+        <text class="svg-small" x="60" y="252">start() 只是「让新线程开始跑」</text>
+        <rect class="svg-field" x="45" y="264" width="290" height="40" rx="6"/>
+        <text class="svg-mono" x="60" y="290">t.wait();   // 主线程在这等</text>
+        <text class="svg-small" x="60" y="324">⚠ 主线程并没有「搬进」t</text>
+        <text class="svg-small" x="60" y="348">它只是创建了另一个执行流</text>
+
+        <text class="svg-small" x="640" y="30" text-anchor="middle">新线程</text>
+        <rect class="svg-box-accent" x="405" y="30" width="330" height="330" rx="10"/>
+        <text class="svg-small" x="425" y="58">只有这里跑在新线程：</text>
+        <rect class="svg-box-accent svg-pulse" x="425" y="72" width="290" height="70" rx="6"/>
+        <text class="svg-mono" x="440" y="100">void QThread::run()</text>
+        <text class="svg-small" x="440" y="124">默认实现 = exec()（事件循环）</text>
+
+        <rect class="svg-box-warn" x="425" y="160" width="290" height="60" rx="6"/>
+        <text class="svg-small" x="440" y="186">setup() / start() / wait() / 析构</text>
+        <text class="svg-bad-text" x="440" y="208">全在主线程 —— 别在里面写重活</text>
+
+        <text class="svg-small" x="425" y="252">★ 这是 Qt 文档里反复强调的一句：</text>
+        <text class="svg-small" x="425" y="278">「QThread 对象表示一个线程的控制，</text>
+        <text class="svg-small" x="425" y="302">  它本身并不是运行在新线程里的对象。」</text>
+
+        <text class="svg-small" x="425" y="340">验证：在两边各打印一次</text>
+        <text class="svg-mono" x="425" y="364">QThread::currentThread()</text>
+      </svg>`,
+    caption: '<code>QThread</code> 对象<strong>住在创建它的线程</strong>，<code>start()</code> / <code>wait()</code> / 析构都在那个线程执行；<strong>只有 <code>run()</code> 里的代码在新线程</strong>。默认的 <code>run()</code> 就是 <code>exec()</code>（一个事件循环）。验证方法很朴素：两边各打一次 <code>QThread::currentThread()</code>。',
+    code: `class Worker : public QThread {
+protected:
+    void run() override {
+        qInfo() << "run 里" << QThread::currentThread();   // 新线程
+    }
+};
+
+qInfo() << "外面" << QThread::currentThread();             // 主线程
+Worker w;
+w.start();
+w.wait();       // wait 在主线程里阻塞，不是在 run 里`,
+    highlight: [3, 8, 11]
+  },
+  {
+    title: '两种用法：继承 run() 还是 moveToThread',
+    nav: '两种用法',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="继承 run 与 moveToThread 两种用法">
+        <rect class="svg-box" x="25" y="30" width="345" height="200" rx="10"/>
+        <text class="svg-title" x="197" y="58" text-anchor="middle">A：继承 QThread，重写 run()</text>
+        <text class="svg-small" x="45" y="88">· 简单：一个类搞定</text>
+        <text class="svg-small" x="45" y="112">· 但 run() 里默认没有事件循环</text>
+        <text class="svg-small" x="45" y="136">  → 该对象上的槽不会自动执行</text>
+        <text class="svg-small" x="45" y="160">· 并且这个对象一半在主线程</text>
+        <text class="svg-small" x="45" y="184">  一半在新线程，很容易搞混</text>
+        <text class="svg-bad-text" x="45" y="212">适合：一次性的计算任务</text>
+
+        <rect class="svg-box-good" x="390" y="30" width="345" height="200" rx="10"/>
+        <text class="svg-title" x="562" y="58" text-anchor="middle">B：Worker + moveToThread</text>
+        <text class="svg-small" x="410" y="88">· Worker 是普通 QObject</text>
+        <text class="svg-small" x="410" y="112">· moveToThread 之后，它的槽</text>
+        <text class="svg-small" x="410" y="136">  全部在新线程的循环里执行</text>
+        <text class="svg-small" x="410" y="160">· 职责清楚：线程管线程，对象管活</text>
+        <text class="svg-small" x="410" y="184">· Qt 文档推荐的方式</text>
+        <text class="svg-good-text" x="410" y="212">适合：长期存在的后台服务</text>
+
+        <rect class="svg-field" x="25" y="255" width="710" height="125" rx="10"/>
+        <text class="svg-small" x="45" y="283">B 的标准装配（记住这四行，能覆盖大部分场景）：</text>
+        <text class="svg-mono" x="45" y="311">worker-&gt;moveToThread(&amp;thread);</text>
+        <text class="svg-mono" x="45" y="335">connect(&amp;thread, &amp;QThread::started, worker, &amp;Worker::start);</text>
+        <text class="svg-mono" x="45" y="359">connect(worker, &amp;Worker::finished, &amp;thread, &amp;QThread::quit);</text>
+
+        <rect class="svg-box-warn" x="25" y="390" width="710" height="4" rx="2"/>
+      </svg>`,
+    caption: '<strong>A：继承 <code>QThread</code> 重写 <code>run()</code></strong> 简单，但 <code>run()</code> 里默认没有事件循环，该对象上的槽不会自动执行，而且对象「一半在主线程一半在新线程」。<strong>B：<code>moveToThread</code></strong> 让 <code>Worker</code> 保持普通 <code>QObject</code>，它的槽全部在新线程的循环里执行——职责清楚，是 Qt 文档推荐的方式，适合长期存在的后台服务。',
+    code: `auto *thread = new QThread(this);
+auto *worker = new Worker;              // 没有 parent！
+
+worker->moveToThread(thread);
+connect(thread, &QThread::started,  worker, &Worker::start);
+connect(worker, &Worker::finished, thread, &QThread::quit);
+connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+thread->start();`,
+    highlight: [1, 2, 4, 6, 8]
+  },
+  {
+    title: 'moveToThread 的三条硬限制',
+    nav: '搬家限制',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="moveToThread 的限制">
+        <rect class="svg-box-bad" x="25" y="30" width="710" height="105" rx="10"/>
+        <text class="svg-title" x="45" y="58">① 不能从别的线程「推」一个对象过去</text>
+        <text class="svg-small" x="45" y="88">只能在对象当前所属的线程里调用 moveToThread。从第三个线程调用 → 无效或警告。</text>
+        <text class="svg-small" x="45" y="114">所以：在主线程创建 worker → 主线程调用 moveToThread。顺序不能换。</text>
+
+        <rect class="svg-box-bad" x="25" y="150" width="710" height="105" rx="10"/>
+        <text class="svg-title" x="45" y="178">② 有 parent 的对象不能搬家</text>
+        <text class="svg-small" x="45" y="208">因为要跟着父对象走 —— 而父对象可能不想搬。所以 worker 创建时<strong>不要给 parent</strong>。</text>
+        <text class="svg-small" x="45" y="234">清理靠 connect(thread, &amp;QThread::finished, worker, &amp;QObject::deleteLater)。</text>
+
+        <rect class="svg-box-bad" x="25" y="270" width="710" height="105" rx="10"/>
+        <text class="svg-title" x="45" y="298">③ 子对象会一起搬，所以别在 worker 上挂界面控件</text>
+        <text class="svg-small" x="45" y="328">QWidget 及其派生类只能在 GUI 线程被创建与操作。</text>
+        <text class="svg-small" x="45" y="354">搬家时它们会跟着过去 → 之后任何一次 show/setText 都是未定义行为。</text>
+      </svg>`,
+    caption: '<code>moveToThread</code> 三条硬限制：<strong>只能在对象当前所属线程里调用</strong>（不能从第三个线程推）、<strong>有 parent 的对象不能搬</strong>（所以 <code>Worker</code> 创建时不给 parent，清理靠 <code>finished → deleteLater</code>）、<strong>子对象会跟着搬</strong>（所以别把界面控件挂到 <code>Worker</code> 上——<code>QWidget</code> 只能在 GUI 线程创建和操作）。',
+    code: `// 对：主线程创建，不给 parent，主线程搬家
+auto *worker = new Worker;            // 没有 parent
+worker->moveToThread(thread);
+
+// 错：带 parent 的对象搬不动
+auto *bad = new Worker(this);         // parent = this
+bad->moveToThread(thread);            // 搬不了
+
+// 错：worker 上挂了控件，搬完就是雷
+worker->setUi(new QLabel);            // 千万别这么写`,
+    highlight: [2, 3, 6, 7, 10]
+  },
+  {
+    title: '跨线程通信：只有一条正路',
+    nav: '跨线程信号',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="跨线程信号槽的派发">
+        <rect class="svg-box" x="25" y="40" width="330" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="68">后台线程里的 Worker</text>
+        <rect class="svg-box-warn" x="45" y="82" width="290" height="60" rx="6"/>
+        <text class="svg-mono" x="60" y="108">emit progress(42);</text>
+        <text class="svg-small" x="60" y="130">参数被复制，事件被投递</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M355 100 L420 100"/>
+        <text class="svg-small" x="388" y="88" text-anchor="middle">排队</text>
+
+        <rect class="svg-box" x="420" y="40" width="315" height="120" rx="10"/>
+        <text class="svg-small" x="440" y="68">GUI 线程的事件循环</text>
+        <rect class="svg-box-good svg-pulse" x="440" y="82" width="275" height="60" rx="6"/>
+        <text class="svg-mono" x="455" y="108">Page::onProgress(int)</text>
+        <text class="svg-small" x="455" y="130">这里可以安全地动界面</text>
+
+        <rect class="svg-field" x="25" y="180" width="710" height="200" rx="10"/>
+        <text class="svg-small" x="45" y="208">为什么这是「唯一正路」：</text>
+        <text class="svg-text" x="45" y="238">· 信号跨线程自动排队（AutoConnection 的判据：线程不同 → 排队）</text>
+        <text class="svg-text" x="45" y="266">· 参数被复制，所以不存在「后台还在改、前台已经读」的数据竞争</text>
+        <text class="svg-text" x="45" y="294">· 槽在 GUI 线程执行，所以界面操作天然安全</text>
+        <text class="svg-bad-text" x="45" y="326">· 反过来（GUI 直接调 worker 的方法）是同步调用，就在 GUI 线程跑了</text>
+        <text class="svg-small" x="45" y="354">唯一要求：自定义类型要先 qRegisterMetaType（排队时要按类型名重建参数）。</text>
+
+      </svg>`,
+    caption: '跨线程通信的正路只有一条：<strong>后台发信号，GUI 收信号</strong>。跨线程自动排队（<code>AutoConnection</code> 判据是线程不同）、<strong>参数被复制</strong>（不存在「后台改、前台读」的竞争）、<strong>槽在 GUI 线程执行</strong>（界面操作天然安全）。反过来 <strong>GUI 直接调 <code>worker</code> 的方法是同步调用</strong>，就在 GUI 线程跑了。自定义类型要先 <code>qRegisterMetaType</code>。',
+    code: `class Worker : public QObject {
+    Q_OBJECT
+public Q_SLOTS:
+    void start() {
+        for (int i = 0; i <= 100; ++i) {
+            if (isInterruptionRequested()) break;
+            doPiece(i);
+            emit progress(i);          // 自动排队到 GUI 线程
+        }
+        emit finished();
+    }
+Q_SIGNALS:
+    void progress(int percent);
+    void finished();
+};`,
+    highlight: [6, 7, 9]
+  },
+  {
+    title: '共享数据：锁、原子量与「别共享」',
+    nav: '共享数据',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="共享数据的三种处理方式">
+        <rect class="svg-box-good" x="25" y="30" width="230" height="220" rx="10"/>
+        <text class="svg-title" x="140" y="58" text-anchor="middle">首选的答案</text>
+        <text class="svg-small" x="45" y="88">别共享。</text>
+        <text class="svg-small" x="45" y="116">· 后台算完，发信号把结果拷给前台</text>
+        <text class="svg-small" x="45" y="144">· 大块数据用 shared_ptr + 只读</text>
+        <text class="svg-small" x="45" y="172">· 队列传值（QQueue + mutex 也算共享）</text>
+        <text class="svg-good-text" x="45" y="208">无共享 = 无竞争 = 无死锁</text>
+        <text class="svg-small" x="45" y="234">这是并发设计的第一原则，不是偷懒</text>
+
+        <rect class="svg-box" x="265" y="30" width="240" height="220" rx="10"/>
+        <text class="svg-title" x="385" y="58" text-anchor="middle">QMutex</text>
+        <text class="svg-mono" x="285" y="88">QMutex m;</text>
+        <text class="svg-mono" x="285" y="112">QMutexLocker lk(&amp;m);</text>
+        <text class="svg-small" x="285" y="140">锁的粒度要小</text>
+        <text class="svg-small" x="285" y="164">持锁期间别调外部代码</text>
+        <text class="svg-bad-text" x="285" y="192">别在持锁时发信号</text>
+        <text class="svg-small" x="285" y="216">（槽可能又去拿同一把锁）</text>
+
+        <rect class="svg-box" x="515" y="30" width="215" height="220" rx="10"/>
+        <text class="svg-title" x="622" y="58" text-anchor="middle">std::atomic</text>
+        <text class="svg-small" x="535" y="88">只适合单个标量：</text>
+        <text class="svg-small" x="535" y="112">计数器、标志位</text>
+        <text class="svg-small" x="535" y="140">不适合「多个字段要一致」</text>
+        <text class="svg-small" x="535" y="168">那种情况还是得要锁</text>
+        <text class="svg-small" x="535" y="196">QAtomicInt 是 Qt 的老写法，</text>
+        <text class="svg-small" x="535" y="220">Qt 6 起更推荐 std::atomic</text>
+
+        <rect class="svg-field" x="25" y="265" width="705" height="115" rx="10"/>
+        <text class="svg-small" x="45" y="293">一个具体建议：先在脑子里把「这个数据归谁」写清楚。</text>
+        <text class="svg-text" x="45" y="323">归后台独有 → 不动锁；归前台独有 → 不动锁；两边都要读 → 只读共享（不可变）；</text>
+        <text class="svg-text" x="45" y="351">两边都要写 → 才需要锁，而且要想清楚谁等谁。</text>
+        <text class="svg-small" x="45" y="375">九成的「线程不安全」问题，在设计阶段把归属写清楚就不会发生。</text>
+      </svg>`,
+    caption: '共享数据的第一原则是<strong>别共享</strong>：后台算完发信号把结果拷给前台；大块数据用 <code>shared_ptr</code> 只读共享。<code>QMutex</code> 是退路——<strong>锁粒度要小、持锁期间别调外部代码、别持锁发信号</strong>（槽可能又去拿同一把锁）。<code>std::atomic</code> 只适合单个标量，多个字段要保持一致时还得用锁。',
+    code: `class Counter {
+public:
+    void add(int v) {
+        QMutexLocker lk(&m_mutex);    // 作用域结束自动解锁
+        m_total += v;
+    }
+    int total() const {
+        QMutexLocker lk(&m_mutex);
+        return m_total;
+    }
+private:
+    mutable QMutex m_mutex;
+    int m_total = 0;
+};
+
+// 单个标志位才用原子量
+std::atomic_bool m_stop{false};`,
+    highlight: [3, 4, 12]
+  },
+  {
+    title: '优雅停止：不用 terminate()',
+    nav: '优雅停止',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="线程优雅退出的流程">
+        <rect class="svg-box" x="25" y="30" width="230" height="100" rx="10"/>
+        <text class="svg-small" x="45" y="58">主线程发起</text>
+        <text class="svg-mono" x="45" y="86">thread-&gt;requestInterruption()</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M255 80 L315 80"/>
+        <rect class="svg-box-good" x="315" y="30" width="250" height="100" rx="10"/>
+        <text class="svg-small" x="335" y="58">后台线程自觉退出</text>
+        <text class="svg-mono" x="335" y="86">isInterruptionRequested()</text>
+        <text class="svg-small" x="335" y="110">在循环里检查，自己 break</text>
+
+        <path class="svg-arrow svg-flow" d="M565 80 L625 80"/>
+        <rect class="svg-box-warn" x="625" y="30" width="110" height="100" rx="10"/>
+        <text class="svg-small" x="643" y="60">quit()</text>
+        <text class="svg-small" x="643" y="86">退出 run / exec</text>
+        <text class="svg-small" x="643" y="110">然后 finished</text>
+
+        <rect class="svg-field" x="25" y="155" width="710" height="125" rx="10"/>
+        <text class="svg-small" x="45" y="183">主线程接着：</text>
+        <text class="svg-mono" x="45" y="211">thread-&gt;quit();</text>
+        <text class="svg-mono" x="45" y="235">thread-&gt;wait(3000);        // 一定要带超时</text>
+        <text class="svg-small" x="45" y="263">wait 返回 false 说明 3 秒内没退出 —— 这时该查「循环里有没有检查中断标志」。</text>
+
+        <rect class="svg-box-bad" x="25" y="295" width="710" height="95" rx="10"/>
+        <text class="svg-bad-text" x="45" y="322">terminate() 永远不要用</text>
+        <text class="svg-small" x="45" y="348">它会直接杀掉线程，锁可能永远不解、栈上对象不析构、临时文件不清理。</text>
+        <text class="svg-small" x="45" y="372">Qt 文档明确说：此举危险且不鼓励。本仓库所有示例都不调用它。</text>
+
+      </svg>`,
+    caption: '优雅停止是<strong>合作式</strong>的：主线程 <code>requestInterruption()</code>，后台线程在循环里检查 <code>isInterruptionRequested()</code> 并自己 <code>break</code>，然后 <code>quit()</code> 让 <code>run()</code>/<code>exec()</code> 返回、发 <code>finished</code>。主线程 <code>wait(3000)</code> <strong>一定要带超时</strong>。<strong><code>terminate()</code> 永远不要用</strong>——锁可能永远不解、栈上对象不析构、临时文件不清理。',
+    code: `void Worker::start()
+{
+    for (int i = 0; i < total; ++i) {
+        if (isInterruptionRequested()) {       // 合作式退出
+            emit cancelled();
+            return;
+        }
+        doPiece(i);
+    }
+    emit finished();
+}
+
+// 主线程收尾
+thread->requestInterruption();
+thread->quit();
+if (!thread->wait(3000))
+    qWarning() << "3 秒内没退出，检查循环里的中断判断";`,
+    highlight: [4, 5, 15, 17]
+  },
+  {
+    title: '症状对照：这次是线程问题吗',
+    nav: '症状对照',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="线程问题的症状对照">
+        <rect class="svg-box-bad" x="20" y="25" width="235" height="165" rx="10"/>
+        <text class="svg-title" x="137" y="52" text-anchor="middle">界面还是卡</text>
+        <text class="svg-small" x="40" y="80">你以为：活已经搬到后台了</text>
+        <text class="svg-bad-text" x="40" y="106">真相：活写在了 start() 之后、</text>
+        <text class="svg-bad-text" x="40" y="130">  或者 run() 之外的地方</text>
+        <text class="svg-small" x="40" y="158">修法：确认重活在 run() 里，</text>
+        <text class="svg-small" x="40" y="180">或在移居后的 worker 槽里</text>
+
+        <rect class="svg-box-bad" x="265" y="25" width="235" height="165" rx="10"/>
+        <text class="svg-title" x="382" y="52" text-anchor="middle">偶现崩溃 / 花屏</text>
+        <text class="svg-small" x="285" y="80">你以为：Qt 有 bug</text>
+        <text class="svg-bad-text" x="285" y="106">真相：在非 GUI 线程碰了控件</text>
+        <text class="svg-small" x="285" y="134">修法：所有界面操作只走信号</text>
+        <text class="svg-small" x="285" y="162">（哪怕「只是 setText 一下」）</text>
+        <text class="svg-small" x="285" y="184">Qt 会打 warn，但常常被忽略</text>
+
+        <rect class="svg-box-bad" x="510" y="25" width="220" height="165" rx="10"/>
+        <text class="svg-title" x="620" y="52" text-anchor="middle">线程不退出</text>
+        <text class="svg-small" x="530" y="80">你以为：quit() 坏了</text>
+        <text class="svg-bad-text" x="530" y="106">真相：循环里没检查中断标志</text>
+        <text class="svg-small" x="530" y="134">修法：把 isInterruptionRequested()</text>
+        <text class="svg-small" x="530" y="158">  放进每一轮循环</text>
+        <text class="svg-small" x="530" y="184">退出时 wait 一定带超时</text>
+
+        <rect class="svg-field" x="20" y="210" width="710" height="165" rx="10"/>
+        <text class="svg-small" x="40" y="238">诊断顺序（从最便宜的开始）：</text>
+        <text class="svg-text" x="40" y="268">① 打印 QThread::currentThread()，确认你「以为在后台」的代码真在后台。</text>
+        <text class="svg-text" x="40" y="296">② 看 Qt 的运行时警告：「Cannot create children for a parent in a different thread」</text>
+        <text class="svg-text" x="40" y="324">   「QObject: Cannot create children …」「widgets must be created in the GUI thread」。</text>
+        <text class="svg-text" x="40" y="352">③ 用 QMutex 把可疑的共享字段保护起来，再测一遍 —— 若崩溃消失，就是竞争。</text>
+
+      </svg>`,
+    caption: '三类症状的病因都很固定：<strong>界面还是卡</strong>=重活写在 <code>run()</code> 之外（<code>start()</code>、构造、<code>wait()</code> 之后都还在主线程）；<strong>偶现崩溃/花屏</strong>=在非 GUI 线程碰了控件；<strong>线程不退出</strong>=循环里没检查中断标志。诊断从最便宜的开始：打 <code>currentThread()</code>、读 Qt 运行时警告、给可疑字段加锁再测。',
+    code: `// 诊断三连
+qInfo() << "当前线程" << QThread::currentThread()
+        << "对象所属线程" << thread();
+
+// 打开这条环境变量，Qt 会对跨线程的界面操作打警告
+// QT_FATAL_WARNINGS=1 可让警告直接中止程序（调试期很有用）
+
+// 给可疑字段加锁后再测：崩溃消失 = 竞争
+QMutexLocker lk(&m_mutex);`,
+    highlight: [2, 3]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

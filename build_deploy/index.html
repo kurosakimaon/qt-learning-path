@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第拾壹阶段 · 构建与部署 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🔧 第拾壹阶段 · 构建与部署</h1>
+    <p>五份可以单独 configure 的工程 · 从 6 行 CMake 骨架走到别人的电脑里</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      这一阶段跟前面十个都不一样：前面讲的是「代码怎么写」，这里讲的是<strong>「代码怎么变成一个能交给别人的东西」</strong>。
+      你会发现很多「在我这儿能跑」的问题，根子既不在 C++ 也不在 Qt 的 API，而在构建与部署这一层：
+      头文件路径没传下去、moc 没跑、资源没进 exe、DLL 没带、插件目录缺一层。
+    </p>
+    <p style="margin-top: 10px;">
+      本阶段有 <strong>5 个独立工程</strong>，每个目录都有自己的 <code>CMakeLists.txt</code> 和 <code>project()</code>，
+      <strong>必须进到各自目录里单独 configure</strong>（顶层只检查它们存在，不会 add_subdirectory 进来）：
+    </p>
+    <ul style="color:#444; line-height:2; font-size:14px; padding-left:22px;">
+      <li><code>qt_cmake_01_widgets</code> —— 最小骨架：四行必需 + 两条产物规则</li>
+      <li><code>qt_cmake_02_structure</code> —— 一个库 + 一个界面：PUBLIC/PRIVATE、include 目录、手写 AUTOMOC</li>
+      <li><code>qt_cmake_03_resources</code> —— 资源的两条路线：<code>qt_add_resources</code> 与 <code>.qrc</code> + AUTORCC</li>
+      <li><code>qt_cmake_04_tests</code> —— 库 + 应用 + QtTest + CTest，一条命令判卷</li>
+      <li><code>qt_cmake_05_translations</code> —— <code>tr()</code> → <code>.ts</code> → <code>.qm</code> → <code>:/i18n/</code></li>
+    </ul>
+    <p style="margin-top: 10px;">
+      配套讲义是 <a href="qt_cmake_guide.html">qt_cmake_guide.html</a>：那一页把 CMake 的每一行拆开讲，并给出报错对照表与
+      <code>windeployqt</code> / <code>qt.conf</code> 的用法。部署的可视化复盘见
+      <a href="../visuals/deployment_tree.html">图解 · 部署</a>。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：Qt 6.12.0、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      本阶段所有 CMake 用法都对着本机 <code>C:\msys64\ucrt64\lib\cmake\Qt6*</code> 的真实实现核对过——
+      包括一条容易被抄错的：<code>qt_standard_project_setup()</code> 只打开 AUTOMOC 与 AUTOUIC，<strong>不打开 AUTORCC</strong>。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>，五份工程<strong>未在本机实际 configure / build / run</strong>；
+      其中的 C++ 源码都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
+      每个工程都在文件头注明「怎么构建、跑起来看到什么」；首次构建时 <code>.ts</code> 是空的，需要你用 Qt Linguist 填译文。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="qt_cmake_guide.html" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+        📘 CMake 讲义
+      </a>
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        📖 学习指南
+      </a>
+      <a href="../visuals/deployment_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 部署
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">先进各工程目录单独 configure</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 五个工程
+  </div>
+  <p class="list-note">
+    <strong>5 个目录 = 5 个独立工程</strong>，按 <strong>01 → 05</strong> 顺序做，每个都先 <code>cmake -G Ninja -B build -S .</code> 再 <code>cmake --build build</code>。
+    这条主线是「先建起来 → 再拆成层 → 再把它需要的文件带进去 → 再让它能自证 → 最后让它能说别的语言」：
+    <strong>01</strong> 最小骨架 → <strong>02</strong> 库与界面 → <strong>03</strong> 资源 → <strong>04</strong> 测试 →
+    <strong>05</strong> 翻译，之后接<a href="qt_cmake_guide.html">讲义第 ⑦ 节</a>的部署。
+    本阶段有<strong>两道硬坎</strong>：
+    <strong>①「Qt6 找不到」坎</strong>——不是 Qt 没装，而是 CMake 不知道它在哪：<code>-DCMAKE_PREFIX_PATH=…</code> 或改用 <code>qt-cmake</code>；
+    <strong>②「undefined reference to vtable」坎</strong>——有 <code>Q_OBJECT</code> 却没跑 moc。AUTOMOC 对头文件自动生效；
+    类写在 .cpp 里时，必须在文件末尾 <code>#include "xxx.moc"</code>（第 05 个工程就用了这一手）。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="qt_cmake_01_widgets/CMakeLists.txt" class="card">
+      <div class="card-step">工程 01</div>
+      <div class="card-icon">🧱</div>
+      <div class="card-title">01 · 最小骨架</div>
+      <div class="card-desc">cmake_minimum_required / project / find_package / qt_standard_project_setup / qt_add_executable / target_link_libraries，六行讲清。附带一份「环境自检」的 main.cpp：打印 qVersion()、平台插件名、主屏几何与 DPR，300 毫秒后自动退出。弄清「CMake 不编译代码，它只生成构建系统」这件事。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span><span class="tag framework">CMake</span></div>
+    </a>
+
+    <a href="qt_cmake_02_structure/CMakeLists.txt" class="card">
+      <div class="card-step">工程 02</div>
+      <div class="card-icon">🏗️</div>
+      <div class="card-title">02 · 库 + 界面：PUBLIC 与 PRIVATE</div>
+      <div class="card-desc">add_library(greeting STATIC) + 界面 exe；PUBLIC 的 include 目录与 Qt6::Core 怎么「顺着链接传下去」；PRIVATE 的 Widgets 怎么保证库不碰界面。手写 AUTOMOC/AUTOUIC/AUTORCC，让你看清 qt_standard_project_setup 平时替你做了什么（以及没做什么）。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span><span class="tag framework">依赖传播</span></div>
+    </a>
+
+    <a href="qt_cmake_03_resources/CMakeLists.txt" class="card">
+      <div class="card-step">工程 03</div>
+      <div class="card-icon">📦</div>
+      <div class="card-title">03 · 资源：两条路线</div>
+      <div class="card-desc">qt_add_resources 直接造 ":/style.qss"；同一份文件再用 legacy.qrc + AUTORCC 挂到 ":/legacy/style.qss"。运行时打印两条路径的字节数、比较内容、并证明资源只读（WriteOnly 打开必失败）。顺带演示「qss 从资源读进来喂给 setStyleSheet」这条日常做法。</div>
+      <div class="card-meta"><span class="tag framework">构建集成</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="qt_cmake_04_tests/CMakeLists.txt" class="card">
+      <div class="card-step">工程 04</div>
+      <div class="card-icon">✅</div>
+      <div class="card-title">04 · 库 + 应用 + 测试</div>
+      <div class="card-desc">纯逻辑库 calc（clamp / mean / percent 三处约定）+ 命令行 app + QtTest 用例。<code>enable_testing()</code>、<code>add_test()</code>、<code>set_tests_properties(ENVIRONMENT "QT_QPA_PLATFORM=offscreen")</code>；数据驱动写法与 NaN 的正确比较；<code>ctest --output-on-failure</code> 一条命令判卷。</div>
+      <div class="card-meta"><span class="tag elementary">可验证性</span><span class="tag framework">CTest</span></div>
+    </a>
+
+    <a href="qt_cmake_05_translations/CMakeLists.txt" class="card">
+      <div class="card-step">工程 05</div>
+      <div class="card-icon">🌍</div>
+      <div class="card-title">05 · 翻译链路</div>
+      <div class="card-desc">tr() → lupdate → .ts → lrelease → .qm → ":/i18n/" 的完整链条；qt_standard_project_setup(I18N_SOURCE_LANGUAGE zh_CN I18N_TRANSLATED_LANGUAGES en) 与 qt_add_translations；运行期 QTranslator::load + installTranslator，查不到就优雅回落中文；带 %n 的复数写法。</div>
+      <div class="card-meta"><span class="tag framework">i18n</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="qt_cmake_guide.html" class="card">
+      <div class="card-step">讲义</div>
+      <div class="card-icon">📘</div>
+      <div class="card-title">CMake 讲义：逐行拆解</div>
+      <div class="card-desc">六行骨架每行在做什么；Qt6::Widgets 到底带进来哪三样东西；PUBLIC/PRIVATE/INTERFACE；资源两条路线；测试与 CTest；翻译四个阶段；install 与 windeployqt；以及一张「报错 → 阶段 → 真因」的对照表（Qt6Config 找不到、vtable 未定义、platform plugin 初始化失败、0xC0000135/139）。</div>
+      <div class="card-meta"><span class="tag framework">总纲</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>一个工程一个构建目录</strong>：每个子目录单独 <code>cmake -B build -S .</code>。共享构建目录会让你在两份 <code>CMakeLists</code> 之间反复踩缓存。</li>
+      <li><strong>先 configure，再 build，再 run</strong>：三个阶段的报错含义完全不同。configure 挂是「找不到 Qt / 写错语法」，build 挂是「编译或 moc」，run 挂是「DLL / 插件 / 资源」。</li>
+      <li><strong>用 <code>qt-cmake</code> 或 <code>-DCMAKE_PREFIX_PATH</code></strong>：这是「Qt6 找不到」的唯一正解。别把 Qt 的 bin 加到 PATH 就以为解决了。</li>
+      <li><strong>看见 vtable 未定义，先想 moc</strong>：检查 AUTOMOC 是否对该目标生效；类写在 .cpp 里，就 include 生成的 <code>.moc</code>。</li>
+      <li><strong>部署是最后一步，但要从一开始就想着它</strong>：产物集中在 <code>build/bin</code>、安装规则写清、资源走 qrc、依赖用导入目标，这些习惯都会让 <code>windeployqt</code> 那一步简单很多。</li>
+      <li><strong>记住「未在本机 build」</strong>：五份工程都只过了语法门。换到能链接的环境上，按各自文件头的命令跑一遍，再对照打印结果。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，构建这一层最不受待见——写业务的人嫌它琐碎，可一旦它出问题，整条流水线都停。师傅见过太多人「代码写得漂亮，但交不出去」。所以这一阶段只教你一件事：<strong>把「在我这儿能跑」变成「在别人那儿也能跑」</strong>。</p>
+    <ul>
+      <li><strong>第一条：构建文件也是代码，要读要写要改。</strong> 从网上抄一段 <code>CMakeLists</code> 而不理解它，等于在黑箱上盖房子。这一阶段的六行骨架，你要能默写。</li>
+      <li><strong>第二条：依赖方向写在构建文件里。</strong> 库的 PUBLIC 里出现 Widgets，下游就再也进不了命令行；反过来，把边界守住，代码想乱都难。</li>
+      <li><strong>第三条：moc 不是魔法，是一个构建步骤。</strong> 看见 vtable 未定义，就知道是 moc 没跑或没被链接；看见「写在 .cpp 里就编不过」，就知道要 include <code>xxx.moc</code>。</li>
+      <li><strong>第四条：部署不是拷 exe。</strong> 平台插件、样式插件、图片格式插件、运行时 DLL、qt.conf，一个都不能少。第 ⑦ 节那张目录树，你要能凭记忆画出来。</li>
+      <li><strong>第五条：版本要对齐。</strong> Debug 的 Qt DLL 不能配 Release 的 exe，6.12 的头文件不要配 6.5 的库。所有「莫名其妙」的崩溃，先怀疑这个。</li>
+    </ul>
+    <p>这一关过完，你的东西就能交到别人手里了——而能交出去的手艺，才算手艺。最后一站是综合实战：把这些全部拼成一个真正的桌面应用。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

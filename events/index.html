@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第叁阶段 · 事件系统 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>⚡ 第叁阶段 · 事件系统</h1>
+    <p>Qt 程序的心脏怎么跳 · 7 讲，从「事件循环」到「拖放」，全程不用鼠标键盘也能看见事件流</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      本模块讲 <strong>Qt 的事件系统（Event System）</strong>：事件循环（<code>QCoreApplication::exec()</code> /
+      <code>QEventLoop</code>）、事件的三层派发（<code>notify</code> → <code>event()</code> → 具体 handler）、
+      事件过滤器（<code>installEventFilter</code>）、定时器（<code>QTimer</code> / <code>timerEvent</code>）、
+      鼠标键盘与焦点、自定义事件（<code>QEvent::registerEventType</code>）、拖放（<code>QMimeData</code> /
+      <code>QDrag</code>）。
+      第 1 讲是<strong>总纲</strong>，第 2、3 讲是<strong>同一条派发链的两个视角</strong>（继承改行为 vs 不继承改行为），
+      第 4~7 讲把<strong>四类具体的事件</strong>——定时器、输入、自定义、拖放——各钉死一讲。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块有一个<strong>核心技巧</strong>：所有示例都在<strong>没有鼠标、没有键盘</strong>的情况下把事件流演示出来——
+      代码手工构造 <code>QEvent</code> / <code>QMouseEvent</code> / <code>QKeyEvent</code> / <code>QDropEvent</code>，
+      再用 <code>QCoreApplication::sendEvent()</code> / <code>postEvent()</code> 投给控件，然后打印计数与到达顺序当证据。
+      「点一下才知道收没收到」这种示例，本模块一个都不写。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      每讲都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>
+      （<code>QTimer::singleShot</code> 排脚本 + <code>qInfo()</code> 吐结论 + <code>quit()</code>）。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库不全），7 个示例
+      <strong>都未在本机实测编译</strong>；文中每一个类、函数、枚举、重载都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过，并在注释里写明了文件名与行号；
+      核对不上的一律不用。凡是依赖平台插件、依赖真实指针操作的行为，都在注释里标成
+      <strong>「文档语义」／「以你打印的数字为准」</strong>。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/event_loop.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 事件循环
+      </a>
+      <a href="../visuals/event_filter.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 事件过滤器
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>7 张卡片 = 7 讲</strong>，按 <strong>第 1 步 → 第 7 步</strong> 一张张往下学，别跳。
+    这个顺序的逻辑是：<strong>第 1 讲是总纲</strong>——事件循环不读懂，后面全是背；
+    <strong>第 2、3 讲是同一条派发链的两个视角</strong>——同一个事件从 <code>notify()</code> 落到你手上，
+    第 2 讲教你「<strong>继承</strong> <code>event()</code>／handler 来改行为」，第 3 讲教你
+    「<strong>不继承</strong>、用事件过滤器从外面插手」，两讲合起来才是完整的拦截手段图谱，分开看都会以为只有一招；
+    <strong>第 4~7 讲是四类具体的事件</strong>——定时器（事件循环自己造的事件源，回验第 1 讲）、
+    输入与焦点（Qt5→Qt6 改动最集中的一片）、自定义事件（<code>QEvent</code> 子类 + <code>postEvent</code> 的真实语义）、
+    拖放（唯一要跨进程说话的一类）。
+    <br>
+    ⚠️ 本模块有一道硬坎，就在 <strong>第 2 讲</strong>：「<strong>事件（event）与信号（signal）到底什么关系</strong>」
+    ——它太容易和上一模块（元对象系统）混在一起。务必记住这一句：
+    <strong>事件是系统层语义，信号是应用层语义。</strong>
+    事件（<code>QEvent</code>）来自窗口系统/QPA、由 <code>notify()</code> 派发、讲「谁发生了什么」，你重写
+    <code>mousePressEvent()</code> 接的是它；信号（<code>Q_SIGNALS</code>）是 Qt 自己造的应用层通知、
+    靠 moc 与 <code>connect()</code> 生效、讲「谁想让谁干什么」。两者交汇点在<strong>第 3 讲</strong>：
+    控件内部先在事件里<strong>翻译成</strong>信号（按下是 <code>QMouseEvent</code>，<code>clicked()</code> 是它的应用层结果），
+    所以过滤器能吞掉 <code>clicked()</code>，但 <code>btn->click()</code> 直接发信号、绕过事件——这一条是检验你是否真分清的试纸。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_event_loop.cpp" class="card">
+      <div class="card-step">第 1 步 · 总纲</div>
+      <div class="card-icon">🔄</div>
+      <div class="card-title">01 · 事件循环解剖</div>
+      <div class="card-desc">把 app.exec() 这一行代码拆开：取事件 → 派发 → 再取；QEventLoop 可以嵌套，于是有了重入（re-entrancy）；processEvents() 何时是救急、何时是往火里浇油；quit() / exit(int) / 从槽里 return 的三种后果；sendEvent（同步）与 postEvent（入队）用实际到达顺序当证据。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="02_event_dispatch.cpp" class="card">
+      <div class="card-step">第 2 步 · 事件 vs 信号</div>
+      <div class="card-icon">🧭</div>
+      <div class="card-title">02 · 一次事件的三层传递</div>
+      <div class="card-desc">层 1 QApplication::notify（全程序唯一总入口）、层 2 receiver->event() 闸门、层 3 mousePressEvent / paintEvent 等具体 handler，逐层打印进入顺序。再看两件新手最容易翻车的事：重写 event() 拦一类事件；不调基类实现 → handler 不再被叫到、事件不再往父控件抛。accept/ignore 的真实语义。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="03_event_filter.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">🕳️</div>
+      <div class="card-title">03 · 事件过滤器</div>
+      <div class="card-desc">「不继承就改行为」的唯一正统手段：installEventFilter 挂在目标对象上、qApp->installEventFilter 挂全局；true = 我吃掉（目标的 event() 不再被调用）、false = 看完继续传；同一目标多过滤器的调用顺序，与「过滤器和被过滤对象谁先死」的坑。末尾用按钮证明：吞掉事件能拦住 clicked()，而 btn->click() 绕过事件。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="04_timers.cpp" class="card">
+      <div class="card-step">第 4 步 · 回验第 1 讲</div>
+      <div class="card-icon">⏱️</div>
+      <div class="card-title">04 · 定时器家族</div>
+      <div class="card-desc">定时器是唯一由事件循环自己造出来的事件源：没有 exec()（或 processEvents），一次都不会响。QTimer 的单次三写法与重复；setTimerType 三档（Precise / Coarse / VeryCoarse）用 QElapsedTimer 实测间隔；低级路线 startTimer() + timerEvent(QTimerEvent*)，还能手工 sendEvent 一个 QTimerEvent 看穿它；interval=0 的合并行为。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="05_mouse_keyboard_focus.cpp" class="card">
+      <div class="card-step">第 5 步 · Qt5/Qt6 差异最集中</div>
+      <div class="card-icon">🖱️</div>
+      <div class="card-title">05 · 输入事件与焦点</div>
+      <div class="card-desc">坐标体系 Qt6 全换成 QPointF：position() / scenePosition() / globalPosition()（Qt5 的 pos()/globalPos() 必考差异）；button()「谁变了」vs buttons()「此刻按住哪些」；双击的真实时序 Press→Release→DblClick；滚轮 angleDelta() 与 pixelDelta()、DefaultDeltasPerStep=120；键盘 key()/text()/modifiers()/isAutoRepeat()；Qt::FocusPolicy 五档与 tab 顺序；QShortcut + QKeySequence。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="06_custom_events.cpp" class="card">
+      <div class="card-step">第 6 步</div>
+      <div class="card-icon">📮</div>
+      <div class="card-title">06 · 自定义事件</div>
+      <div class="card-desc">别拍脑袋写 QEvent::User + 3：用 registerEventType() 动态注册（返回值每次运行都可能不同，所以不许硬编码整数值）；QEvent 子类怎么带数据、Qt6 新增的 clone() 为什么要重写；postEvent 的三条真实语义——所有权转移、优先级、同一接收者同一类型的合并；以及什么时候该改用信号：QueuedConnection 内部其实就是投一个 QMetaCallEvent。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+
+    <a href="07_drag_and_drop.cpp" class="card">
+      <div class="card-step">第 7 步</div>
+      <div class="card-icon">🧲</div>
+      <div class="card-title">07 · 拖放</div>
+      <div class="card-desc">事件系统里唯一要跨进程说话的一段：QMimeData 是唯一载体（setText/setUrls/setData + hasFormat/formats）；dragEnterEvent 里必须 acceptProposedAction()，只调 accept() 不够；dropEvent 怎么把数据接住（含自定义 MIME 的内部拖放特权）；真正拖动的启动阈值 manhattanLength() &gt; QApplication::startDragDistance()，exec() 内部自开嵌套循环。示例用合成 QDragEnterEvent / QDropEvent 全程无鼠标演示。</div>
+      <div class="card-meta"><span class="tag elementary">进阶</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>先跑第 1 讲再谈别的</strong>：事件循环是这 7 讲的地基。第 4 讲「没有 exec() 定时器一次都不响」、第 6 讲「postEvent 排到循环里才派发」、第 7 讲「QDrag::exec 自己开嵌套循环」，全是第 1 讲的复现。第 1 讲没跑通就往下走，后面只能靠背。</li>
+      <li><strong>把第 2、3 讲对照着看</strong>：同一条链，一个从里面改（重写 <code>event()</code>/handler），一个从外面插手（事件过滤器）。看完你要能回答：「我要改一个<strong>不是自己写的</strong>控件的行为，该用哪招？」——答案只能是过滤器。</li>
+      <li><strong>先答「事件还是信号」再动手</strong>：每写一段响应逻辑之前，先问自己接的是 <code>QEvent</code> 还是信号。分不清就把本模块 <a href="tutorial.md">学习指南</a> 第五节那张链图重看一遍。</li>
+      <li><strong>读打印出来的数字，别只读注释</strong>：每个示例都吐「到达顺序、进入次数、实测间隔」。数字和你的机器一致才算读懂；示例里凡是本机跑不出来的数，都写明了「以你终端上的数字为准」。</li>
+      <li><strong>Qt5/Qt6 的差异标在注释里，迁移老代码时先看它</strong>：第 5 讲末尾有一张 Qt5→Qt6 对照表（<code>pos()</code>→<code>position()</code>、<code>mouseButtons()</code>→<code>buttons()</code>、<code>QWheelEvent</code> 构造参数变化、<code>enterEvent</code> 改收 <code>QEnterEvent*</code> 等），网上抄来的旧代码八成踩在这里。</li>
+      <li><strong>记住「未在本机实测编译」</strong>：本机此刻编不动 Qt 程序，这 7 个示例没有可执行产物；但每个 API 都对着真实头文件核对过并写了行号。你换到能编译的环境，按注释里的 CMake 目标名 <code>events_0N_xxx</code> 构建即可。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，事件系统这块，是 Qt 里最「看得见」的一层，也是最容易被讲玄的一层。师傅不带你背 <code>QEvent::Type</code> 那几百个枚举，给你四条心法。</p>
+    <ul>
+      <li><strong>第一条：一切都在循环里。</strong> 你的程序不是「从 main 走到 return」，而是「走进 <code>exec()</code> 就再不回来，直到有人叫停」。理解了这条，「show() 了没东西」「槽里跑大循环界面卡死」「定时器不响」这些症状，都是同一个病。</li>
+      <li><strong>第二条：事件是系统说的，信号是你自己说的。</strong> 别把两层混成一锅。窗口系统只会告诉你「按下在 (120,45)」，「用户点击了提交按钮」这句人话是控件把它<strong>翻译</strong>成信号之后的事。你要改行为，先想清楚要改的是哪一层的话。</li>
+      <li><strong>第三条：合成事件是你最好的实验台。</strong> 本模块最值钱的手法不是某个 API，而是「<strong>自己造一个事件投进去，看它怎么被层层接住</strong>」。从此调事件 bug 不用连鼠标、不用手点一百次，两行代码就能重现。这个习惯请带到以后所有 GUI 调试里去。</li>
+      <li><strong>第四条：不调基类实现，是「静默 bug」的温床。</strong> 重写 <code>event()</code> 忘了 <code>return QWidget::event(e)</code>，程序不会崩、不会报错，只是样式、焦点、父控件协作悄悄没了。第 2 讲用打印计数把这份「静默」放给你看，就是让你以后一眼认出它。</li>
+    </ul>
+    <p>慢慢来。这 7 讲啃下来，你对 Qt 的理解就从「重写了一些虚函数」升级成「知道事件走到哪一层、被谁吃掉、还剩什么」。接下来的绘制、控件与布局、模型视图，全建在你现在能看见的这条派发链上。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

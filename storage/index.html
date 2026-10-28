@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第捌阶段 · 数据与持久化 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>💾 第捌阶段 · 数据与持久化</h1>
+    <p>「这份数据归谁、以什么形状落盘、下次怎么原样拿回来」 · 6 章从配置到数据库</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      前七个阶段，你的程序一关掉，什么都留不下。这一阶段解决「活过进程重启」：用户上次把窗口拖到哪儿、上次输入了什么、
+      列表里那一千条记录、图标和样式表这些不该让用户改坏的资源——它们各自该住在一个什么形状的容器里。
+    </p>
+    <p style="margin-top: 10px;">
+      持久化最容易学歪的地方，是把它当成「调几个 API 存一下」。真正会咬人的是<strong>四件跟 API 无关的事</strong>：
+      <strong>时机</strong>（什么时候写、什么时候读、什么时候 flush）、<strong>类型</strong>（存进去的是 `42` 还是 `"42"`）、
+      <strong>失败</strong>（磁盘满了、文件被占用、JSON 写歪了，你怎么知道）、<strong>完整性</strong>（写到一半掉电，文件会不会变成半截）。
+      本模块每一讲都从这四件事出发，而不是从类名出发。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块共 <strong>6 章</strong>：第 1 讲 <code>QSettings</code>（最小的一块持久化，坑全在时机与类型）；
+      第 2 讲文件与 IO 设备（<code>QFile</code> / <code>QTextStream</code> / <code>QSaveFile</code> / <code>QLockFile</code> / <code>QDir</code>）；
+      第 3 讲 JSON（它看着像 Map，其实是 CBOR 容器上的一层薄皮）；第 4 讲资源系统（把图标、qss、翻译编进 exe）；
+      第 5 讲 Qt SQL（连接名、绑定值、事务、错误四件事）；第 6 讲把数据库接上界面（模型是缓存、视图是投影、中间还隔着代理）。
+      所有示例都<strong>不碰你的真实用户目录</strong>：QSettings 用 <code>setPath</code> 改道到临时目录，数据库用 <code>:memory:</code>，
+      临时文件用完就删。跑完自己吐结论，不需要你动手点。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      目标名 <code>storage_01_qsettings</code> … <code>storage_06_sql_model_view</code>，已在顶层 <code>CMakeLists.txt</code> 的
+      「第捌阶段 · 数据与持久化（storage/）」一节登记；本组额外链 <code>Qt6::Sql</code> 与 <code>Qt6::Xml</code>，
+      第 4 讲的 <code>resource_demo.qrc</code> 由 <code>AUTORCC</code> 处理。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>；每个 .cpp 都过了
+      <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
+      文中每一个类、函数、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
+      凡是策略写在 Qt 的 .cpp 里、头文件里读不到的行为（例如重新查询会不会丢掉未提交的改动），文中一律标成 <strong>Soft</strong>：
+      只承诺「显式提交之后一定不丢」这类能立住的部分。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+        📖 学习指南
+      </a>
+      <a href="../visuals/resource_pipeline.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 资源系统
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>6 张卡片 = 6 章</strong>，按 <strong>第 1 步 → 第 6 步</strong> 一张张往下学。
+    这条主线是「从最小的持久化开始，一层层扩到能撑住界面的数据库」：
+    <strong>第 1 步</strong>键值配置 → <strong>第 2 步</strong>文件与 IO 设备（所有存储的地基）→
+    <strong>第 3 步</strong>结构化文本 → <strong>第 4 步</strong>只读资源（不进磁盘的那些东西）→
+    <strong>第 5 步</strong>关系数据库 → <strong>第 6 步</strong>数据库接界面。
+    本模块有<strong>两道硬坎</strong>：
+    <strong>① 第 2 步「三种模式混用」坎</strong>——文本模式会做换行翻译，于是 <code>pos()</code> 和真实文件偏移不再相等；
+    <code>readAll()</code> 吃大文件；<code>QTextStream::setCodec()</code> 在 Qt6 已经删了，只剩 <code>setEncoding()</code>；
+    <strong>② 第 5、6 步「连接与缓存」坎</strong>——一个连接属于创建它的线程，跨线程共用 = 未定义行为；
+    模型是缓存，你直接改库它不知道；<code>setFilter</code> 会重新查询，未提交的改动和它怎么相处要心里有数。
+    <strong>持久化是全模块里最容易「测试环境都对、用户机器上出事」的一段</strong>：路径、权限、编码、磁盘满、并发写，
+    这些东西你的开发机上一样都不缺，一样都不会发生。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_qsettings.cpp" class="card">
+      <div class="card-step">第 1 步</div>
+      <div class="card-icon">⚙️</div>
+      <div class="card-title">01 · QSettings：配置的时机与类型</div>
+      <div class="card-desc">组织名/应用名是构造期快照，所以 setOrganizationName 必须排在 new QSettings 之前（两个对象的 fileName() 左右对照）；五类构造形态与三种作用域的落盘位置；IniFormat + UserScope 用 setPath 改道到临时目录，不写注册表；层级 key 与 beginGroup；value 的第二个参数不只兜底、还指定期望类型——存 "abc" 读 int 会静静给你默认值。</div>
+      <div class="card-meta"><span class="tag beginner">最小持久化</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="02_file_io.cpp" class="card">
+      <div class="card-step">第 2 步 · 第一道坎</div>
+      <div class="card-icon">📄</div>
+      <div class="card-title">02 · 文件与 IO 设备</div>
+      <div class="card-desc">三层抽象：QIODeviceBase（模式位）→ QIODevice（读写定位动词）→ QFile。openMode 九个位谁能和谁拼、Append 与 Truncate 同时给的后果、Text 位改的是换行翻译不是编码（于是 pos 与真实偏移不等）；seek 到尾部后 atEnd 的实测；QTextStream 在 Qt6 只剩 setEncoding、setCodec 已删；QSaveFile 的原子替换、QLockFile 的互斥、QDir 的遍历规则。</div>
+      <div class="card-meta"><span class="tag hard">IO 语义</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="03_json.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">🧾</div>
+      <div class="card-title">03 · JSON</div>
+      <div class="card-desc">QJsonValue 只有七个类型枚举（Null/Bool/Double/String/Array/Object/Undefined）；读的那一族 to* 全都没有 bool* 出参，类型不对静静回默认值，想知道「有没有这个键」只有 contains()；QJsonObject 的键是集合不是队列（公开接口没有 keyAt），要下标语义只有 QJsonArray；顶层解析只有两个入口、不给多文档；toJson() 的字节不能当协议去 diff。</div>
+      <div class="card-meta"><span class="tag elementary">数据建模</span><span class="tag hard">类型陷阱</span></div>
+    </a>
+
+    <a href="04_resource_system.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">📦</div>
+      <div class="card-title">04 · 资源系统（qrc）</div>
+      <div class="card-desc">路径 = ":" + qresource prefix + 条目路径或 alias，清单见 resource_demo.qrc（prefix/file/alias 三条规则写在注释里）；同一张 logo.svg 挂两个路径，打印「alias 改路径不改内容、字节真存了两份」；AUTORCC 调 rcc 生成三张静态数组 + qInitResources_&lt;名字&gt;()，在 main 之前挂进全局注册表；QResource 的公共可读接口边界；静态库里要手动 Q_INIT_RESOURCE。</div>
+      <div class="card-meta"><span class="tag framework">构建集成</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_sql_database.cpp" class="card">
+      <div class="card-step">第 5 步 · 第二道坎</div>
+      <div class="card-icon">🗄️</div>
+      <div class="card-title">05 · Qt SQL 的四件事</div>
+      <div class="card-desc">连接名（默认名 qt_sql_default_connection 让全进程共用一个连接；database(name, open=true) 还默认帮你 open）；线程规则：连接属于创建它的线程，跨线程要用新名字或 cloneDatabase；QSqlDatabase 不是 QObject（Q_GADGET，拷贝 = 同一连接的第二个句柄，收尾必须 removeDatabase(名字)），而 QSqlQuery 拷贝已 = delete；绑定值防注入；事务与 QSqlError 的读法。</div>
+      <div class="card-meta"><span class="tag hard">连接与线程</span><span class="tag framework">数据库</span></div>
+    </a>
+
+    <a href="06_sql_model_view.cpp" class="card">
+      <div class="card-step">第 6 步</div>
+      <div class="card-icon">🔗</div>
+      <div class="card-title">06 · 数据库接界面</div>
+      <div class="card-desc">三个坑是三张脸：模型不是数据库、视图不是模型。QSqlQueryModel 是只读快照（连 setData 都没声明），QSqlTableModel 是可编辑的行集合；OnFieldChange / OnRowChange / OnManualSubmit 三种编辑策略解释「我改了为什么库里没变」；setFilter/setSort 会重新查询（未提交改动会不会丢标 Soft，硬账只记显式提交之后一定不丢）；QSqlRelationalTableModel 让外键显示成汉字。</div>
+      <div class="card-meta"><span class="tag hard">模型与缓存</span><span class="tag framework">数据库</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>先想「这份数据归谁」再选容器</strong>：用户偏好 → <code>QSettings</code>；结构化文档 → 文件 + JSON；只读常量 → qrc；有查询/关联需求 → SQLite。选错了容器，后面每一行都在跟它打架。</li>
+      <li><strong>一切写盘都假设它会失败</strong>：磁盘满、权限不足、文件被另一个进程占着。检查 <code>open()</code> 的返回值、读 <code>errorString()</code>、关键文件用 <code>QSaveFile</code> 原子替换。</li>
+      <li><strong>编码只有一条路</strong>：全链路 UTF-8，读的时候 <code>QString::fromUtf8</code>，不要依赖系统默认编码。<code>QTextStream::setCodec</code> 在 Qt6 里已经不存在了。</li>
+      <li><strong>数据库先想线程再想 SQL</strong>：一个连接一条线程；句柄可以传，连接不能跨线程用；收尾 <code>removeDatabase(名字)</code>，别指望析构。</li>
+      <li><strong>接界面时记住「模型是缓存」</strong>：绕过模型直接改库，界面不会自己知道；要让界面看到，就通过模型改，或者重新查询。</li>
+      <li><strong>跑之前先想清楚要拿什么证据</strong>：本模块每个示例都把「存的类型 / 读的类型 / 实际拿到什么」「改了几行、提交没提交」打印出来。你改自己的代码时也留这套习惯。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，存储这一块，是「事后最难改」的一块。界面丑，改一版 qss 就好看；架构乱，重构几周能救；但<strong>数据格式定错了、写盘路径选错了、连接线程模型错了</strong>，那是在用户机器上、在升级之后、在某个周五晚上才发作的东西。所以这一阶段我不教你把 API 背全，只教你四个问题：<strong>归谁、什么形状、怎么写不坏、写坏了怎么知道</strong>。</p>
+    <ul>
+      <li><strong>第一条：配置别用自己发明的格式。</strong> <code>QSettings</code> 已经把 ini/注册表的差异吃掉了，你手写一个 <code>config.txt</code>，很快就得自己处理转义、层级、并发写。</li>
+      <li><strong>第二条：写文件要原子。</strong> 直接 <code>QFile</code> 覆盖写，掉电就是半个文件；<code>QSaveFile</code> 先写临时文件再 rename，这是「要么全新、要么全旧」的唯一保证。你的数据越贵，这一条越不能省。</li>
+      <li><strong>第三条：类型要在写的那一刻定死。</strong> <code>QSettings</code> 的自动转换、<code>QJsonValue::toInt()</code> 的静静回默认值、SQL 里的 NULL——它们都不报错，只是给你一个「看起来能用」的错值。读的时候永远用 <code>contains()</code>、<code>isXxx()</code> 先把形状问清。</li>
+      <li><strong>第四条：数据库连接的寿命 ≠ 对象的寿命。</strong> <code>QSqlDatabase</code> 是句柄不是连接，拷贝一次不会开第二条连接；连接归属创建它的线程；收尾用 <code>removeDatabase()</code>。这三句，够你避开九成的 SQL 崩溃。</li>
+      <li><strong>第五条：只读的东西别放磁盘。</strong> 图标、qss、翻译、默认配置——放进 qrc 编进 exe。用户改不坏、装到哪儿都能找到、升级不会丢。</li>
+    </ul>
+    <p>这一关啃完，你的程序才真正「有记忆」。而一个能记住东西的程序，才谈得上是产品。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qt 工程师修炼路线图 · 从入门到资深</title>
+<link rel="stylesheet" href="_assets/module.css">
+<style>
+  /* ---------- 顶部 ---------- */
+  .top-links {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .top-link {
+    display: inline-block;
+    padding: 8px 16px;
+    background: rgba(255,255,255,.10);
+    border: 1px solid rgba(255,255,255,.22);
+    color: #e6f5ec;
+    text-decoration: none;
+    border-radius: 8px;
+    font-size: 13px;
+    transition: background .2s, border-color .2s;
+  }
+  .top-link:hover { background: rgba(65,205,82,.30); border-color: rgba(65,205,82,.55); }
+
+  .hero { text-align: center; color: #fff; padding: 10px 0 26px; }
+  .hero .kicker {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: .22em;
+    color: #8fe3a6;
+    margin-bottom: 12px;
+  }
+  .hero h1 {
+    font-size: 38px;
+    line-height: 1.25;
+    margin-bottom: 12px;
+    text-shadow: 2px 2px 10px rgba(0,0,0,.40);
+  }
+  .hero .sub {
+    font-size: 15.5px;
+    line-height: 1.85;
+    color: #d7e8dd;
+    max-width: 860px;
+    margin: 0 auto 20px;
+  }
+  .hero-stats {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stat {
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 12px;
+    padding: 10px 20px;
+    color: #d7e8dd;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .stat strong { display: block; color: #6ee7a0; font-size: 22px; }
+
+  /* ---------- 诚实标注 ---------- */
+  .notice {
+    background: rgba(255,247,237,.97);
+    border-left: 4px solid #f59e0b;
+    border-radius: 0 14px 14px 0;
+    padding: 18px 22px;
+    margin-bottom: 22px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.20);
+  }
+  .notice h2 { font-size: 16px; color: #92400e; margin-bottom: 8px; }
+  .notice p { font-size: 13px; color: #78533a; line-height: 1.85; }
+  .notice p + p { margin-top: 6px; }
+  .notice code {
+    background: rgba(146,64,14,.10);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+
+  /* ---------- 四段式地图 ---------- */
+  .bands {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+  .band {
+    position: relative;
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px 16px 14px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.22);
+  }
+  .band::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    border-radius: 14px 14px 0 0;
+    background: linear-gradient(90deg, #41cd52, #15803d);
+  }
+  .band.phase-2::before { background: linear-gradient(90deg, #34d399, #0d9488); }
+  .band.phase-3::before { background: linear-gradient(90deg, #38bdf8, #0e7490); }
+  .band.phase-4::before { background: linear-gradient(90deg, #a78bfa, #6d28d9); }
+  .band-head {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    color: #15803d;
+    margin-bottom: 4px;
+  }
+  .band h3 { font-size: 15px; color: #14532d; margin-bottom: 6px; }
+  .band p { font-size: 12px; color: #667; line-height: 1.7; margin-bottom: 10px; min-height: 42px; }
+  .band-chips { display: flex; flex-direction: column; gap: 6px; }
+  .band-chips a {
+    display: block;
+    font-size: 12.5px;
+    color: #166534;
+    text-decoration: none;
+    background: #f0fdf4;
+    border: 1px solid #dcfce7;
+    border-radius: 8px;
+    padding: 5px 9px;
+    transition: background .2s, border-color .2s, transform .2s;
+  }
+  .band-chips a:hover { background: #dcfce7; border-color: #86efac; transform: translateX(2px); }
+  .band-chips a span { color: #94a3b8; font-size: 11px; }
+
+  .band-final {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+    border: 1px solid #bbf7d0;
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-top: 16px;
+    box-shadow: 0 8px 26px rgba(0,0,0,.18);
+  }
+  .band-final strong { color: #14532d; font-size: 15px; }
+  .band-final p { color: #3f5a49; font-size: 12.5px; line-height: 1.7; margin-top: 4px; }
+  .band-final a {
+    flex: none;
+    background: #15803d;
+    color: #fff;
+    text-decoration: none;
+    font-size: 13px;
+    padding: 9px 18px;
+    border-radius: 999px;
+  }
+  .band-final a:hover { background: #166534; }
+
+  /* ---------- 阶段卡片 ---------- */
+  .stage {
+    position: relative;
+    background: #fff;
+    border-radius: 16px;
+    padding: 22px 24px 20px 92px;
+    margin-bottom: 16px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.20);
+  }
+  .stage-badge {
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 23px;
+    font-weight: 700;
+    color: #fff;
+    background: linear-gradient(135deg, #41cd52, #15803d);
+    box-shadow: 0 6px 16px rgba(21,128,61,.28);
+  }
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .stage-title { font-size: 19px; font-weight: 700; color: #14532d; }
+  .stage-dir {
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12px;
+    color: #8aa39a;
+  }
+  .stage-level {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #eef2f0;
+    color: #4b6357;
+  }
+  .stage-meta { font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
+  .stage-desc { font-size: 13.5px; color: #555; line-height: 1.8; margin-bottom: 10px; }
+  .stage-points {
+    margin: 0 0 12px 18px;
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.9;
+  }
+  .stage-points li::marker { color: #16a34a; }
+  .pitfall {
+    font-size: 12.5px;
+    line-height: 1.75;
+    color: #8a5a12;
+    background: #fffbeb;
+    border-left: 3px solid #fbbf24;
+    border-radius: 0 8px 8px 0;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+  }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip {
+    font-size: 11.5px;
+    color: #166534;
+    background: #f0fdf4;
+    border: 1px solid #dcfce7;
+    padding: 2px 9px;
+    border-radius: 999px;
+  }
+  .stage-links { display: flex; gap: 8px; flex-wrap: wrap; }
+  .slink {
+    display: inline-block;
+    font-size: 12.5px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    text-decoration: none;
+    background: #15803d;
+    color: #fff;
+    transition: background .2s;
+  }
+  .slink:hover { background: #166534; }
+  .slink.ghost {
+    background: #fff;
+    color: #15803d;
+    border: 1px solid #86efac;
+  }
+  .slink.ghost:hover { background: #f0fdf4; }
+
+  /* ---------- 图解网格 ---------- */
+  .vgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .vcard {
+    display: block;
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px 18px;
+    text-decoration: none;
+    color: inherit;
+    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .vcard:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(0,0,0,.26); }
+  .vcard .vstage { font-size: 11px; font-weight: 700; color: #15803d; letter-spacing: .06em; }
+  .vcard h3 { font-size: 14.5px; color: #222; margin: 5px 0 6px; }
+  .vcard p { font-size: 12px; color: #667; line-height: 1.7; }
+
+  /* ---------- 表格 ---------- */
+  .tbl-wrap {
+    background: rgba(255,255,255,.97);
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.22);
+    overflow-x: auto;
+    margin-bottom: 8px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.8px; }
+  th, td { padding: 10px 12px; text-align: left; vertical-align: top; line-height: 1.75; }
+  thead th {
+    background: #f0fdf4;
+    color: #14532d;
+    font-size: 12px;
+    letter-spacing: .04em;
+    border-bottom: 2px solid #dcfce7;
+    white-space: nowrap;
+  }
+  tbody tr + tr td { border-top: 1px solid #eef3f0; }
+  tbody tr:hover td { background: #fbfdfb; }
+  td code {
+    font-size: 12px;
+    background: #f1f5f3;
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #14532d;
+  }
+  td:first-child { white-space: nowrap; font-weight: 700; color: #15803d; }
+
+  /* ---------- 命令块 ---------- */
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 12px;
+    padding: 16px 18px;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 12.5px;
+    line-height: 1.85;
+    overflow-x: auto;
+    margin: 12px 0 4px;
+  }
+  pre .c { color: #7c8ea8; }
+  pre .p { color: #6ee7a0; }
+
+  .step-list { counter-reset: s; padding-left: 0; list-style: none; }
+  .step-list > li {
+    counter-increment: s;
+    position: relative;
+    padding-left: 42px;
+    margin-bottom: 14px;
+    color: #46544b;
+    font-size: 13.5px;
+    line-height: 1.85;
+  }
+  .step-list > li::before {
+    content: counter(s);
+    position: absolute;
+    left: 0;
+    top: 1px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #dcfce7;
+    color: #15803d;
+    font-weight: 700;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step-list strong { color: #14532d; }
+
+  .page-foot {
+    color: #a9c9b8;
+    font-size: 12.5px;
+    line-height: 1.9;
+    margin-top: 22px;
+    padding: 14px 4px 0;
+    border-top: 1px solid rgba(255,255,255,.12);
+  }
+  .page-foot a { color: #8fe3a6; }
+
+  @media (max-width: 900px) {
+    .bands { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .band p { min-height: 0; }
+  }
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 27px; }
+    .hero .sub { font-size: 14px; }
+    .stage { padding: 20px; }
+    .stage-badge { position: static; margin-bottom: 10px; width: 46px; height: 46px; font-size: 20px; }
+    .bands { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <nav class="top-links">
+    <a class="top-link" href="README.md">📄 README</a>
+    <a class="top-link" href="visuals/index.html">🎬 图解专区（16 页）</a>
+    <a class="top-link" href="projects/todo_desktop/README.md">🏁 实战项目</a>
+    <a class="top-link" href="_tools/check_syntax.sh">🔍 校验脚本</a>
+  </nav>
+
+  <header class="hero">
+    <span class="kicker">QT 6 · WIDGETS · C++17</span>
+    <h1>Qt 工程师修炼路线图</h1>
+    <p class="sub">
+      从「窗口能弹出来」到「换台电脑也能跑」——十一个阶段、<strong>73 个编号示例</strong>、
+      <strong>16 张分步动画</strong>、一个能交付的实战项目。每个示例都设计成<strong>无人值守跑完、自己吐证据</strong>：
+      打印顺序、计数器、耗时数字，而不是「你看这个界面多漂亮」。
+    </p>
+    <div class="hero-stats">
+      <div class="stat"><strong>11</strong>个阶段</div>
+      <div class="stat"><strong>73</strong>个示例</div>
+      <div class="stat"><strong>16</strong>张动画图解</div>
+      <div class="stat"><strong>5</strong>份独立 CMake 工程</div>
+      <div class="stat"><strong>1</strong>个实战项目</div>
+    </div>
+  </header>
+
+  <section class="notice">
+    <h2>⚠️ 先读这一段：这份资料的边界</h2>
+    <p>
+      写作环境是 <strong>Qt 6.12.0 + Windows + MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）+ CMake ≥ 3.21 + Ninja + C++17</strong>。
+      但本机 <strong>Qt 运行库正在升级，当前链接不出可执行文件</strong>（链接产物会以 <code>0xC0000139</code> 退出）。
+      所以：<strong>73 个示例全部通过了 <code>moc</code> + <code>g++ -fsyntax-only -Wall -Wextra</code>（0 error / 0 warning），但没有一个在本机链接、运行过</strong>。
+      文中出现的「预期输出」「预期顺序」「预期耗时」都是<strong>按 Qt 语义推出来的</strong>，不是实测数字。
+    </p>
+    <p>
+      每个类、函数、枚举值、重载都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，
+      注释里常标着头文件名与行号；<strong>核对不上的一律不写</strong>——这比写错一个 API 更值。
+      等你在能链接的机器上跑起来，如果哪个数字和注释里的「预期」不一致，
+      <strong>以你打印出来的为准</strong>，并以那份差异为准回来修订注释：证据优先于权威。
+    </p>
+  </section>
+
+  <div class="section-title"><span>🧭</span> 四段式地图：这条路为什么是这个顺序</div>
+  <p class="list-note">
+    十一个阶段不是并列的知识点，而是<strong>四段递进</strong>：先<strong>会用</strong>（能写出会响应的界面），
+    再<strong>懂机制</strong>（知道它为什么这样动），再<strong>扛得住</strong>（线程、存储、网络三件真实工程的事），
+    最后<strong>交得出去</strong>（别人改得动、别的电脑跑得起来）。四段之后用一个实战项目收口。
+    编号就是推荐顺序；每一段内部的顺序也有理由，写在下面各阶段卡片里。
+  </p>
+  <div class="bands">
+    <div class="band">
+      <div class="band-head">第一段</div>
+      <h3>会用</h3>
+      <p>让窗口出来、让控件响。这一段的门槛是「敢动手」，不是「全懂」。</p>
+      <div class="band-chips">
+        <a href="start/index.html">壹 · 起步 <span>6 例</span></a>
+        <a href="widgets/index.html">贰 · 控件与布局 <span>10 例</span></a>
+        <a href="events/index.html">叁 · 事件系统 <span>7 例</span></a>
+      </div>
+    </div>
+    <div class="band phase-2">
+      <div class="band-head">第二段</div>
+      <h3>懂机制</h3>
+      <p>把 Qt 与普通 C++ 不同的那几层拆开：元对象、绘制、数据与视图。</p>
+      <div class="band-chips">
+        <a href="metaobject/index.html">肆 · 元对象系统 <span>8 例</span></a>
+        <a href="painting/index.html">伍 · 绘图与自绘控件 <span>8 例</span></a>
+        <a href="model_view/index.html">陆 · 模型/视图 <span>8 例</span></a>
+      </div>
+    </div>
+    <div class="band phase-3">
+      <div class="band-head">第三段</div>
+      <h3>扛得住</h3>
+      <p>真实程序一定会碰的三件事：并发、数据落盘、跟外界说话。</p>
+      <div class="band-chips">
+        <a href="threads/index.html">柒 · 并发与线程 <span>8 例</span></a>
+        <a href="storage/index.html">捌 · 数据与持久化 <span>6 例</span></a>
+        <a href="network/index.html">玖 · 网络 <span>5 例</span></a>
+      </div>
+    </div>
+    <div class="band phase-4">
+      <div class="band-head">第四段</div>
+      <h3>交得出去</h3>
+      <p>代码被人改、被机器验、被拷到别人电脑上——工程的两道收口。</p>
+      <div class="band-chips">
+        <a href="quality/index.html">拾 · 工程质量 <span>7 例</span></a>
+        <a href="build_deploy/index.html">拾壹 · 构建与部署 <span>5 工程</span></a>
+      </div>
+    </div>
+  </div>
+  <div class="band-final">
+    <div>
+      <strong>🏁 收口：projects/todo_desktop —— 桌面待办管理器</strong>
+      <p>把前十一阶段拧成一个真程序：模型/视图存储任务、SQLite 落盘、JSON 导入导出、后台线程做批量操作、自绘优先级标记、单元测试 + windeployqt 交付。</p>
+    </div>
+    <a href="projects/todo_desktop/README.md">进入实战项目 →</a>
+  </div>
+
+  <div class="section-title"><span>📚</span> 十一个阶段，逐个交代</div>
+  <p class="list-note">
+    每张卡片的链接就是入口：<strong>阶段首页</strong>（卡片式目录，先看这个）→ <strong>学习指南</strong>（tutorial.md，讲为什么学、坑在哪、练习做什么）→
+    <strong>源码</strong>在对应目录里，编号即阅读顺序。🎬 是配着看的动画图解。
+  </p>
+
+  <!-- 壹 -->
+  <article class="stage">
+    <div class="stage-badge">壹</div>
+    <div class="stage-head">
+      <span class="stage-title">起步 · Start</span>
+      <span class="stage-dir">start/</span>
+      <span class="stage-level">入门</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 7~10 天 · 6 个示例 · 1 张图解</div>
+    <p class="stage-desc">
+      先把「Qt 程序怎么活起来」这件事钉死：<code>main()</code> → <code>QApplication</code> → <code>show()</code> → <code>exec()</code>
+      这条链上每一步做了什么、为什么 <code>exec()</code> 之前窗口还没上屏、日志怎么分类打开、没有显示器时怎么跑。
+      这一段不写复杂界面，只保证你后面每一讲都<strong>看得见证据</strong>。
+    </p>
+    <ul class="stage-points">
+      <li>说清七步启动流程，并能解释「构造函数里 <code>width()</code> 拿到的是草稿」</li>
+      <li>会用 <code>qInfo/qWarning/qCDebug</code> 与 <code>QT_LOGGING_RULES</code> 控制输出</li>
+      <li>能在 <code>-platform offscreen</code> 下无头启动并自动退出——这是后面所有示例的自测方式</li>
+    </ul>
+    <div class="chips">
+      <span class="chip">QApplication</span><span class="chip">首个窗口</span><span class="chip">工程结构</span>
+      <span class="chip">交互闭环</span><span class="chip">分类日志</span><span class="chip">offscreen</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="start/index.html">阶段首页</a>
+      <a class="slink ghost" href="start/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="start/01_hello_window.cpp">第一个示例</a>
+      <a class="slink ghost" href="visuals/startup_flow.html">🎬 图解</a>
+    </div>
+  </article>
+
+  <!-- 贰 -->
+  <article class="stage">
+    <div class="stage-badge">贰</div>
+    <div class="stage-head">
+      <span class="stage-title">控件与布局 · Widgets</span>
+      <span class="stage-dir">widgets/</span>
+      <span class="stage-level">进阶</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 2 周 · 10 个示例 · 1 张图解</div>
+    <p class="stage-desc">
+      这一阶段解决「界面真的搭起来」：控件怎么选、窗口怎么成型、尺寸怎么谈、外观怎么统一。
+      十个示例按「控件够用 → 窗口成型 → 尺寸谈得拢 → 长得好看、说得外话」排。
+      本阶段你会第一次写 <code>connect()</code>——<strong>先会用，第肆阶段再拆开看它内部</strong>，这是有意的。
+    </p>
+    <ul class="stage-points">
+      <li>选型：什么时候用 <code>QLabel</code>/<code>QLineEdit</code>/<code>QTextEdit</code>，什么时候该上 <code>QTableView</code></li>
+      <li>用 <code>QVBoxLayout</code>/<code>QGridLayout</code>/<code>QFormLayout</code> + stretch 组合出稳定界面</li>
+      <li>读得懂 <code>sizeHint</code>/<code>minimumSizeHint</code>/<code>QSizePolicy</code> 的四方谈判</li>
+      <li>会用 QSS 换皮，并知道 QSS 改不动自绘的 <code>paintEvent</code></li>
+      <li>知道 <code>tr()</code> 与 <code>.ts/.qm</code> 的关系（第拾壹阶段接构建）</li>
+    </ul>
+    <div class="chips">
+      <span class="chip">按钮与标签</span><span class="chip">文本控件</span><span class="chip">容器</span>
+      <span class="chip">便利视图</span><span class="chip">对话框</span><span class="chip">QMainWindow</span>
+      <span class="chip">布局</span><span class="chip">尺寸策略</span><span class="chip">QSS</span><span class="chip">国际化</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="widgets/index.html">阶段首页</a>
+      <a class="slink ghost" href="widgets/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="widgets/08_size_policies.cpp">尺寸谈判源码</a>
+      <a class="slink ghost" href="visuals/layout_negotiation.html">🎬 图解</a>
+    </div>
+  </article>
+
+  <!-- 叁 -->
+  <article class="stage">
+    <div class="stage-badge">叁</div>
+    <div class="stage-head">
+      <span class="stage-title">事件系统 · Events</span>
+      <span class="stage-dir">events/</span>
+      <span class="stage-level">进阶</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1.5 周 · 7 个示例 · 2 张图解</div>
+    <p class="stage-desc">
+      Qt 程序不是「从 main 走到 return」，而是「走进 <code>exec()</code> 就再不回来」。
+      重绘、按钮响应、定时器、拖放，全是这台机器转出来的。这一阶段把事件循环、三层派发、过滤器、定时器、
+      输入与焦点、自定义事件、拖放逐个钉死，并且<strong>全程不用鼠标键盘</strong>——自己构造事件投进去，用顺序和次数当证据。
+    </p>
+    <ul class="stage-points">
+      <li>画出 <code>notify → event() → handler</code> 三层链，说清 <code>sendEvent</code> 与 <code>postEvent</code> 的时序差</li>
+      <li>用 <code>eventFilter</code> 不继承就改行为；知道吞掉 press/release 后 <code>clicked()</code> 为什么是 0</li>
+      <li><code>QTimer</code> 三档精度 + <code>QElapsedTimer</code> 实测间隔；知道「没有事件循环，定时器一次不响」</li>
+      <li>读懂 Qt6 输入 API：<code>position()</code> 是 <code>QPointF</code>、<code>button()</code> vs <code>buttons()</code>、<code>angleDelta()</code> vs <code>pixelDelta()</code></li>
+      <li>写对一个拖放：<code>QMimeData</code> + <code>acceptProposedAction()</code> + <code>startDragDistance()</code></li>
+    </ul>
+    <div class="pitfall">
+      <strong>本阶段硬坎：事件 ≠ 信号。</strong> 事件是系统层语义（谁来、按了什么），信号是应用层语义（意味着什么）。
+      <code>QAbstractButton</code> 把 <code>QMouseEvent</code> 翻译成 <code>clicked()</code>；而 <code>btn->click()</code> 直接发信号、<strong>绕过事件</strong>——这就是为什么过滤器拦不住它。
+    </div>
+    <div class="chips">
+      <span class="chip">事件循环</span><span class="chip">三层派发</span><span class="chip">事件过滤器</span><span class="chip">定时器</span>
+      <span class="chip">鼠标/键盘/焦点</span><span class="chip">自定义事件</span><span class="chip">拖放</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="events/index.html">阶段首页</a>
+      <a class="slink ghost" href="events/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="events/01_event_loop.cpp">事件循环源码</a>
+      <a class="slink ghost" href="visuals/event_loop.html">🎬 事件循环</a>
+      <a class="slink ghost" href="visuals/event_filter.html">🎬 过滤器</a>
+    </div>
+  </article>
+
+  <!-- 肆 -->
+  <article class="stage">
+    <div class="stage-badge">肆</div>
+    <div class="stage-head">
+      <span class="stage-title">元对象系统 · Meta-Object</span>
+      <span class="stage-dir">metaobject/</span>
+      <span class="stage-level">进阶</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 2 周 · 8 个示例 · 3 张图解</div>
+    <p class="stage-desc">
+      Qt 与别家 GUI 库的根本区别都在这一层：<code>Q_OBJECT</code>、moc、连接语义、生命周期、属性、反射。
+      它在编号上排在控件与事件之后，不是因为它次要，而是因为<strong>你得先写过 <code>connect</code>，才看得懂它在替你做什么</strong>。
+      八讲从「会用信号槽」一路读到「读懂元对象表」。
+    </p>
+    <ul class="stage-points">
+      <li>说清 <code>emit</code> 展开成什么、moc 生成哪些函数、连接在什么时候把指针换成分发表下标</li>
+      <li>会挑连接类型（Auto / Direct / Queued / BlockingQueued / Unique），知道同线程 <code>BlockingQueued</code> 直接死锁</li>
+      <li>会用 <code>Q_PROPERTY</code> + <code>Q_ENUM</code> + <code>QMetaObject::invokeMethod</code> 做动态调用</li>
+      <li>能解释对象树所有权、<code>deleteLater</code> 的时机、<code>QPointer</code> 怎么自保</li>
+      <li>知道 <code>Q_OBJECT</code> 只声明不实现，所以 .cpp 里的类要 <code>#include "本文件名.moc"</code></li>
+    </ul>
+    <div class="pitfall">
+      <strong>本阶段硬坎：moc 的世界只在运行期报错。</strong> 属性名拼错、枚举漏写 <code>Q_ENUM</code>、
+      <code>indexOfMethod</code> 返回 -1 还拿去用——编译器一个字都不说。所以这一阶段的示例刻意把「失败长什么样」打出来。
+    </div>
+    <div class="chips">
+      <span class="chip">信号槽基础</span><span class="chip">connect 变体</span><span class="chip">disconnect</span>
+      <span class="chip">lambda 与寿命</span><span class="chip">moc 解剖</span><span class="chip">属性系统</span>
+      <span class="chip">对象树</span><span class="chip">内省</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="metaobject/index.html">阶段首页</a>
+      <a class="slink ghost" href="metaobject/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="metaobject/05_moc_anatomy.cpp">moc 解剖源码</a>
+      <a class="slink ghost" href="visuals/moc_signal_slot.html">🎬 moc</a>
+      <a class="slink ghost" href="visuals/connection_types.html">🎬 连接类型</a>
+      <a class="slink ghost" href="visuals/qobject_tree.html">🎬 对象树</a>
+    </div>
+  </article>
+
+  <!-- 伍 -->
+  <article class="stage">
+    <div class="stage-badge">伍</div>
+    <div class="stage-head">
+      <span class="stage-title">绘图与自定义控件 · Painting</span>
+      <span class="stage-dir">painting/</span>
+      <span class="stage-level">进阶</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1.5 周 · 8 个示例 · 2 张图解</div>
+    <p class="stage-desc">
+      从「拿笔往哪儿画」到「造一个能复用的控件」。这一阶段的每个示例都会把绘制结果存成 PNG，
+      跑完在 <code>build/bin</code> 下能看到图——绘制这种东西，光看代码不算懂，得看图、看坐标数字。
+    </p>
+    <ul class="stage-points">
+      <li>在 <code>paintEvent</code> 里画线/路径/渐变/文字/图片，知道坐标系与变换的叠加顺序</li>
+      <li>写一个自绘控件（<code>sizeHint</code> + <code>paintEvent</code> + 命中测试），处理 <code>devicePixelRatio</code></li>
+      <li>用 <code>QGraphicsView</code> 搭一个可缩放拖拽的场景，理解 item 与 scene 两套坐标</li>
+      <li>用 <code>update()</code> 和脏区理解重绘成本，知道为什么不该在 paintEvent 里干重活</li>
+    </ul>
+    <div class="chips">
+      <span class="chip">QPainter</span><span class="chip">坐标与变换</span><span class="chip">画笔/画刷/渐变</span>
+      <span class="chip">字体度量</span><span class="chip">图像</span><span class="chip">自绘控件</span>
+      <span class="chip">路径与裁剪</span><span class="chip">GraphicsView</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="painting/index.html">阶段首页</a>
+      <a class="slink ghost" href="painting/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="painting/06_custom_widget.cpp">自绘控件源码</a>
+      <a class="slink ghost" href="visuals/painting_pipeline.html">🎬 绘制管线</a>
+      <a class="slink ghost" href="visuals/coordinates.html">🎬 坐标系</a>
+    </div>
+  </article>
+
+  <!-- 陆 -->
+  <article class="stage">
+    <div class="stage-badge">陆</div>
+    <div class="stage-head">
+      <span class="stage-title">模型/视图与委托 · Model/View</span>
+      <span class="stage-dir">model_view/</span>
+      <span class="stage-level">中高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 2 周 · 8 个示例 · 2 张图解</div>
+    <p class="stage-desc">
+      全课程<strong>真正换脑子</strong>的地方：数据只住在模型里，视图每画一格都现场来问 <code>data(index, role)</code>。
+      五角色分工（Model / View / Delegate / Selection / Proxy）一次摆清，然后手写模型、打通编辑回路、写委托、套代理、管选择，
+      最后算一算「十万行为什么不卡、又是怎么被人一句话弄卡的」。
+    </p>
+    <ul class="stage-points">
+      <li>手写 <code>QAbstractTableModel</code> 的五个纯虚函数 + <code>flags</code>/<code>setData</code>/<code>dataChanged</code> 回路</li>
+      <li>写自定义委托：<code>paint</code> / <code>sizeHint</code> / <code>createEditor</code> / <code>setEditorData</code> / <code>setModelData</code> 方向不搞反</li>
+      <li>套代理模型并 <code>mapToSource</code>；知道拿代理 index 直接问源模型为什么给空值</li>
+      <li>十万行不卡的三条调优：只问可见区、别用 <code>ResizeToContents</code>、<code>setUniformRowHeights</code></li>
+    </ul>
+    <div class="pitfall">
+      <strong>本阶段硬坎：索引是坐标，不是身份证。</strong>
+      <code>QModelIndex</code> 不持数据、会失效、不能跨模型混用；套了代理之后，视图给的 index 一律先 <code>mapToSource</code>。
+      拿代理 index 直接问源模型<strong>不报错、只给空值</strong>——这是「偶现空表格 / 删错行」的经典病根。
+    </div>
+    <div class="chips">
+      <span class="chip">五角色</span><span class="chip">手写模型</span><span class="chip">flags/setData</span>
+      <span class="chip">委托</span><span class="chip">代理模型</span><span class="chip">选择模型</span>
+      <span class="chip">QStandardItemModel</span><span class="chip">视图调优</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="model_view/index.html">阶段首页</a>
+      <a class="slink ghost" href="model_view/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="model_view/02_custom_table_model.cpp">手写模型源码</a>
+      <a class="slink ghost" href="visuals/model_view.html">🎬 数据流</a>
+      <a class="slink ghost" href="visuals/delegate_lifecycle.html">🎬 委托生命周期</a>
+    </div>
+  </article>
+
+  <!-- 柒 -->
+  <article class="stage">
+    <div class="stage-badge">柒</div>
+    <div class="stage-head">
+      <span class="stage-title">并发与线程 · Threads</span>
+      <span class="stage-dir">threads/</span>
+      <span class="stage-level">中高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 2 周 · 8 个示例 · 1 张图解</div>
+    <p class="stage-desc">
+      一条铁律先记住：<strong>只有 <code>run()</code> 跑在新线程里，别的都在原线程</strong>。
+      从亲和性讲到跨线程信号，再到四种同步工具、<code>QtConcurrent</code>、<code>QRunnable</code> + 线程池、取消与收尾，
+      最后用本地套接字做一次进程间通信。全程<strong>一次 <code>terminate()</code> 都不调</strong>——那是拆房子，不是收摊。
+    </p>
+    <ul class="stage-points">
+      <li>说清对象亲和性与「槽在哪个线程跑」，会用 <code>moveToThread</code> 的正路</li>
+      <li>跨线程只用排队信号（参数被拷贝），共享数据用 mutex / atomic / 只读</li>
+      <li><code>QtConcurrent</code>、<code>QThreadPool</code>、<code>QRunnable</code> 三种并行写法各用在什么场合</li>
+      <li>会写不靠 <code>terminate()</code> 的收尾：取消标志 + <code>wait()</code> + <code>deleteLater</code></li>
+    </ul>
+    <div class="pitfall">
+      <strong>本阶段硬坎：线程归属。</strong> 在错误的线程里创建 QObject、在 <code>run()</code> 里碰界面、
+      用 <code>Direct</code> 连接跨线程——这三件事都「能编过、有时也能跑」，然后在你演示那天崩。
+    </div>
+    <div class="chips">
+      <span class="chip">QThread 两条路</span><span class="chip">亲和性</span><span class="chip">跨线程信号</span>
+      <span class="chip">同步四工具</span><span class="chip">QtConcurrent</span><span class="chip">线程池</span>
+      <span class="chip">取消与收尾</span><span class="chip">本地 IPC</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="threads/index.html">阶段首页</a>
+      <a class="slink ghost" href="threads/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="threads/07_cancel_and_shutdown.cpp">收尾源码</a>
+      <a class="slink ghost" href="visuals/thread_affinity.html">🎬 线程归属</a>
+      <a class="slink ghost" href="visuals/connection_types.html">🎬 连接类型</a>
+    </div>
+  </article>
+
+  <!-- 捌 -->
+  <article class="stage">
+    <div class="stage-badge">捌</div>
+    <div class="stage-head">
+      <span class="stage-title">数据与持久化 · Storage</span>
+      <span class="stage-dir">storage/</span>
+      <span class="stage-level">中高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1 周 · 6 个示例 · 1 张图解</div>
+    <p class="stage-desc">
+      只问三个问题：<strong>这份数据归谁、以什么形状落盘、下次怎么原样拿回来</strong>。
+      QSettings 存配置、QFile/QSaveFile 写文件、JSON 做交换格式、qrc 把资源编进 exe、SQLite 落库，最后用 SQL 模型接回界面。
+      所有示例<strong>不碰你真实的用户配置</strong>：配置写临时目录，数据库用 <code>:memory:</code>。
+    </p>
+    <ul class="stage-points">
+      <li><code>QSettings</code> 的键、组、类型与「为什么不要存二进制大对象」</li>
+      <li><code>QFile</code>/<code>QSaveFile</code>/<code>QTextStream</code>：原子写、编码、错误通道</li>
+      <li><code>QJsonDocument</code> 三件套与 <code>QJsonValue</code> 的类型判断顺序</li>
+      <li><code>.qrc</code> 资源的读取与生命周期；<code>QSqlDatabase</code> 连接名与 <code>QSqlTableModel</code></li>
+    </ul>
+    <div class="chips">
+      <span class="chip">QSettings</span><span class="chip">文件 IO</span><span class="chip">JSON</span>
+      <span class="chip">资源系统</span><span class="chip">SQLite</span><span class="chip">SQL 模型</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="storage/index.html">阶段首页</a>
+      <a class="slink ghost" href="storage/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="storage/05_sql_database.cpp">数据库源码</a>
+      <a class="slink ghost" href="visuals/resource_pipeline.html">🎬 资源系统</a>
+    </div>
+  </article>
+
+  <!-- 玖 -->
+  <article class="stage">
+    <div class="stage-badge">玖</div>
+    <div class="stage-head">
+      <span class="stage-title">网络 · Network</span>
+      <span class="stage-dir">network/</span>
+      <span class="stage-level">中高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1 周 · 5 个示例 · 1 张图解</div>
+    <p class="stage-desc">
+      <code>get()</code> 立刻返回，真正的工作在没有你的地方发生。这一阶段的五讲把「一个请求的一生」讲完：
+      三个对象的三个生命周期、两场考试（传输错误与 HTTP 状态码）、进度里的 -1 总量、取消为什么用 <code>abort()</code>；
+      再用 <code>QTcpServer</code>/<code>QTcpSocket</code> 写一个本地回环 echo，讲清分帧。
+      <strong>全程只连 127.0.0.1，不碰公网</strong>，断网也能跑完。
+    </p>
+    <ul class="stage-points">
+      <li>说清 <code>QNetworkAccessManager</code> / <code>QNetworkRequest</code> / <code>QNetworkReply</code> 各自活多久、谁删</li>
+      <li>分清 <code>error()</code>（传输层）与 <code>attribute(StatusCodeAttribute)</code>（HTTP 层）</li>
+      <li>用 <code>listen(QHostAddress::LocalHost, 0)</code> 起服务端，处理「一次读到的不是一条完整消息」</li>
+      <li>下载进度里总量可能是 -1；取消用 <code>abort()</code> 而不是 <code>delete</code> reply</li>
+    </ul>
+    <div class="chips">
+      <span class="chip">QNetworkAccessManager</span><span class="chip">REST 客户端</span>
+      <span class="chip">TCP 客户端/服务端</span><span class="chip">下载与进度</span><span class="chip">DNS 与 TLS</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="network/index.html">阶段首页</a>
+      <a class="slink ghost" href="network/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="network/01_network_access_manager.cpp">请求生命周期源码</a>
+      <a class="slink ghost" href="visuals/network_async.html">🎬 异步网络</a>
+    </div>
+  </article>
+
+  <!-- 拾 -->
+  <article class="stage">
+    <div class="stage-badge">拾</div>
+    <div class="stage-head">
+      <span class="stage-title">工程质量与资深实践 · Quality</span>
+      <span class="stage-dir">quality/</span>
+      <span class="stage-level">高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1.5 周 · 7 个示例 · 1 张专属图解</div>
+    <p class="stage-desc">
+      让代码「经得起别人改、经得起机器验」。前两讲是真正的 QtTest 用例（数据驱动、GUI 事件注入），
+      中间几讲是可跑的架构图：分层、所有权与生命周期、统一的错误通道；最后两讲做性能取证——
+      <code>QElapsedTimer</code> 加计数器，<strong>没有一条优化建议是凭感觉给的</strong>。
+    </p>
+    <ul class="stage-points">
+      <li>用 QtTest 写数据驱动测试；<code>QTEST_GUILESS_MAIN</code> 与 <code>QTEST_MAIN</code> 选对</li>
+      <li>三层解耦：UI / 业务 / 存储，测业务层时不建窗口</li>
+      <li>所有权审计：父子关系、<code>unique_ptr</code>、<code>deleteLater</code> 的选择表</li>
+      <li>性能取证三步：先量、再定位、最后才改；改完必须能复量出差别</li>
+    </ul>
+    <div class="chips">
+      <span class="chip">QtTest 单元</span><span class="chip">QtTest GUI</span><span class="chip">分层架构</span>
+      <span class="chip">所有权与寿命</span><span class="chip">错误处理</span><span class="chip">性能剖析</span>
+      <span class="chip">大视图优化</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="quality/index.html">阶段首页</a>
+      <a class="slink ghost" href="quality/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="quality/01_qtest_unit.cpp">测试源码</a>
+      <a class="slink ghost" href="visuals/quality_gate.html">🎬 四道质量门</a>
+      <a class="slink ghost" href="visuals/qobject_tree.html">🎬 对象树</a>
+      <a class="slink ghost" href="visuals/model_view.html">🎬 模型视图</a>
+    </div>
+  </article>
+
+  <!-- 拾壹 -->
+  <article class="stage">
+    <div class="stage-badge">拾壹</div>
+    <div class="stage-head">
+      <span class="stage-title">构建与部署 · Build &amp; Deploy</span>
+      <span class="stage-dir">build_deploy/</span>
+      <span class="stage-level">高级</span>
+    </div>
+    <div class="stage-meta">⏱️ 建议 1 周 · 5 份独立工程 + 1 篇手册 · 1 张图解</div>
+    <p class="stage-desc">
+      五份<strong>可以各自单独 configure</strong> 的工程：六行 CMake 骨架、库与 app 分层、资源两条注册路线、CTest 接入、翻译链路。
+      再配一篇《Qt CMake 实操手册》，把 configure / build / run 三层故障地图画出来。
+      这一阶段的产物不是「能编过」，而是「拷到别人电脑上能跑」。
+    </p>
+    <ul class="stage-points">
+      <li>说清 <code>find_package(Qt6 COMPONENTS Widgets)</code> 之后，头文件路径与 <code>-DQT_WIDGETS_LIB</code> 是谁给的</li>
+      <li>PUBLIC / PRIVATE / INTERFACE 选对；<code>qt_standard_project_setup()</code> 到底开了哪几个自动开关</li>
+      <li>qrc 两条路线（<code>qt_add_resources</code> vs <code>.qrc</code>），以及 AUTORCC 为什么要自己开</li>
+      <li><code>windeployqt</code> 带走什么；<code>0xC0000135</code> 与「no Qt platform plugin」各缺哪块</li>
+    </ul>
+    <div class="pitfall">
+      <strong>本阶段硬坎：两个报错，两个字面之外的原因。</strong>
+      「找不到 Qt6」多半是 <code>CMAKE_PREFIX_PATH</code> 或少了 <code>COMPONENTS</code>；
+      「vtable for X 未定义」几乎总是<strong>没开 AUTOMOC</strong> 或忘了 <code>#include "x.moc"</code>，跟虚函数写没写全没关系。
+    </div>
+    <div class="chips">
+      <span class="chip">六行骨架</span><span class="chip">库与 app</span><span class="chip">资源</span>
+      <span class="chip">测试接入</span><span class="chip">翻译</span><span class="chip">windeployqt</span>
+    </div>
+    <div class="stage-links">
+      <a class="slink" href="build_deploy/index.html">阶段首页</a>
+      <a class="slink ghost" href="build_deploy/tutorial.md">学习指南</a>
+      <a class="slink ghost" href="build_deploy/qt_cmake_guide.html">📘 CMake 手册</a>
+      <a class="slink ghost" href="build_deploy/qt_cmake_01_widgets/CMakeLists.txt">六行骨架</a>
+      <a class="slink ghost" href="visuals/deployment_tree.html">🎬 部署树</a>
+    </div>
+  </article>
+
+  <div class="section-title"><span>🎬</span> 图解专区：十六张会动的图</div>
+  <p class="list-note">
+    每页都是同一套骨架：左边一张 SVG，右边一段讲解加一段代码，底下是步骤条。按 <strong>▶ 自动播放</strong> 一步步推进，
+    也可以点步骤条跳转；键盘 <code>←</code> <code>→</code> 翻步，<code>Home</code> / <code>End</code> 到头尾。
+    图负责「东西在哪儿、按什么顺序动」，代码负责「对回具体文件」——两样一起看才不容易记混。
+  </p>
+  <div class="vgrid">
+    <a class="vcard" href="visuals/startup_flow.html">
+      <div class="vstage">第壹阶段 · 起步</div>
+      <h3>从 main() 到窗口出现</h3>
+      <p>一行 <code>w.show()</code> 背后的七件事：进程启动、平台插件、还没有原生窗口、exec() 接管、布局与绘制。</p>
+    </a>
+    <a class="vcard" href="visuals/layout_negotiation.html">
+      <div class="vstage">第贰阶段 · 控件</div>
+      <h3>布局协商：谁决定控件多大</h3>
+      <p>四路输入怎么汇成一次 <code>setGeometry</code>，以及为什么构造函数里读 <code>width()</code> 是草稿。</p>
+    </a>
+    <a class="vcard" href="visuals/event_loop.html">
+      <div class="vstage">第叁阶段 · 事件</div>
+      <h3>事件循环到底在转什么</h3>
+      <p>同步 <code>sendEvent</code> 与异步 <code>postEvent</code>、一轮循环不等于一个事件、嵌套循环从哪来。</p>
+    </a>
+    <a class="vcard" href="visuals/event_filter.html">
+      <div class="vstage">第叁阶段 · 事件</div>
+      <h3>事件过滤器：装在事件路上的关卡</h3>
+      <p>三个安装位置、四级顺序、<code>return true</code> 为什么能彻底掐掉事件。</p>
+    </a>
+    <a class="vcard" href="visuals/moc_signal_slot.html">
+      <div class="vstage">第肆阶段 · 元对象</div>
+      <h3>信号槽与 moc 到底生成了什么</h3>
+      <p><code>emit</code> 展开成什么、<code>qt_static_metacall</code> 长什么样、连接何时换成下标。</p>
+    </a>
+    <a class="vcard" href="visuals/connection_types.html">
+      <div class="vstage">第肆阶段 · 元对象</div>
+      <h3>五种连接类型与跨线程排队</h3>
+      <p>槽可能在哪个线程跑；<code>Auto</code> 在发信号那一刻判；同线程 <code>BlockingQueued</code> 死锁。</p>
+    </a>
+    <a class="vcard" href="visuals/qobject_tree.html">
+      <div class="vstage">第肆阶段 · 元对象</div>
+      <h3>QObject 对象树与所有权</h3>
+      <p><code>setParent</code> 只是记账，清理发生在父析构；<code>deleteLater</code> 靠一个事件完成。</p>
+    </a>
+    <a class="vcard" href="visuals/painting_pipeline.html">
+      <div class="vstage">第伍阶段 · 绘图</div>
+      <h3>绘制管线：从 paintEvent 到屏幕</h3>
+      <p><code>update()</code> 为什么要合并、脏区怎么省、<code>devicePixelRatio</code> 不管会出现什么糊图。</p>
+    </a>
+    <a class="vcard" href="visuals/coordinates.html">
+      <div class="vstage">第伍阶段 · 绘图</div>
+      <h3>坐标系与变换：画到哪儿去了</h3>
+      <p><code>mapTo</code>/<code>mapFrom</code> 的方向、<code>pos()</code> 与 <code>geometry()</code> 的差、变换叠加顺序。</p>
+    </a>
+    <a class="vcard" href="visuals/model_view.html">
+      <div class="vstage">第陆阶段 · 模型视图</div>
+      <h3>模型/视图：数据流的四个角色</h3>
+      <p>一屏格子零个子控件、每个角色问一次 <code>data()</code>、只问可见的几十格、一次写回经过哪几站。</p>
+    </a>
+    <a class="vcard" href="visuals/delegate_lifecycle.html">
+      <div class="vstage">第陆阶段 · 模型视图</div>
+      <h3>委托的生命周期</h3>
+      <p>四个编辑器函数的调用时机与数据流向、忘了 <code>updateEditorGeometry</code> 编辑器会跑到 (0,0)。</p>
+    </a>
+    <a class="vcard" href="visuals/thread_affinity.html">
+      <div class="vstage">第柒阶段 · 线程</div>
+      <h3>线程归属：哪段代码跑在新线程</h3>
+      <p>继承 <code>run()</code> 与 <code>moveToThread</code> 两条路、跨线程信号、收摊不调 <code>terminate()</code>。</p>
+    </a>
+    <a class="vcard" href="visuals/resource_pipeline.html">
+      <div class="vstage">第捌阶段 · 存储</div>
+      <h3>资源系统：把文件编进 exe</h3>
+      <p>rcc 把文件变成 <code>unsigned char[]</code> 链进可执行文件；<code>Q_INIT_RESOURCE</code> 与 <code>@2x</code>。</p>
+    </a>
+    <a class="vcard" href="visuals/network_async.html">
+      <div class="vstage">第玖阶段 · 网络</div>
+      <h3>异步网络：一个请求的一生</h3>
+      <p>三个对象三个生命周期、两场考试、静默超时、进度里的 -1、取消为什么要 <code>abort()</code>。</p>
+    </a>
+    <a class="vcard" href="visuals/quality_gate.html">
+      <div class="vstage">第拾阶段 · 工程质量</div>
+      <h3>四道质量门：让 bug 在最便宜的地方被抓住</h3>
+      <p>静态、单元、界面、交付四道门各拦一类错；退出码与干净机器为什么比「我这儿能跑」可信。</p>
+    </a>
+    <a class="vcard" href="visuals/deployment_tree.html">
+      <div class="vstage">第拾壹阶段 · 构建部署</div>
+      <h3>部署：从 build 目录到别人电脑</h3>
+      <p><code>windeployqt</code> 读什么、带走的目录长什么样、<code>0xC0000135</code> 缺哪块、静态链接的代价。</p>
+    </a>
+  </div>
+
+  <div class="section-title"><span>✅</span> 各阶段达标检验：答不上来就回去补</div>
+  <p class="list-note">
+    这张表是「学到了没有」的判据，不是考试大纲。每一行左边是阶段，中间是<strong>必须能不查文档讲出来的问题</strong>，
+    右边是<strong>答不出来时会出现的真实症状</strong>。答得上三个中的两个，就可以往下一阶段走；三个都答不上，别急，回去把对应示例跑一遍。
+  </p>
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th>阶段</th><th>必须能回答</th><th>答不上来的症状</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>壹 起步</td>
+          <td><code>exec()</code> 之前窗口为什么还没上屏？<br>没有事件循环，窗口会长什么样？<br><code>QApplication</code> 和 <code>QCoreApplication</code> 差在哪？</td>
+          <td>把耗时逻辑写在 <code>show()</code> 前面，抱怨「界面卡着不出来」</td>
+        </tr>
+        <tr>
+          <td>贰 控件</td>
+          <td>控件大小是谁定的？<br><code>sizeHint</code> 与 <code>minimumSizeHint</code> 差在哪？<br>QSS 为什么改不动自绘控件？</td>
+          <td>到处 <code>setFixedSize</code>，换个字体就全乱；表单错位靠 <code>setGeometry</code> 硬摆</td>
+        </tr>
+        <tr>
+          <td>叁 事件</td>
+          <td>一次点击要经过哪三层？<br><code>sendEvent</code> 与 <code>postEvent</code> 谁先到？<br>吞掉事件后信号为什么是 0？</td>
+          <td>槽里跑大循环导致界面「未响应」；过滤器一挂按钮就点不动</td>
+        </tr>
+        <tr>
+          <td>肆 元对象</td>
+          <td>moc 生成了什么？<br>连接在什么时候失效？<br>槽为什么可能不在你以为的线程？</td>
+          <td>「已连接但槽没跑」；<code>Q_OBJECT</code> 忘写，链接期 vtable 报错</td>
+        </tr>
+        <tr>
+          <td>伍 绘图</td>
+          <td><code>paintEvent</code> 画到哪儿去了？<br><code>update()</code> 和 <code>repaint()</code> 差在哪？<br>变换叠加的顺序能不能换？</td>
+          <td>界面一拖动就闪、高分屏糊、点击命中偏移几十像素</td>
+        </tr>
+        <tr>
+          <td>陆 模型视图</td>
+          <td>视图怎么知道数据变了？<br>代理模型的 index 能直接问源模型吗？<br>十万行为什么不卡？</td>
+          <td>「一改就错、一滚就对」；过滤后取到空值；删行后选中错位</td>
+        </tr>
+        <tr>
+          <td>柒 线程</td>
+          <td>哪段代码真的跑在新线程？<br>跨线程传参为什么要拷贝？<br>怎么在不 <code>terminate()</code> 的前提下退出？</td>
+          <td>UI 随机崩、退出时卡死、日志顺序乱成一团</td>
+        </tr>
+        <tr>
+          <td>捌 存储</td>
+          <td>配置该放哪儿，为什么不进注册表乱写？<br>为什么用 <code>QSaveFile</code>？<br>SQL 连接名与对象谁先死？</td>
+          <td>断电后配置文件半截、中文乱码、第二次打开程序连不上库</td>
+        </tr>
+        <tr>
+          <td>玖 网络</td>
+          <td>正文什么时候才能读？<br>传输错误和 404 是同一类吗？<br>怎么正确取消一个请求？</td>
+          <td>回复里读不到数据、把 404 当网络断线、删 reply 之后崩</td>
+        </tr>
+        <tr>
+          <td>拾 质量</td>
+          <td>这段逻辑不建窗口能测吗？<br>这个对象该谁删？<br>这条优化建议的证据是什么？</td>
+          <td>测试全靠手点、泄漏靠重启、优化靠「感觉快了一点」</td>
+        </tr>
+        <tr>
+          <td>拾壹 构建部署</td>
+          <td>头文件路径是谁给的？<br>vtable 未定义说明什么？<br>少带了哪个目录会「no Qt platform plugin」？</td>
+          <td>「我这儿能跑」；拷到同事电脑双击没反应或直接退出</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section-title"><span>🧘</span> 老师傅的学习心法</div>
+  <div class="feature-section">
+    <h2>七条铁律</h2>
+    <ul>
+      <li><strong>先跑，再改，最后才想。</strong> 每个示例先原样跑通、看清它吐的证据，再改一行、看证据怎么变。光读代码，你记住的是「别人写对了」，不是「我为什么错」。</li>
+      <li><strong>证据优先于记忆。</strong> 顺序、次数、耗时都要亲自打印出来。这份资料里所有注释都标了头文件行号，就是让你随时能去核对——包括核对师傅。</li>
+      <li><strong>每阶段撞一次坎。</strong> 第叁阶段故意吞掉事件看信号变 0；第陆阶段故意不 <code>mapToSource</code> 看空值；第柒阶段故意在错线程碰界面。改错一次再改回来，比看十遍正确代码管用。</li>
+      <li><strong>别跳第肆和第陆。</strong> 前者是 Qt 与普通 C++ 的分界线，后者是「会摆界面」与「会做数据界面」的分界线。这两段跳过去，面试第一轮就会露底。</li>
+      <li><strong>只信能复现的现象。</strong> 同事说「Qt 有 bug」，你先写十行把它复现出来；复现不出来，八成是用法问题，剩下两成才是真 bug——而真 bug 也需要复现才能报。</li>
+      <li><strong>每讲收一个「可复用件」。</strong> 自绘控件、自定义模型、委托、线程收尾模板、带超时的请求封装——这些是你以后真正会抄自己的地方。</li>
+      <li><strong>写给人看，跑给机器看。</strong> 注释解释「为什么」，代码保证「编得过、跑得完、测得着」。风格争论可以先放一放，先让 <code>ctest</code> 全绿。</li>
+    </ul>
+  </div>
+
+  <div class="section-title"><span>🚀</span> 怎么开始</div>
+  <div class="feature-section">
+    <h2>三步上手</h2>
+    <ol class="step-list">
+      <li>
+        <strong>先验证这份资料本身。</strong> 不装 Qt 也能跑：这个脚本只做 <code>moc</code> 与语法检查，不链接、不运行，
+        用来确认「73 个示例在这个编译器上都能编过」。
+        <pre><span class="c"># 需要 MSYS2 ucrt64 的 g++ 与 moc（脚本里的 MSYS 变量可改）</span>
+<span class="p">$</span> bash _tools/check_syntax.sh
+<span class="c">#   OK   start/01_hello_window.cpp</span>
+<span class="c">#   ...</span>
+<span class="c"># 校验完成：通过 74，失败 0</span>
+
+<span class="c"># 只查一阶段 / 只查一个文件</span>
+<span class="p">$</span> bash _tools/check_syntax.sh events
+<span class="p">$</span> bash _tools/check_syntax.sh events/01_event_loop.cpp</pre>
+      </li>
+      <li>
+        <strong>在装了 Qt 的机器上配置工程。</strong> Qt 6.12 的路径按你自己的安装改；MSYS2 用户直接写 <code>C:/msys64/ucrt64</code>。
+        <pre><span class="c"># 配置（找不到 Qt 时不会失败，只会打印一段「你该装什么」）</span>
+<span class="p">$</span> cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+
+<span class="c"># 只编一个示例，先确认工具链通了</span>
+<span class="p">$</span> cmake --build build --target start_01_hello_window
+<span class="p">$</span> ctest --test-dir build -R start_01 --output-on-failure</pre>
+      </li>
+      <li>
+        <strong>再全量跑。</strong> 73 个示例同时是 CTest 用例，一律以 <code>QT_QPA_PLATFORM=offscreen</code> 无头运行、120 秒超时；
+        每个示例跑完自己 <code>quit()</code>，不需要你点任何按钮。
+        <pre><span class="p">$</span> cmake --build build --target all_demos
+<span class="p">$</span> ctest --test-dir build --output-on-failure
+
+<span class="c"># 想看某个示例的真实输出（证据都在终端里）</span>
+<span class="p">$</span> QT_QPA_PLATFORM=offscreen ./build/bin/events_02_event_dispatch</pre>
+      </li>
+    </ol>
+    <p style="margin-top: 14px;">
+      环境要求：Qt 6.x（本库按 <strong>6.12</strong> 编写）、CMake ≥ 3.21、支持 C++17 的编译器（MinGW / MSVC / Clang 均可）、Ninja 可选。
+      Windows 上产物集中在 <code>build/bin</code>，方便 <code>windeployqt</code> 一次收齐依赖。
+      没有显示器、没有鼠标键盘都能跑——这是整套资料的默认运行方式。
+    </p>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>
+      徒弟，Qt 这门手艺，最容易被误解的是「它只是个画界面的库」。真上手你会发现：它给你的是一整套
+      <strong>对象怎么活、消息怎么走、数据怎么流</strong> 的规矩。你把这套规矩摸顺了，写出来的程序就稳；
+      摸不顺，就会一直在「偶尔崩一下」「偶尔卡一下」里打转，而这些「偶尔」全都有名字，就在这十一个阶段里。
+    </p>
+    <ul>
+      <li><strong>别急着做漂亮界面。</strong> 前三个阶段能把窗口摆出来、把按钮点响，人容易飘。真正的分水岭在第肆与第陆：一个讲清 Qt 凭什么不同于普通 C++，一个讲清数据凭什么不塞进控件里。</li>
+      <li><strong>事件是系统说话，信号是程序说话。</strong> 分不清这两层，你会一直在「为什么我的过滤器拦不住按钮」和「为什么 <code>btn->click()</code> 不算点击」之间打转。</li>
+      <li><strong>线程只信一条。</strong> 只有 <code>run()</code> 跑在新线程里；界面只在主线程碰；跨线程只走排队信号。剩下所有花招，都是在给这条铁律打补丁。</li>
+      <li><strong>性能不是调出来的，是量出来的。</strong> 第陆和第拾会各给你一次「十万行」的账：该省的地方省在「只问可见区」，不该省的地方省在「别每格都重新量尺寸」。</li>
+      <li><strong>能交付才算学会。</strong> 第拾壹阶段那五个小工程，看着最不像「知识点」，却是最像上班的：别人拿到你的目录，三条命令能编、拷到别的电脑能跑，这才叫完成。</li>
+    </ul>
+    <p>
+      最后一句：这份资料里所有「预期输出」都是推理，不是实测。等你在能链接的机器上跑出真实数字，
+      <strong>以你打印出来的为准</strong>——把自己当工程师，而不是当读者。慢慢来，十一个阶段，一个都别跳。
+    </p>
+  </div>
+
+  <footer class="page-foot">
+    入口速查：<a href="README.md">README</a> ·
+    <a href="visuals/index.html">图解专区</a> ·
+    <a href="projects/todo_desktop/README.md">实战项目</a> ·
+    <a href="_tools/check_syntax.sh">校验脚本</a> ·
+    <a href="CMakeLists.txt">顶层 CMakeLists</a><br>
+    本页是纯静态 HTML，无外部依赖，双击即可打开。各阶段目录下的 <code>index.html</code> 是卡片式目录，
+    <code>tutorial.md</code> 是完整学习指南，两者内容互补、不重复。
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!--
+  ============================================================================
+  storage/resource_demo.qrc · 第 4 讲的配套资源清单
+  ----------------------------------------------------------------------------
+  这份文件本身就是「资源系统」的说明书，三个关键字：
+
+    prefix : <qresource prefix="/storage"> —— 这一组条目的**挂载点**。
+             资源路径 = ":/" + prefix（去掉首尾多余的 /） + 条目在 qrc 里的相对路径。
+             所以 <file>demo/hello.txt</file> 在这里 → ":/storage/demo/hello.txt"。
+             prefix 写 "/" 就是挂在根上（:/hello.txt）。
+    file   : 路径是**相对于本 .qrc 文件所在目录**的，不是相对于工程根。
+             本文件在 storage/，所以 demo/hello.txt = storage/demo/hello.txt。
+    alias  : <file alias="qt-style-logo.svg">demo/logo.svg</file>
+             alias 换掉的是「条目在 prefix 下面的那一截路径」，磁盘文件不用改名。
+             于是同一个 storage/demo/logo.svg 又被挂到 :/brand/qt-style-logo.svg ——
+             注意这**不是软链接**：rcc 会把同一份字节再塞一遍，可执行文件大一份。
+             想要「一份字节、两个入口」，就只在一条路径上挂，另一条路径自己在代码里换名。
+
+  为什么下面分成两个 <qresource>：prefix 不同的条目必须分组。同一 prefix 下想再分子目录，
+  要么在 <file> 的路径里写出来，要么再开一个 <qresource prefix="/storage/demo">。
+
+  <file> 还支持两个属性（本文件没用到，但要知道有）：
+    compressed="true|false" / compress="0..9" —— 单个条目的压缩开关与级别；
+    lang="de" —— 给同一个路径挂「按语言挑的那一份」，Qt6 侧对应的读取入口是
+                 QResource 的 **locale**（构造时可传 QLocale），不是 Qt5 时代的 lang 字符串。
+
+  谁把这个文件变成代码：AUTORCC（仓库根 CMakeLists.txt 第 34 行 set(CMAKE_AUTORCC ON)，
+  第 216 行把本文件写进 storage_04_resource_system 的源文件列表）。
+  机制见 storage/04_resource_system.cpp 的文件头注释。
+  ============================================================================
+-->
+<RCC>
+    <qresource prefix="/storage">
+        <file>demo/hello.txt</file>
+        <file>demo/logo.svg</file>
+    </qresource>
+
+    <!-- 同一个 logo.svg 换个 prefix + alias 再挂一次：用来验证「alias 只改路径不改内容，
+         但字节会真的存两份」 -->
+    <qresource prefix="/brand">
+        <file alias="qt-style-logo.svg">demo/logo.svg</file>
+    </qresource>
+</RCC>

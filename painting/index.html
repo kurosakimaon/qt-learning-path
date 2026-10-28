@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第伍阶段 · 绘图与自定义控件 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🎨 第伍阶段 · 绘图与自定义控件</h1>
+    <p>从「拿笔往哪儿画」到「造一个能复用的控件」 · 8 讲，每讲都吐出可核查的像素数字</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      徒弟，前四个阶段你一直在<strong>用</strong>别人画好的界面。这一关开始<strong>自己画</strong>。
+      本模块是一条完整的进阶链：<strong>第 1~4 讲</strong>把 QPainter 的地基铺平——基础图元、坐标变换、
+      画笔与画刷与渐变、文字度量与基线；<strong>第 5 讲</strong>回答「画布本身从哪来」——
+      <code>QImage</code> / <code>QPixmap</code> / <code>QBitmap</code> 的分工、字节布局与隐式共享；
+      <strong>第 6 讲</strong>把这一身本事<strong>包成一个可复用的控件</strong>（尺寸协商 + 鼠标交互 + 重绘策略）；
+      <strong>第 7 讲</strong>进高级绘制——<code>QPainterPath</code>、填充规则、裁剪与合成；
+      <strong>第 8 讲</strong>站在框架层面回答一个现实问题：<strong>什么时候别自己画了，改用
+      QGraphicsScene / QGraphicsView</strong>。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。本组 8 个目标统一
+      <code>target_link_libraries(... PRIVATE Qt6::Widgets Qt6::Svg)</code>（Svg 是给第 8 讲之后的项目留的，
+      前几讲只用到 Widgets）。每讲都<strong>无人值守自动跑完</strong>：
+      <code>QTimer::singleShot</code> 排动作 → 画进 <code>QImage</code> → <code>save("painting_0N_xxx.png")</code> →
+      <code>qInfo()</code> 打印 dimensions / 非透明像素数 / 采样像素值 → <code>QCoreApplication::quit()</code>。
+      <strong>没有 <code>QDialog::exec()</code>、没有裸 <code>QEventLoop::exec()</code>、没有静态 MessageBox。</strong>
+      跑完到 <code>build/bin</code> 下看图，图在就在证据在。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（Qt 运行时库版本不匹配），所以本模块
+      <strong>未链接、未运行，PNG 与所有打印数字都还没被任何机器验证过</strong>。
+      能做到的核对做到底：每个 API 都对着 <code>C:\msys64\ucrt64\include\qt6</code> 的真实头文件逐个查过
+      （行号写在用到的地方），第 5~8 讲还过了编译期这一关——
+      <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 加 <code>moc</code>，<strong>零 error、零 warning</strong>。
+      编得过 ≠ 画面对：文中凡「预期」都是推理，<strong>数字请你自己跑出来抄回注释里</strong>。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/painting_pipeline.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 绘制流水线
+      </a>
+      <a href="../visuals/coordinates.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 三层坐标
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>8 张卡片 = 8 讲</strong>，按 <strong>第 1 步 → 第 8 步</strong> 一张张往下学，别跳。
+    顺序是一条「先会画 → 再懂布 → 然后成控件 → 最后换框架」的主线：
+    <strong>第 1~4 步是 Painter 的地基（图元 / 变换 / 画笔 / 文字）</strong>——这四步解决「一笔一笔怎么落」；
+    <strong>第 5 步讲像素从哪来</strong>——画布（<code>QImage</code> 与 <code>QPixmap</code>）本身是什么、
+    字节怎么排、复制了会不会共享；
+    <strong>第 6 步把绘制包成控件</strong>——从「一段画图代码」升级成「别人能放进布局里用的类」，
+    这一步是本模块的<strong>交付形态</strong>；
+    <strong>第 7 步是高级绘制</strong>——路径、填充规则、裁剪、合成，做「非矩形」「挖孔」「水印」全靠它；
+    <strong>第 8 步回答什么时候改用场景框架</strong>——图元多了、要缩放平移命中选择时，
+    <code>QGraphicsView</code> 那套三件套比自绘控件划算得多。
+    本模块有<strong>两道硬坎</strong>：<strong>第 2 步的变换顺序</strong>（<code>translate/rotate/scale</code> 不可交换，
+    顺序错了整个控件就歪，靠打印两种顺序的结果自己看清楚）和
+    <strong>第 6 步的重绘策略</strong>（<code>update()</code> 与 <code>repaint()</code>、脏区、
+    以及 <code>Qt::WidgetAttribute</code> 那几个开关，用 10000 次调用只重画几次的数据来钉死）。
+    另外 <code>QWidget</code> 上<strong>并没有</strong> <code>setUpdateInterval()</code> 这个函数（它属于 <code>QTimeLine</code>，
+    本机在 <code>QtCore/qtimeline.h</code> 第 65 行），第 6 讲给了四条真能用的限流路线。
+    每讲重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_painter_basics.cpp" class="card">
+      <div class="card-step">第 1 步</div>
+      <div class="card-icon">✏️</div>
+      <div class="card-title">01 · QPainter 的三条铁律与基础图元</div>
+      <div class="card-desc">对控件作画只允许在 paintEvent() 里、对 QImage 随时可画（两条链同时出图对照）；painter 必须比设备早析构；begin()/end() 与 RAII、isActive() 自检；点/线/矩形/圆角矩形/椭圆/圆弧/扇形弦/多边形八件套；逻辑坐标 vs 设备坐标，1x 与 2x 画布实测着墨像素差约 4 倍。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="02_coordinates_and_transforms.cpp" class="card">
+      <div class="card-step">第 2 步 · 硬坎一</div>
+      <div class="card-icon">🧭</div>
+      <div class="card-title">02 · 坐标变换三件套与它们的顺序</div>
+      <div class="card-desc">translate/rotate/scale 不可交换：用 QTransform::map() 把同一端点在 A→B 与 B→A 两种顺序下的最终坐标打出来；save()/restore() 是整套状态栈（变换+笔+刷+字+裁剪）；worldTransform()/setWorldTransform() 与 operator* 的组合方向判别；viewport/window 映射；「绕某点旋转」为何要 translate→rotate→translate 回去；y 轴向下让角度正负看着相反。</div>
+      <div class="card-meta"><span class="tag hard">本模块第一道坎</span></div>
+    </a>
+
+    <a href="03_pen_brush_gradients.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">🖌️</div>
+      <div class="card-title">03 · QPen 细部、QBrush 与三种渐变</div>
+      <div class="card-desc">cosmetic 画笔是「线宽是否随变换缩放」的分水岭（scale(4,4) 下 4px 与 1px 实测）；cap/join 用着墨包围盒量出 FlatCap 与 SquareCap 差半个线宽；setDashPattern 的数字是线宽倍数；纹理画刷用代码生成的 QImage（不依赖外部图片）；QLinear/QRadial/QConical 与 setColorAt/setSpread/setCoordinateMode——LogicalMode 与 ObjectBoundingMode 的五个采样点对照。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="04_text_and_font_metrics.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">🔤</div>
+      <div class="card-title">04 · 文本度量与基线</div>
+      <div class="card-desc">setPixelSize 与 setPointSize 不是一回事（后者要过 dpi/72 换算）；ascent/descent/height/leading/lineSpacing/capHeight/boundingRect/tightBoundingRect/horizontalAdvance 逐项打印，并现场判定 height() 是否等于 ascent()+descent()；Qt5→Qt6：QFontMetrics::width() 已不存在，改 horizontalAdvance()；drawText 的对齐与 out 参数、elidedText（带 d）、WordWrap 两种排版；基线与矩形中心为何差半个行高。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_images_and_pixmaps.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">🖼️</div>
+      <div class="card-title">05 · QImage / QPixmap / QBitmap：像素从哪来</div>
+      <div class="card-desc">Format 决定字节布局，bytesPerLine() 含行对齐填充（宽×字节数常常不等于它）；Format_Indexed8 用 setPixel 当索引写、pixelIndex 读；QImage 可跨线程可读写像素，QPixmap 面向窗口系统、只能在 QGuiApplication 之后 GUI 线程用；隐式共享与 detach 用 isDetached 翻转 + 「改一个另一个不动」双证（qimage.h 里没有 useCount()）；scaled 的 AspectRatioMode×TransformationMode 与 Smooth 的实测代价；QPixmapCache 限额淘汰；save/load 全代码生成；setDevicePixelRatio 之后 QPainter 用的是逻辑坐标。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="06_custom_widget.cpp" class="card">
+      <div class="card-step">第 6 步 · 硬坎二</div>
+      <div class="card-icon">🎛️</div>
+      <div class="card-title">06 · 做一个能复用的自定义控件</div>
+      <div class="card-desc">覆写 paintEvent/sizeHint/minimumSizeHint，颜色一律从 palette() 取（换色不用改一行绘制代码）；setMouseTracking + press/move/release/enter/leave + setCursor 的交互；update() 只是请求、update(QRect) 只脏一块、repaint() 同步硬画——10000 次 update() 之后 paint 次数仍是零（事件循环合并）；WA_OpaquePaintEvent / WA_NoSystemBackground / WA_TranslucentBackground 各治什么病；setUpdateInterval 的限流要用真能用的办法替代（<code>QWidget</code> 上没有这个函数，它属于 <code>QTimeLine</code>；本讲给四条替代路线）。</div>
+      <div class="card-meta"><span class="tag hard">本模块第二道坎</span></div>
+    </a>
+
+    <a href="07_painter_path_and_clipping.cpp" class="card">
+      <div class="card-step">第 7 步</div>
+      <div class="card-icon">🌀</div>
+      <div class="card-title">07 · QPainterPath、裁剪与合成</div>
+      <div class="card-desc">addRect/addEllipse/moveTo/lineTo/cubicTo/quadTo/arcTo/closeSubpath/addPolygon/addRoundedRect 逐个走一遍并打印 elementCount 与逐元素类型；Qt::FillRule 的 OddEvenFill 与 WindingFill 在自交五角星中心的像素差；路径布尔运算是成员函数 united()/intersected()/subtracted()（不是 unitedPath()），外加 simplified()；裁剪三件套 setClipRect/setClipPath/setClipRegion + hasClipping/clipRegion 回读，Qt::ClipOperation 只有 NoClip/ReplaceClip/IntersectClip（没有 UnionClip，想并集请 QRegion::united）；CompositionMode 做遮罩：DestinationIn/SourceIn/Clear 的像素数与中心色各测一遍，三张 PNG 对照。</div>
+      <div class="card-meta"><span class="tag elementary">高级绘制</span></div>
+    </a>
+
+    <a href="08_graphicsview_basics.cpp" class="card">
+      <div class="card-step">第 8 步</div>
+      <div class="card-icon">🗺️</div>
+      <div class="card-title">08 · QGraphicsScene / View / Item</div>
+      <div class="card-desc">三件套分工：scene 管「有什么、在哪、谁被点」，view 管「看多少、多大、往哪移」，item 管「我占多大、我怎么画」；2000 个自定义图元的场景；三层坐标 mapToScene/mapFromScene/mapToGlobal 走一遍并打印往返误差；命中测试三条路 scene->items()/itemAt()/view->itemAt()；scale/fitInView/resetTransform 与 transformationAnchor；ItemIgnoresTransformations 让图例设备尺寸不随缩放变；CacheMode 三档用 paint() 次数当证据；手工投 QGraphicsSceneMouseEvent 看选中与抓取；scene->render 与 view->render 两条出图路线。</div>
+      <div class="card-meta"><span class="tag framework">框架</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>每讲都要「看图 + 看数」两遍</strong>：跑完先去 <code>build/bin</code> 打开 <code>painting_0N_*.png</code> 看画面，再回头读 <code>qInfo()</code> 打印的 dimensions / 非透明像素数 / 采样像素值。<strong>画面会骗人，像素数不会</strong>。</li>
+      <li><strong>前四讲是地基，别急着跳去做控件</strong>：第 6 讲的自定义控件会同时用到第 2 讲的变换顺序和第 4 讲的基线计算；第 7 讲的裁剪又依赖第 2 讲的坐标概念。跳着学，第 6 讲就会变成「抄一段能跑的代码」。</li>
+      <li><strong>第 2 讲的坎要用「打印」过，不要用「背」过</strong>：变换顺序这件事背了必错。把 <code>translate→rotate</code> 与 <code>rotate→translate</code> 两种写法的端点坐标并排打出来，看一眼就懂了，而且一辈子不忘。</li>
+      <li><strong>第 6 讲的坎要用「计数」过</strong>：在 <code>paintEvent</code> 里放一个 static 计数器，然后循环调 <code>update()</code> 一万次，看打印出来的 paint 次数——这个实验比任何文档都能说明「事件循环会合并重绘请求」。</li>
+      <li><strong>API 有疑问就查头文件，别查记忆</strong>：本模块每个示例顶部都有一份「本机头文件签名清单」（带行号）。<code>QImage</code> 没有 <code>useCount()</code>、<code>QWidget</code> 没有 <code>setUpdateInterval()</code>、<code>Qt::ClipOperation</code> 没有 <code>UnionClip</code>、路径布尔不叫 <code>unitedPath()</code>——这些坑都是<strong>查头文件 + 编译期核对</strong>抓出来的，不是背出来的。</li>
+      <li><strong>Qt5 → Qt6 的差异记三条就行</strong>：<code>QFontMetrics::width()</code> 没了（用 <code>horizontalAdvance()</code>）；<code>QPainter::RenderHint</code> 里没有 <code>HighQualityAntialiasing</code>；Qt6 没有 <code>QtGui/qgradient.h</code> 这份实现头（渐变声明在 <code>qbrush.h</code>）。三处都在第 1/3/4 讲里实测过。</li>
+      <li><strong>诚实对待「编没编过」</strong>：第 5~8 讲过了 <code>g++ -fsyntax-only -Wall -Wextra</code>（含 moc），零 error 零 warning；但本机链接不了，<strong>谁也没运行过这些程序</strong>。你到能编译的机器上第一次跑，重点看两件事：PNG 是不是生成了、打印数字跟你预期的对不对得上。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，绘图这块是 Qt 里最「看得见摸得着」的部分，也是<strong>最容易把错处藏起来</strong>的部分——差半个线宽、错一次变换顺序、少算一个基线，画面只是「有点不对」，不会崩，于是很多人就这么将就下去了。师傅不让你将就。</p>
+    <p>给你五条压箱底的经验：</p>
+    <ul>
+      <li><strong>第一条：先分清「画布」和「笔」。</strong> 前四讲讲的是笔（QPainter + 变换 + 笔刷 + 文字），第 5 讲讲的是布（QImage / QPixmap）。搞混这对概念的人，写出来的程序要么在子线程里造 QPixmap 崩掉，要么在 paintEvent 里反复 <code>QPixmap::fromImage()</code> 把帧率画没。</li>
+      <li><strong>第二条：绘制代码要能离屏跑。</strong> 本模块每个示例都有一条「画进 QImage」的证据链，这不是为了截图好看——<strong>能离屏跑的绘制代码，才能被自动化测试、才能被复用、才能在 paintEvent 之外被验证</strong>。养成把绘制主体写成 <code>void paintX(QPainter&amp;, const QRectF&amp;, ...)</code> 自由函数的习惯（第 6 讲就这么干的）。</li>
+      <li><strong>第三条：重绘是「请求」，不是「命令」。</strong> <code>update()</code> 往事件队列里塞一张纸条，事件循环会把同一轮里的一万张纸条合成一次重绘；<code>repaint()</code> 是你冲过去把画布抢过来硬画，会递归、会卡、会绕过合并。默认永远用 <code>update()</code>，范围已知就用 <code>update(QRect)</code>。这条不通，你的控件在拖动时就会抖成一团。</li>
+      <li><strong>第四条：别在 paintEvent 里改状态。</strong> 绘画函数应当是<strong>纯函数</strong>：读状态、画出去、不写回。在里面自增动画帧号再 <code>update()</code>，就是自己给自己造一个停不下来的重绘循环——第 6 讲专门用一组对照数据把这事演示了一遍。</li>
+      <li><strong>第五条：知道什么时候该换框架。</strong> 一个自绘控件画几十到几百个图形，爽；要画几千个、还要缩放平移命中选择撤销，<strong>继续自绘就是跟自己过不去</strong>。第 8 讲不是「进阶炫技」，是给「第 6 讲那条路走到哪里该拐弯」画的 realpath 路标。</li>
+    </ul>
+    <p>把这 8 讲啃下来，你就能从「用 Qt 提供的控件」变成「给别人提供控件」——这是入门和资深的一道分水岭。慢慢画，图画不会骗人。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

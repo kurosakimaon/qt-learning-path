@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 五种连接类型与跨线程排队 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../metaobject/index.html">第贰阶段 · 元对象</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">METAOBJECT · 连接类型</span>
+    <h1>同一个 <code>connect</code>，槽可能在哪个线程跑？</h1>
+    <p>「信号槽会自动跨线程」只对了一半：跨不跨线程取决于<strong>连接类型</strong>和<strong>接收者所在的线程</strong>，而且判断发生在 <code>emit</code> 那一刻。<code>AutoConnection</code> 不是「聪明地帮你选」，它只有一条固定规则。这一页把五种连接类型摆到同一个时间轴上对比。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 6</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../metaobject/02_connect_variants.cpp">metaobject/02_connect_variants.cpp</a> ·
+    <a href="../threads/03_cross_thread_signals.cpp">threads/03_cross_thread_signals.cpp</a> ·
+    枚举真值见 <code>QtCore/qnamespace.h</code> 第 1313~1320 行
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '先看清枚举：五种类型，两个是「开关」',
+    nav: '枚举全貌',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="ConnectionType 枚举与取值">
+        <rect class="svg-box-accent" x="20" y="25" width="720" height="175" rx="10"/>
+        <text class="svg-small" x="40" y="52">Qt::ConnectionType（qnamespace.h 1313~1320 行，按声明顺序从 0 开始）</text>
+        <text class="svg-mono" x="40" y="82">AutoConnection          = 0     ← 默认，connect 不写就是它</text>
+        <text class="svg-mono" x="40" y="106">DirectConnection        = 1     ← 立刻在发射方线程调用</text>
+        <text class="svg-mono" x="40" y="130">QueuedConnection        = 2     ← 投递事件，在接收方线程调用</text>
+        <text class="svg-mono" x="40" y="154">BlockingQueuedConnection= 3     ← 排队 + 发射方阻塞等待</text>
+        <text class="svg-mono" x="40" y="178">UniqueConnection        = 0x80  ← 开关：重复的连接不建立</text>
+        <text class="svg-mono" x="40" y="196">SingleShotConnection    = 0x100 ← 开关：触发一次后自动断开</text>
+
+        <rect class="svg-field" x="20" y="220" width="720" height="175" rx="10"/>
+        <text class="svg-small" x="40" y="248">前三个是「位」，后两个是「标志」—— 它们靠按位或组合：</text>
+
+        <rect class="svg-box" x="40" y="264" width="330" height="52" rx="8"/>
+        <text class="svg-mono" x="58" y="296">Qt::QueuedConnection | Qt::UniqueConnection</text>
+
+        <rect class="svg-box" x="390" y="264" width="330" height="52" rx="8"/>
+        <text class="svg-mono" x="408" y="296">Qt::DirectConnection | Qt::SingleShotConnection</text>
+
+        <text class="svg-small" x="40" y="346">★ 所以别写 Qt::UniqueConnection 当连接类型 —— 它只有 0x80，低位全是 0，</text>
+        <text class="svg-small" x="40" y="370">  等价于 AutoConnection + Unique。能用，但读代码的人会以为你要的是「直连」。</text>
+      </svg>`,
+    caption: '<code>ConnectionType</code> 里前四个是互斥的「行为」，后两个是可以用 <code>|</code> 叠加的「标志」。<code>AutoConnection</code> 是 0，也就是 <code>connect</code> 不写第四个参数时的默认值。记住 <code>0x80</code> / <code>0x100</code> 这两个数，看调试器里的连接标记时用得上。',
+    code: `enum ConnectionType {
+    AutoConnection,          // 0
+    DirectConnection,        // 1
+    QueuedConnection,        // 2
+    BlockingQueuedConnection,// 3
+    UniqueConnection     = 0x80,
+    SingleShotConnection = 0x100,
+};`,
+    highlight: [1, 2, 3, 4]
+  },
+  {
+    title: 'AutoConnection 的判据只有一条：线程是否相同',
+    nav: 'Auto 判据',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="AutoConnection 在 emit 时刻的判断">
+        <rect class="svg-box-warn" x="250" y="20" width="260" height="60" rx="10"/>
+        <text class="svg-title" x="380" y="58" text-anchor="middle">emit 发生的那一刻</text>
+
+        <path class="svg-arrow svg-flow" d="M380 80 L380 110"/>
+        <rect class="svg-box-accent svg-pulse" x="200" y="110" width="360" height="60" rx="10"/>
+        <text class="svg-small" x="380" y="135" text-anchor="middle">发射方线程 == 接收者 thread() 吗？</text>
+        <text class="svg-small" x="380" y="156" text-anchor="middle">注意是 receiver-&gt;thread()，不是 sender-&gt;thread()</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M260 170 L180 210"/>
+        <text class="svg-good-text" x="180" y="200" text-anchor="middle">相同</text>
+        <rect class="svg-box-good" x="30" y="210" width="300" height="95" rx="10"/>
+        <text class="svg-title" x="180" y="240" text-anchor="middle">按 DirectConnection 处理</text>
+        <text class="svg-small" x="180" y="264" text-anchor="middle">同步调用，栈上直接进槽</text>
+        <text class="svg-small" x="180" y="286" text-anchor="middle">槽里的崩溃现场 = 发射方调用栈</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M500 170 L580 210"/>
+        <text class="svg-bad-text" x="580" y="200" text-anchor="middle">不同</text>
+        <rect class="svg-box-warn" x="430" y="210" width="300" height="95" rx="10"/>
+        <text class="svg-title" x="580" y="240" text-anchor="middle">按 QueuedConnection 处理</text>
+        <text class="svg-small" x="580" y="264" text-anchor="middle">参数被复制，投递成事件</text>
+        <text class="svg-small" x="580" y="286" text-anchor="middle">目标线程的事件循环来调用</text>
+
+        <rect class="svg-field" x="20" y="325" width="720" height="80" rx="10"/>
+        <text class="svg-small" x="40" y="352">三个容易踩的点：</text>
+        <text class="svg-text" x="40" y="378">① 看的是「接收者挂在哪」，不是「信号定义在哪」；② 判断在 emit 时，之后 moveToThread 不改变已有连接；</text>
+        <text class="svg-text" x="40" y="400">③ 接收者没有事件循环（线程没 exec()），排队连接永远不执行 —— 不报错，只是没反应。</text>
+      </svg>`,
+    caption: '<code>AutoConnection</code> 的规则就一句：<strong>emit 那一刻，发射方线程和 <code>receiver-&gt;thread()</code> 相同就直连，不同就排队</strong>。看的是接收者挂在哪，不是信号声明在哪。判断发生在 <code>emit</code> 时刻，之后 <code>moveToThread</code> 不会改写已有连接的行为。<strong>接收线程没有事件循环，排队连接就永远不执行，且不报错</strong>。',
+    code: `// 默认就是 AutoConnection：不写第五个参数
+connect(worker, &Worker::done, page, &Page::onDone);
+
+// 等价于在 emit 那一刻做这个判断
+Qt::ConnectionType t =
+    (QThread::currentThread() == receiver->thread())
+        ? Qt::DirectConnection : Qt::QueuedConnection;`,
+    highlight: [1, 4, 5]
+  },
+  {
+    title: 'Direct：同一根栈，快，但调用方要负责线程安全',
+    nav: 'Direct',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="直连的调用栈">
+        <text class="svg-small" x="120" y="35">发射方线程（唯一的线程）</text>
+        <rect class="svg-box" x="60" y="50" width="300" height="230" rx="10"/>
+        <rect class="svg-field" x="75" y="65" width="270" height="45" rx="6"/>
+        <text class="svg-mono" x="90" y="93">Page::onButtonClick()</text>
+        <rect class="svg-box-accent" x="75" y="120" width="270" height="45" rx="6"/>
+        <text class="svg-mono" x="90" y="148">Worker::refresh()   ← emit</text>
+        <rect class="svg-box-good svg-pulse" x="75" y="175" width="270" height="45" rx="6"/>
+        <text class="svg-mono" x="90" y="203">Worker::onRefresh() ← 槽</text>
+        <rect class="svg-field" x="75" y="230" width="270" height="40" rx="6"/>
+        <text class="svg-small" x="90" y="255">返回 emit 下一行</text>
+
+        <rect class="svg-field" x="400" y="50" width="340" height="230" rx="10"/>
+        <text class="svg-small" x="420" y="78">代价与责任：</text>
+        <text class="svg-text" x="420" y="108">· 没有事件、没有复制、没有队列</text>
+        <text class="svg-text" x="420" y="134">· 最快 —— 就是一次函数调用</text>
+        <text class="svg-bad-text" x="420" y="166">· 槽在发射方线程跑</text>
+        <text class="svg-small" x="420" y="190">  所以槽里摸到的数据，可能是别的线程的</text>
+        <text class="svg-small" x="420" y="216">· 槽一慢，发射方跟着卡</text>
+        <text class="svg-small" x="420" y="242">· 槽抛异常会穿过 emit 传回调用方</text>
+
+        <rect class="svg-box-warn" x="60" y="305" width="680" height="95" rx="10"/>
+        <text class="svg-small" x="80" y="332">什么时候该用直连？</text>
+        <text class="svg-text" x="80" y="358">同一线程内的高频通知（鼠标移动、重绘、模型 dataChanged）—— 排队反而多一次拷贝和一轮事件循环。</text>
+        <text class="svg-small" x="80" y="384">★ 跨线程却硬写 Direct，等于亲手拆掉 Qt 的线程边界，还留下「偶现崩溃」。</text>
+      </svg>`,
+    caption: '<code>DirectConnection</code> 就是一次<strong>普通函数调用</strong>：没有事件、没有参数复制、没有队列，最快。代价是<strong>槽在发射方线程执行</strong>，所以它摸到的数据可能属于别的线程，而且槽一慢发射方就卡。同一线程的高频通知适合直连；<strong>跨线程硬写直连，就是亲手拆掉线程边界</strong>。',
+    code: `// 直连：帧率相关的通知，别绕事件循环
+connect(model, &QAbstractItemModel::dataChanged,
+        view,  &QWidget::update, Qt::DirectConnection);
+
+// 反例：跨线程却直连 —— 偶现崩溃的经典来源
+connect(worker, &Worker::tick, gui, &Page::onTick,
+        Qt::DirectConnection);   // 槽跑到 worker 线程里去了`,
+    highlight: [1, 2, 5]
+  },
+  {
+    title: 'Queued：参数被复制，事件排队，接收方线程执行',
+    nav: 'Queued',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="排队连接的事件投递">
+        <text class="svg-small" x="140" y="30">工作线程</text>
+        <rect class="svg-box" x="30" y="40" width="220" height="120" rx="10"/>
+        <text class="svg-mono" x="48" y="70">emit done(result)</text>
+        <text class="svg-small" x="48" y="94">① 复制参数到堆上</text>
+        <text class="svg-small" x="48" y="116">② postEvent 到接收方</text>
+        <text class="svg-small" x="48" y="138">③ 立刻返回，不等</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M250 100 L320 100"/>
+        <text class="svg-small" x="285" y="88" text-anchor="middle">QMetaCallEvent</text>
+
+        <rect class="svg-box-warn" x="320" y="40" width="150" height="120" rx="10"/>
+        <text class="svg-title" x="395" y="72" text-anchor="middle">队列</text>
+        <text class="svg-small" x="395" y="96" text-anchor="middle">按投递顺序</text>
+        <text class="svg-small" x="395" y="118" text-anchor="middle">先进先出</text>
+        <text class="svg-small" x="395" y="140" text-anchor="middle">可能有多个</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M470 100 L540 100"/>
+
+        <text class="svg-small" x="640" y="30">界面线程</text>
+        <rect class="svg-box-good" x="540" y="40" width="200" height="120" rx="10"/>
+        <text class="svg-mono" x="558" y="70">exec() 取事件</text>
+        <text class="svg-mono" x="558" y="96">→ Page::onDone</text>
+        <text class="svg-small" x="558" y="120">④ 用复制品调槽</text>
+        <text class="svg-small" x="558" y="142">⑤ 事件对象销毁</text>
+
+        <rect class="svg-field" x="30" y="185" width="710" height="105" rx="10"/>
+        <text class="svg-small" x="50" y="212">因为「复制」，排队连接有几个硬性要求：</text>
+        <text class="svg-text" x="50" y="240">· 参数类型必须可复制，并且要在元类型系统里登记（自定义类型 qRegisterMetaType）</text>
+        <text class="svg-text" x="50" y="266">· 传引用没意义：槽拿到的是副本（除非显式 Q_DECLARE_METATYPE + 指针，那就要自己管生命周期）</text>
+
+        <rect class="svg-box-bad" x="30" y="305" width="710" height="95" rx="10"/>
+        <text class="svg-small" x="50" y="332">最常见的「连了没反应」，是接收线程根本没有事件循环：</text>
+        <text class="svg-mono" x="50" y="358">QThread t; worker.moveToThread(&amp;t); t.start();   // run() 里没有 exec()</text>
+        <text class="svg-small" x="50" y="384">→ 事件永远躺在队列里。必须 QThread::run() 默认实现（内部 exec()）或自己调 exec()。</text>
+      </svg>`,
+    caption: '<code>QueuedConnection</code> 做三件事：<strong>复制参数 → 投递事件 → 立刻返回</strong>。槽在接收方线程、由它的事件循环调用。因为要复制，<strong>自定义类型必须 <code>qRegisterMetaType</code></strong>，传引用也拿不到原件。最常见的失效原因不是连接写错，而是<strong>接收线程没有事件循环</strong>——事件永远躺在队列里。',
+    code: `// 跨线程：一定要排队，别直连
+connect(worker, &Worker::done, page, &Page::onDone,
+        Qt::QueuedConnection);
+
+// 自定义类型必须先登记，否则排队时无法重建参数
+qRegisterMetaType<QList<TodoItem>>("QList<TodoItem>");
+
+// 接收线程必须有事件循环
+void Worker::run() { /* … */ }   // 若重写 run()，记得自己 exec()`,
+    highlight: [1, 2, 6]
+  },
+  {
+    title: 'BlockingQueued：排队 + 等它做完 —— 只在真需要结果时用',
+    nav: 'BlockingQueued',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="阻塞排队连接的等待">
+        <text class="svg-small" x="150" y="28">线程 A（发射方）</text>
+        <rect class="svg-box" x="30" y="38" width="240" height="150" rx="10"/>
+        <text class="svg-mono" x="48" y="66">emit askValue()</text>
+        <rect class="svg-box-warn" x="48" y="82" width="204" height="46" rx="6"/>
+        <text class="svg-small" x="60" y="102">阻塞等待…</text>
+        <text class="svg-small" x="60" y="120">线程 A 在这里停住</text>
+        <rect class="svg-field" x="48" y="140" width="204" height="36" rx="6"/>
+        <text class="svg-small" x="60" y="163">被唤醒，读结果</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M270 105 L340 105"/>
+        <text class="svg-small" x="305" y="93" text-anchor="middle">事件</text>
+
+        <text class="svg-small" x="470" y="28">线程 B（接收方）</text>
+        <rect class="svg-box" x="340" y="38" width="260" height="150" rx="10"/>
+        <text class="svg-small" x="358" y="66">事件循环取到它</text>
+        <rect class="svg-box-good svg-pulse" x="358" y="82" width="224" height="46" rx="6"/>
+        <text class="svg-mono" x="370" y="110">Worker::value() 计算</text>
+        <rect class="svg-field" x="358" y="140" width="224" height="36" rx="6"/>
+        <text class="svg-small" x="370" y="163">返回，唤醒线程 A</text>
+
+        <rect class="svg-box-bad" x="30" y="205" width="710" height="90" rx="10"/>
+        <text class="svg-bad-text" x="50" y="232">死亡组合：发射方和接收者在同一个线程</text>
+        <text class="svg-small" x="50" y="258">B 要执行槽，得等 A 让出事件循环；可 A 正卡在阻塞等待里 —— 谁也不会动。</text>
+        <text class="svg-small" x="50" y="282">Qt 会打警告并可能直接 abort；这是死锁，不是「慢」。</text>
+
+        <rect class="svg-field" x="30" y="310" width="710" height="95" rx="10"/>
+        <text class="svg-small" x="50" y="338">既然会阻塞，什么时候值得用？</text>
+        <text class="svg-text" x="50" y="364">后台线程要同步取一个「只有 GUI 线程能算」的值（例如窗口尺寸、字体度量）。</text>
+        <text class="svg-small" x="50" y="390">★ 更好的选择通常是：改成异步回调 + 信号回传，别让线程互相等。</text>
+      </svg>`,
+    caption: '<code>BlockingQueuedConnection</code> = 排队 + <strong>发射方阻塞到槽返回</strong>。它只在「后台线程必须同步拿到一个只有 GUI 线程能算的值」时有用。<strong>若两端在同一线程，它必然死锁</strong>（对方要执行槽得等你让出事件循环，而你正卡着等它），Qt 会警告甚至 abort。能用异步回传解决的，别用它。',
+    code: `// 后台线程需要 GUI 线程算出来的值
+qint64 Worker::askFontHeight() {
+    qint64 h = 0;
+    QMetaObject::invokeMethod(guiObject, "computeHeight",
+        Qt::BlockingQueuedConnection,
+        Q_RETURN_ARG(qint64, h));
+    return h;      // 这一行要等 GUI 线程把槽执行完
+}`,
+    highlight: [3, 4]
+  },
+  {
+    title: 'Unique / SingleShot：两个「开关」和它们的真实用途',
+    nav: '两个开关',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="UniqueConnection 与 SingleShotConnection">
+        <rect class="svg-box" x="30" y="30" width="340" height="160" rx="10"/>
+        <text class="svg-title" x="200" y="60" text-anchor="middle">Qt::UniqueConnection</text>
+        <text class="svg-small" x="50" y="88">同样的 (sender, signal, receiver, slot) 组合只连一次</text>
+        <text class="svg-small" x="50" y="112">第二次 connect 返回 false，不新增连接</text>
+        <text class="svg-small" x="50" y="136">典型场景：反复 show() 的对话框里连按钮</text>
+        <text class="svg-small" x="50" y="160">陷阱：lambda 每次都是「新的」—— 判重看不出来</text>
+        <text class="svg-small" x="50" y="182">所以它主要对「成员函数槽」有意义</text>
+
+        <rect class="svg-box" x="390" y="30" width="340" height="160" rx="10"/>
+        <text class="svg-title" x="560" y="60" text-anchor="middle">Qt::SingleShotConnection</text>
+        <text class="svg-small" x="410" y="88">Qt 6 新增：触发一次后自动断开</text>
+        <text class="svg-small" x="410" y="112">等价于在槽里自己 disconnect，但不用写</text>
+        <text class="svg-small" x="410" y="136">典型场景：「等到这一个信号就继续」的一次性等待</text>
+        <text class="svg-small" x="410" y="160">注意：断开发生在信号被投递后</text>
+        <text class="svg-small" x="410" y="182">排队连接也只会执行一次</text>
+
+        <rect class="svg-field" x="30" y="215" width="700" height="180" rx="10"/>
+        <text class="svg-small" x="50" y="243">两者都有更明确的「代码写法」替代品，认识它们是为了读懂别人的代码：</text>
+
+        <rect class="svg-box-good" x="50" y="258" width="320" height="56" rx="8"/>
+        <text class="svg-small" x="68" y="282">Unique 的替代：把 connect 放进构造函数</text>
+        <text class="svg-small" x="68" y="302">只在对象生命周期内连一次，天然不重复</text>
+
+        <rect class="svg-box-good" x="390" y="258" width="320" height="56" rx="8"/>
+        <text class="svg-small" x="408" y="282">SingleShot 的替代：槽里第一行 disconnect</text>
+        <text class="svg-small" x="408" y="302">语义一样，但老版本 Qt 也编得过</text>
+
+        <text class="svg-small" x="50" y="345">★ 连接是先到先得的：直连在 emit 内执行，排队在事件循环里执行 ——</text>
+        <text class="svg-small" x="50" y="370">所以「自动断开」也不是「立刻断开」，别把它当成并发原语用。</text>
+      </svg>`,
+    caption: '<code>UniqueConnection</code> 防的只是「同一组 sender/signal/receiver/slot 重复连」——对 lambda 无效，因为每次都是新对象。<code>SingleShotConnection</code> 是 Qt 6 新增，触发一次后自动断开，适合「等到这一次就继续」的等待。两者都能用更朴素的写法替代，认识它们主要是为了读懂别人的代码。',
+    code: `// 防重复连接（只对成员函数槽有效）
+connect(btn, &QPushButton::clicked, this, &Dlg::apply,
+        Qt::UniqueConnection);
+
+// 只触发一次的等待
+connect(reply, &QNetworkReply::finished,
+        this, &Page::onOneShot,
+        Qt::SingleShotConnection);      // Qt 6 起可用`,
+    highlight: [1, 5]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 部署：从 build 目录到别人电脑 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../build_deploy/qt_cmake_guide.html">第拾壹阶段 · 构建部署</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">BUILD/DEPLOY · 部署</span>
+    <h1>「我这儿能跑」到「他那儿能跑」，中间隔着一个 deploy</h1>
+    <p>开发机上 Qt 的路径都在环境变量里，所以 <code>build/bin/app.exe</code> 双击就跑。拷到别人电脑上，它会先报「找不到 Qt6Core.dll」，补上之后又报「this application failed to start because no Qt platform plugin could be initialized」。这一页把要带走的东西、目录结构与常见报错一一对上。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../build_deploy/qt_cmake_guide.html">build_deploy/qt_cmake_guide.html</a> ·
+    顶层脚本：<a href="../CMakeLists.txt">CMakeLists.txt</a>（第 20 行：产物集中在 <code>build/bin</code>）·
+    相关：<a href="../storage/04_resource_system.cpp">storage/04_resource_system.cpp</a>（插件依赖）
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '为什么本机能跑、别人不能',
+    nav: '为什么',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="开发机与别人电脑的差异">
+        <rect class="svg-box" x="25" y="35" width="340" height="200" rx="10"/>
+        <text class="svg-title" x="195" y="62" text-anchor="middle">开发机</text>
+        <text class="svg-small" x="45" y="92">· PATH 里有 C:\\msys64\\ucrt64\\bin</text>
+        <text class="svg-small" x="45" y="116">· Qt6Core.dll 等都能被找到</text>
+        <text class="svg-small" x="45" y="140">· 插件目录由 Qt 自动定位</text>
+        <text class="svg-small" x="45" y="164">· 环境变量 QT_PLUGIN_PATH 可能也设了</text>
+        <text class="svg-good-text" x="45" y="198">→ 双击就跑</text>
+        <text class="svg-small" x="45" y="222">但这套环境不在你的安装包里</text>
+
+        <rect class="svg-box-bad" x="395" y="35" width="340" height="200" rx="10"/>
+        <text class="svg-title" x="565" y="62" text-anchor="middle">别人的电脑</text>
+        <text class="svg-small" x="415" y="92">· 只有你的 exe</text>
+        <text class="svg-small" x="415" y="116">· 没有 Qt DLL</text>
+        <text class="svg-small" x="415" y="140">· 没有平台插件</text>
+        <text class="svg-small" x="415" y="164">· 没有 C++ 运行时（MinGW/MSVC）</text>
+        <text class="svg-bad-text" x="415" y="198">→ 报错，或者静默退出</text>
+        <text class="svg-small" x="415" y="222">最常见的是「一开就关，什么都不说」</text>
+
+        <rect class="svg-field" x="25" y="265" width="710" height="130" rx="10"/>
+        <text class="svg-small" x="45" y="293">两种依赖要分开想：</text>
+        <text class="svg-text" x="45" y="323">① 你自己的代码 → 已经在 exe 里了（资源也在，见上一页）。</text>
+        <text class="svg-text" x="45" y="351">② Qt 的 DLL 与插件 → 必须显式拷过去，或者静态链接进 exe。</text>
+        <text class="svg-small" x="45" y="379">部署这件事，本质就是把 ② 收全，并让 Qt 能找到它们。</text>
+      </svg>`,
+    caption: '开发机能跑，是因为 <code>PATH</code> 里有 Qt 的 <code>bin</code>、插件也能被自动定位。<strong>这些都不在安装包里</strong>。依赖分两类：<strong>你自己的代码与资源已经在 exe 里</strong>，<strong>Qt 的 DLL 与插件必须显式带走</strong>（或静态链接）。部署的本质就是「把 ② 收全，并让 Qt 找得到」。',
+    code: `# 一个最小的「手工部署」清单（Windows, 动态链接）
+app.exe
+Qt6Core.dll  Qt6Gui.dll  Qt6Widgets.dll
+platforms/qwindows.dll
+# 其余按需：Qt6Network.dll、Qt6Svg.dll、imageformats/*.dll、styles/*.dll
+#      translations/*.qm、C++ 运行时（MinGW: libgcc_s_seh-1.dll 等 / MSVC: vc_redist）`,
+    highlight: [2, 3, 4]
+  },
+  {
+    title: 'windeployqt：一条命令把依赖收齐',
+    nav: 'windeployqt',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="windeployqt 的工作方式">
+        <rect class="svg-box-accent" x="25" y="35" width="220" height="90" rx="10"/>
+        <text class="svg-small" x="45" y="62">输入</text>
+        <text class="svg-mono" x="45" y="90">app.exe</text>
+        <text class="svg-small" x="45" y="112">（已经能编译成功）</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M245 80 L300 80"/>
+        <rect class="svg-box-warn svg-pulse" x="300" y="35" width="180" height="90" rx="10"/>
+        <text class="svg-title" x="390" y="66" text-anchor="middle">windeployqt</text>
+        <text class="svg-small" x="390" y="92" text-anchor="middle">读 exe 的导入表</text>
+        <text class="svg-small" x="390" y="112" text-anchor="middle">推断需要哪些 DLL</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M480 80 L535 80"/>
+        <rect class="svg-box-good" x="535" y="30" width="200" height="100" rx="10"/>
+        <text class="svg-small" x="555" y="58">输出：一个可拷走的目录</text>
+        <text class="svg-small" x="555" y="82">DLL + platforms/ + 插件</text>
+        <text class="svg-small" x="555" y="106">+ translations/（默认带上）</text>
+
+        <rect class="svg-field" x="25" y="150" width="710" height="115" rx="10"/>
+        <text class="svg-small" x="45" y="178">最常用的三种调用：</text>
+        <text class="svg-mono" x="45" y="206">windeployqt app.exe</text>
+        <text class="svg-mono" x="45" y="230">windeployqt --release --dir deploy app.exe</text>
+        <text class="svg-mono" x="45" y="254">windeployqt --no-translations --no-opengl-sw app.exe</text>
+
+        <rect class="svg-box-warn" x="25" y="285" width="710" height="105" rx="10"/>
+        <text class="svg-small" x="45" y="313">两个要点：</text>
+        <text class="svg-text" x="45" y="343">① 它按「导入表」推断 —— 用了 <code>QLibrary</code> 动态加载的插件它看不见，要手动补。</text>
+        <text class="svg-text" x="45" y="371">② debug 与 release 的 DLL 不能混：名字带 d 后缀的是调试版，混放会直接崩。</text>
+      </svg>`,
+    caption: '<code>windeployqt app.exe</code> 读 exe 的<strong>导入表</strong>，推断需要哪些 DLL，把 <code>platforms/</code>、插件、翻译一起收好。两个要点：<strong>它看不见你用 <code>QLibrary</code> 动态加载的东西</strong>（要手动补）；<strong>debug 与 release 的 DLL 不能混放</strong>——名字带 <code>d</code> 后缀的是调试版，混了直接崩。',
+    code: `# 在 build/bin 里（本仓库产物就集中在那里）
+windeployqt --release app.exe
+
+# 收进单独目录，方便打包
+windeployqt --release --dir deploy app.exe
+
+# 精简：不要翻译、不要软件 OpenGL 兜底
+windeployqt --release --no-translations --no-opengl-sw --dir deploy app.exe`,
+    highlight: [2, 5, 8]
+  },
+  {
+    title: '部署后的目录长什么样',
+    nav: '目录结构',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="部署目录结构">
+        <rect class="svg-field" x="25" y="25" width="430" height="360" rx="10"/>
+        <text class="svg-mono" x="45" y="52">deploy/</text>
+        <text class="svg-mono" x="65" y="80">app.exe</text>
+        <text class="svg-mono" x="65" y="108">Qt6Core.dll</text>
+        <text class="svg-mono" x="65" y="136">Qt6Gui.dll</text>
+        <text class="svg-mono" x="65" y="164">Qt6Widgets.dll</text>
+        <text class="svg-mono" x="65" y="192">Qt6Network.dll        ← 用了才需要</text>
+        <text class="svg-mono" x="65" y="220">libgcc_s_seh-1.dll    ← MinGW 运行时</text>
+        <text class="svg-mono" x="65" y="248">libstdc++-6.dll</text>
+        <text class="svg-mono" x="65" y="276">libwinpthread-1.dll</text>
+        <text class="svg-mono" x="65" y="304">platforms/</text>
+        <text class="svg-mono" x="95" y="332">qwindows.dll</text>
+        <text class="svg-mono" x="65" y="360">styles/  imageformats/  translations/</text>
+
+        <rect class="svg-box-good" x="475" y="25" width="260" height="170" rx="10"/>
+        <text class="svg-small" x="495" y="52">目录结构不是「建议」</text>
+        <text class="svg-small" x="495" y="80">Qt 按固定约定找插件：</text>
+        <text class="svg-mono" x="495" y="108">exe 同级的 platforms/</text>
+        <text class="svg-mono" x="495" y="132">exe 同级的 imageformats/</text>
+        <text class="svg-small" x="495" y="162">把这些 DLL 全摊平到根目录</text>
+        <text class="svg-small" x="495" y="184">→ 找不到平台插件，直接退出</text>
+
+        <rect class="svg-box-warn" x="475" y="210" width="260" height="175" rx="10"/>
+        <text class="svg-small" x="495" y="237">别删的两样：</text>
+        <text class="svg-small" x="495" y="265">· platforms/qwindows.dll</text>
+        <text class="svg-small" x="495" y="289">  → 删了就是「no Qt platform plugin」</text>
+        <text class="svg-small" x="495" y="321">· C++ 运行时 DLL</text>
+        <text class="svg-small" x="495" y="345">  → 删了就是「0xC0000135 / 0xC0000139」</text>
+        <text class="svg-small" x="495" y="371">前者报得清楚，后者往往一闪而过</text>
+      </svg>`,
+    caption: '目录结构是<strong>约定</strong>，不是建议：Qt 在 exe 同级的 <code>platforms/</code>、<code>imageformats/</code> 等子目录找插件。把这些 DLL 全摊平到根目录 → 找不到平台插件。最不能删的两样：<code>platforms/qwindows.dll</code>（删了报「no Qt platform plugin」）和 <strong>C++ 运行时</strong>（删了报 <code>0xC0000135</code>/<code>0xC0000139</code>，往往一闪而过）。',
+    code: `deploy/
+├─ app.exe
+├─ Qt6Core.dll / Qt6Gui.dll / Qt6Widgets.dll
+├─ libgcc_s_seh-1.dll / libstdc++-6.dll / libwinpthread-1.dll   # MinGW
+├─ platforms/qwindows.dll        # 必须有，且必须在这个子目录
+├─ imageformats/qjpeg.dll        # 用到 JPEG 才需要
+└─ styles/qmodernwindowsstyle.dll`,
+    highlight: [5, 6]
+  },
+  {
+    title: '三类报错，三个病因',
+    nav: '报错对照',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="三类典型部署报错">
+        <rect class="svg-box-bad" x="25" y="25" width="710" height="100" rx="10"/>
+        <text class="svg-mono" x="45" y="52">0xC0000135 / 0xC0000139 / 应用无法正常启动</text>
+        <text class="svg-small" x="45" y="78">病因：缺 DLL，或 DLL 版本不匹配（调试版混进发布版 / 不同 Qt 版本混用）</text>
+        <text class="svg-small" x="45" y="104">查法：用 Dependencies 或 dumpbin /dependents 看导入表，逐个对名字与版本。</text>
+
+        <rect class="svg-box-warn" x="25" y="145" width="710" height="100" rx="10"/>
+        <text class="svg-mono" x="45" y="172">This application failed to start because no Qt platform plugin could be initialized</text>
+        <text class="svg-small" x="45" y="198">病因：platforms/qwindows.dll 不在约定位置，或它依赖的 DLL 缺失</text>
+        <text class="svg-small" x="45" y="224">查法：设环境变量 QT_DEBUG_PLUGINS=1 再跑，它会打印找了哪些目录。</text>
+
+        <rect class="svg-box-warn" x="25" y="265" width="710" height="100" rx="10"/>
+        <text class="svg-mono" x="45" y="292">图片 / 图标显示不出来，控制台无报错</text>
+        <text class="svg-small" x="45" y="318">病因：imageformats 或 Qt Svg 插件没带上（资源已经在 exe 里，但解码器不在）</text>
+        <text class="svg-small" x="45" y="344">查法：换成 PNG 试一下 —— 能显示就说明是格式插件问题，不是路径问题。</text>
+
+        <rect class="svg-field" x="25" y="385" width="710" height="0" rx="0"/>
+        <text class="svg-small" x="45" y="404">★ 一个通用习惯：给别人打包前，在一台「没装 Qt」的机器（或全新虚拟机）上跑一遍。</text>
+      </svg>`,
+    caption: '三类报错对上三个病因：<strong><code>0xC0000135/0xC0000139</code></strong>=缺 DLL 或版本不匹配（用 <code>dumpbin /dependents</code> 看导入表）；<strong>「no Qt platform plugin could be initialized」</strong>=<code>platforms/qwindows.dll</code> 不在约定位置或它的依赖缺了（设 <code>QT_DEBUG_PLUGINS=1</code> 看它找了哪些目录）；<strong>图片显示不出来</strong>=格式插件没带上，资源在 exe 里也没用。',
+    code: `# 看 exe 依赖了哪些 DLL（VS 开发者命令行里）
+dumpbin /dependents app.exe
+
+# 看 Qt 到底去哪里找插件、找到了哪些
+set QT_DEBUG_PLUGINS=1
+app.exe
+
+# 定位「图片不显示」：先换 PNG 试
+# 能显示 → 是 SVG/JPEG 插件缺失，不是资源路径错`,
+    highlight: [1, 4]
+  },
+  {
+    title: 'qt.conf 与静态链接：两种「自己说了算」',
+    nav: 'qt.conf / 静态',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="qt.conf 与静态链接">
+        <rect class="svg-box" x="25" y="30" width="345" height="250" rx="10"/>
+        <text class="svg-title" x="197" y="58" text-anchor="middle">qt.conf：告诉 Qt 去哪找</text>
+        <text class="svg-small" x="45" y="88">想换目录结构时，在 exe 旁边放一个</text>
+        <text class="svg-small" x="45" y="112">纯文本 qt.conf：</text>
+        <text class="svg-mono" x="45" y="142">[Paths]</text>
+        <text class="svg-mono" x="45" y="166">Plugins = libs/plugins</text>
+        <text class="svg-mono" x="45" y="190">Translations = libs/i18n</text>
+        <text class="svg-small" x="45" y="222">默认情况下不需要它 ——</text>
+        <text class="svg-small" x="45" y="246">约定目录就够用，别为了「整齐」</text>
+        <text class="svg-small" x="45" y="270">给自己加一层配置依赖。</text>
+
+        <rect class="svg-box-warn" x="390" y="30" width="345" height="250" rx="10"/>
+        <text class="svg-title" x="562" y="58" text-anchor="middle">静态链接：一个 exe 都不要</text>
+        <text class="svg-small" x="410" y="88">· 需要静态构建的 Qt（本仓库用的是动态版）</text>
+        <text class="svg-small" x="410" y="112">· 插件也要静态注册（Q_IMPORT_PLUGIN）</text>
+        <text class="svg-small" x="410" y="136">· exe 巨大，但分发最简单</text>
+        <text class="svg-small" x="410" y="160">· 许可证要自己看清（LGPL 与静态链接有约束）</text>
+        <text class="svg-good-text" x="410" y="192">适合：内部小工具、单文件需求强</text>
+        <text class="svg-small" x="410" y="222">不适合：需要多语言/主题热替换的产品</text>
+        <text class="svg-small" x="410" y="250">★ LGPL 下静态链接需谨慎评估，问法务。</text>
+
+        <rect class="svg-field" x="25" y="300" width="710" height="95" rx="10"/>
+        <text class="svg-small" x="45" y="328">选择顺序建议：</text>
+        <text class="svg-text" x="45" y="358">先用「windeployqt + 约定目录」，它覆盖 95% 的场景；</text>
+        <text class="svg-text" x="45" y="384">确实需要单文件且许可证允许，再考虑静态链接。</text>
+      </svg>`,
+    caption: '<code>qt.conf</code> 用来<strong>换目录结构</strong>（告诉 Qt 插件在 <code>libs/plugins</code> 之类的地方）。默认不需要它——约定目录就够用，别为了「整齐」给自己加一层配置依赖。静态链接能做出「一个 exe 都不要」，但<strong>插件也要静态注册</strong>、exe 巨大、<strong>许可证有约束</strong>。默认选择永远是 windeployqt + 约定目录。',
+    code: `# qt.conf（放在 exe 旁边，纯文本）
+[Paths]
+Plugins = libs/plugins
+Translations = libs/i18n
+
+# 静态链接时，插件必须显式导入（否则一样「no platform plugin」）
+# Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin)  ← 名称随 Qt 版本与平台而定`,
+    highlight: [1, 2, 3]
+  },
+  {
+    title: '发布前的一张检查表',
+    nav: '发布检查',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="发布前检查表">
+        <rect class="svg-box-good" x="25" y="20" width="710" height="385" rx="10"/>
+        <text class="svg-small" x="45" y="48">在「干净机器」上逐条过：</text>
+
+        <text class="svg-text" x="45" y="84">□ 双击能起窗口，不闪退、不弹系统错误框</text>
+        <text class="svg-text" x="45" y="118">□ 图标、SVG、自绘资源都能显示</text>
+        <text class="svg-text" x="45" y="152">□ 中文不乱码（源码 UTF-8 + tr 文件已加载）</text>
+        <text class="svg-text" x="45" y="186">□ 网络功能可用（DLL 齐全，证书库存在）</text>
+        <text class="svg-text" x="45" y="220">□ 用户数据写在 AppDataLocation，不是程序目录</text>
+        <text class="svg-text" x="45" y="254">□ 高分屏下不糊、不重叠</text>
+        <text class="svg-text" x="45" y="288">□ 卸载后不留垃圾（配置、缓存、临时文件）</text>
+        <text class="svg-text" x="45" y="322">□ 没有把调试版 DLL 或 debug 构建打包进去</text>
+
+        <rect class="svg-box-warn" x="45" y="340" width="670" height="52" rx="8"/>
+        <text class="svg-small" x="65" y="366">最后一条最容易被漏：debug 版在开发机上能跑，因为 PATH 里有；</text>
+        <text class="svg-small" x="65" y="384">换台机器，它缺的是「带 d 的那些 DLL」。</text>
+      </svg>`,
+    caption: '发布前在<strong>干净机器</strong>上逐条过：能起窗口、资源显示、中文不乱码、网络可用、<strong>用户数据写在 <code>AppDataLocation</code></strong>、高分屏不糊、卸载不留垃圾、<strong>没有打包 debug 版</strong>。最后一条最常漏：debug 版在开发机能跑，是因为 PATH 里有；换台机器，它缺的是那些带 <code>d</code> 后缀的 DLL。',
+    code: `# 打包前的自检脚本（伪代码，逻辑照抄即可）
+1. cmake --build build --config Release
+2. windeployqt --release --dir deploy build/bin/app.exe
+3. 拷 deploy/ 到干净虚拟机
+4. 双击 → 走完上面那张表
+5. 只把 deploy/ 打成 zip / 安装包`,
+    highlight: [2, 3]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

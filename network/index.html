@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第玖阶段 · 网络 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🌐 第玖阶段 · 网络</h1>
+    <p><code>get()</code> 立刻返回，真正的工作在没有你的地方发生 · 5 章从 HTTP 到 TCP，全程只连回环</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      网络这一层最容易写歪，因为它<strong>天生异步</strong>，而新手总想把它拧成同步：在按钮槽里发个请求，然后「等它回来」。
+      你一「等」，事件循环就停了，界面就「未响应」，超时也没人管。Qt 网络的正确姿势只有一句话：
+      <strong>发出去、记住谁在等、回来再说</strong>。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块共 <strong>5 章</strong>：第 1 讲把 <code>QNetworkAccessManager</code> 的规矩立住（一个应用一个实例、六个动词、<code>finished</code> 之后才读结果）；
+      第 2 讲把网络层包成一层**可测试**的 API，并把失败分成三类（HTTP 语义错 / 网络错 / 解析错）；
+      第 3 讲自己写 TCP，直面「字节流里没有消息」这件事，用长度前缀造出边界；
+      第 4 讲做一个能扛事的下载任务（进度、Range 断点续传、边下边写、取消）；
+      第 5 讲 DNS 与 TLS——以及「这两个 API 都不给你超时，期限得自己加」。
+    </p>
+    <p style="margin-top: 10px;">
+      <strong>关于联网的一条硬规矩</strong>：本模块涉及真实网络的示例<strong>只连本地回环</strong>（<code>127.0.0.1</code> /
+      <code>QHostAddress::LocalHost</code>），端口用 <code>listen(QHostAddress::LocalHost, 0)</code> 让内核挑，<strong>不访问公网</strong>。
+      需要外部服务的章节（DNS、TLS）写成了「能力探测 + 离线也成立的部分 + 你联网时的可选实验」，断网也能把课跑完。
+      所有等待都有期限，临时文件都在 <code>QStandardPaths::TempLocation</code> 下并且用完就删。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      目标名 <code>network_01_network_access_manager</code> … <code>network_05_dns_and_ssl</code>，已登记在顶层
+      <code>CMakeLists.txt</code> 的「第玖阶段 · 网络（network/）」一节，本组额外链 <code>Qt6::Network</code>。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>；每个 .cpp 都过了
+      <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
+      每个类、函数、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过
+      （<code>qnetworkrequest.h</code>、<code>qnetworkreply.h</code>、<code>qabstractsocket.h</code>、<code>qhostinfo.h</code>……）。
+      真实网络的行为依赖对方服务器，文中凡是「对方会怎么答」的说法都写成条件句，不冒充实测。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+        📖 学习指南
+      </a>
+      <a href="../visuals/network_async.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 异步请求
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>5 张卡片 = 5 章</strong>，按 <strong>第 1 步 → 第 5 步</strong> 依次学。
+    这条主线是「先会用别人的协议（HTTP）→ 再把它包成工程上能测的一层 → 再自己造协议（TCP）→ 再做成扛得住断线的任务 → 最后解决名字与加密」：
+    <strong>第 1 步</strong>NAM 的规矩 → <strong>第 2 步</strong>把失败分类 → <strong>第 3 步</strong>字节流与边界 →
+    <strong>第 4 步</strong>下载状态机 → <strong>第 5 步</strong>DNS 与 TLS。
+    本模块有<strong>两道硬坎</strong>：
+    <strong>① 第 1 步「<code>finished</code> 之前读到的是空」坎</strong>——<code>error()</code>、<code>errorString()</code>、
+    <code>HttpStatusCodeAttribute</code> 都只在 <code>finished</code> 之后才完整；<code>readyRead()</code> 是「又来了一段正文」，
+    不是「结束了」。你把这两件事混了，就会写出「正文永远只有第一段」的代码；
+    <strong>② 第 3 步「TCP 不给你消息」坎</strong>——一次 <code>readyRead</code> 可能是半条、两条、或者一个半；
+    粘包与半包不是 bug，是字节流的本性。边界必须自己造，而且长度字段是对端说的，永远别信。
+    <strong>网络是最容易「在我这儿能用」的一段</strong>：延迟、丢包、断线、重定向、慢服务器，你的开发机一样都不会遇到。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_network_access_manager.cpp" class="card">
+      <div class="card-step">第 1 步 · 第一道坎</div>
+      <div class="card-icon">📮</div>
+      <div class="card-title">01 · QNetworkAccessManager 的正确姿势</div>
+      <div class="card-desc">一个应用一个 NAM（它内部有连接池、代理、Cookie、缓存、HSTS，每次 new 等于每次重新握手）；QUrl 的三个坑（手写字符串不是 URL、本地文件用 fromLocalFile、query 用 QUrlQuery）；六个动词（Qt6 没有 delete，只有 deleteResource）；finished 与 readyRead 的分工；error()/attribute() 只在 finished 之后完整；重定向策略与 setTransferTimeout。</div>
+      <div class="card-meta"><span class="tag framework">异步模型</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="02_rest_client.cpp" class="card">
+      <div class="card-step">第 2 步</div>
+      <div class="card-icon">🧱</div>
+      <div class="card-title">02 · 把网络层写成可测试的一层</div>
+      <div class="card-desc">业务代码不该看见 QNetworkReply。RestClient::get/postJson 收回调、统一返回 ApiResult；三类失败分开建模——成功 / HTTP 语义错（4xx 5xx，服务器活着并答了你）/ 网络错（连不上、超时、被取消）/ 解析错（200 但正文不是 JSON），三者的提示、重试、日志级别都不同；请求头里 Authorization 不在 KnownHeaders 中，Bearer 只能 setRawHeader。</div>
+      <div class="card-meta"><span class="tag hard">工程分层</span><span class="tag framework">可测试性</span></div>
+    </a>
+
+    <a href="03_tcp_client_server.cpp" class="card">
+      <div class="card-step">第 3 步 · 第二道坎</div>
+      <div class="card-icon">🔌</div>
+      <div class="card-title">03 · TCP：在字节流上盖出协议</div>
+      <div class="card-desc">事件驱动：newConnection / connected / readyRead / disconnected / errorOccurred / stateChanged 全是信号；端口现拿（listen(LocalHost, 0) + serverPort），并注意 listen 的默认地址是 Any——「桌面软件被防火墙弹窗」一半是顺手 listen() 造成的；一次 readyRead ≠ 一条消息（半包 3 次 write、粘包 2 帧 1 次 write 并排打印）；用长度前缀把帧找回来；connectToHost 返回 void，连不上只能等 errorOccurred。</div>
+      <div class="card-meta"><span class="tag hard">协议边界</span><span class="tag framework">事件驱动</span></div>
+    </a>
+
+    <a href="04_download_and_progress.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">📥</div>
+      <div class="card-title">04 · 下载任务的状态机</div>
+      <div class="card-desc">downloadProgress 的三个分支：总量 &gt; 0 正常算百分比、== -1 是长度未知（别去做除法）、== 0 是空文件；熟头与生头的两种读法（Content-Range / Accept-Ranges 只在生头里）；断点续传 = Range 头 + 206 状态码 + Content-Range 回显，两段拼起来与整段逐字节比对；边下边写绝不攒内存（readyRead → read → QSaveFile::write）；取消用 abort() 而不是 deleteLater()。</div>
+      <div class="card-meta"><span class="tag hard">状态机</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_dns_and_ssl.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">🔐</div>
+      <div class="card-title">05 · 名字与加密：DNS 与 TLS</div>
+      <div class="card-desc">QHostInfo 的同步与异步两套（fromName 堵线程、lookupHost + lookupId 对结果）；「查不到」是常态不是异常，用保留域名 .invalid 演示，并且证明「我们的期限一定生效」；QHostAddress 的五个事实（isLoopback / isNull / IPv4 与 IPv6 / LocalHost 与 Any）；TLS 能力探测：supportsSsl、后端名、密码套件、系统根证书——「能不能上 TLS」只有一个判据。</div>
+      <div class="card-meta"><span class="tag framework">命名与信任</span><span class="tag hard">超时自管</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>一个应用一个 NAM</strong>：把它当成和 <code>QApplication</code> 同级的长期对象（通常是主窗口的成员，或者一个全局服务）。它创建的每个 reply 都归它管，但你必须自己 <code>deleteLater()</code>。</li>
+      <li><strong>只在 <code>finished</code> 之后读结果</strong>：<code>error()</code>、<code>errorString()</code>、状态码、大部分响应头，都是在这条信号之后才完整。正文可以边收边读，结论不行。</li>
+      <li><strong>三类失败分开处理</strong>：HTTP 4xx/5xx 是「服务器答了你，但它不同意」；网络错误是「它根本没答」；解析错误是「它答了，但答的不是你以为的东西」。混成一个 bool，你的提示、重试、日志就全错。</li>
+      <li><strong>自己写 TCP 就先定帧格式</strong>：长度前缀最简单（4 字节大端长度 + 正文），也最容易验证。定完帧格式，再写收发代码。</li>
+      <li><strong>所有等待都带期限</strong>：<code>setTransferTimeout()</code>、<code>waitForReadyRead(期限)</code>、<code>QTimer</code> 看门狗，三者至少有一个。<code>setTransferTimeout</code> 是「静默超时」，不是总时长上限。</li>
+      <li><strong>只连回环做实验</strong>：自己在本机起一个 <code>QTcpServer</code> 当被测服务端，你能控制它发半包、发坏帧、故意慢，这比连公网服务器有用得多。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，网络这块，手艺的高低不在「会不会发请求」，而在<strong>出事的时候你的程序是什么样</strong>。用户的地铁里没信号、公司的代理要认证、服务器偶尔返回 502、下载到 99% 断线——这些才是你真正要处理的东西。所以这一阶段我不教你「怎么把请求发出去」，我教你<strong>怎么把失败分成能处理的样子</strong>。</p>
+    <ul>
+      <li><strong>第一条：永远不要同步等网络。</strong> <code>waitForFinished()</code> 在你自己的 GUI 线程里就是一次自杀——事件循环停了，进度条不动，用户以为死了。除非你在一个专门的线程里、且知道自己在干什么。</li>
+      <li><strong>第二条：reply 是要还的。</strong> <code>finished</code> 之后必须 <code>deleteLater()</code>，或者设 parent 让它随父消失。不还的 reply 会一条条攒着，直到你把内存吃光。</li>
+      <li><strong>第三条：状态码和错误是两个考场。</strong> <code>error() == NoError</code> 只说明「传输层面走完了」，<code>HttpStatusCodeAttribute</code> 才说明「服务器怎么想」。两个都要看，缺一个就会把 500 当成成功。</li>
+      <li><strong>第四条：字节流里没有消息。</strong> TCP 保证顺序和可靠，不保证边界。你要么用现成协议（HTTP 帮你划好了），要么自己造边界——长度前缀，然后防御坏长度。</li>
+      <li><strong>第五条：TLS 不是「开了就安全」。</strong> 先探测 <code>supportsSsl()</code>（有些 Qt 构建根本没编 OpenSSL 后端），再谈证书校验。连不上别急着忽略错误——那正是中间人的入口。</li>
+    </ul>
+    <p>这一关过完，你的程序就能和外面的世界说话了。下一关是「工程质量」——让这些会说话、会存储、会多线程的代码，<strong>经得起别人改、经得起机器验</strong>。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

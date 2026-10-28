@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第肆阶段 · 元对象系统（Meta-Object） - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🧬 元对象系统 · Meta-Object</h1>
+    <p>Qt 区别于普通 C++ 的那一层 · 8 讲，从「会用信号槽」到「读懂元对象表」</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      本模块讲 <strong>Qt 的元对象系统（Meta-Object System）</strong>——信号与槽（signal/slot）、
+      <code>Q_OBJECT</code> 与 <code>moc</code>、属性系统（<code>Q_PROPERTY</code>）、
+      <code>QObject</code> 父子树与所有权、运行时反射（<code>QMetaObject</code>）。
+      前 4 讲教你<strong>把信号槽用对</strong>；第 5 讲把引擎盖掀开，看 <code>moc</code> 到底生成了什么；
+      后 3 讲讲<strong>长在这张表上的能力</strong>：属性、对象树、反射。
+      学完这 8 讲，你对「为什么 connect 连不上」「为什么槽跑了两遍」「为什么改了属性界面不刷新」
+      这类问题，就不再是猜了。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      每一章都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>
+      （<code>QTimer::singleShot</code> 排脚本 + <code>qInfo()</code> 吐结论 + <code>quit()</code>）。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库不全），8 个示例
+      <strong>都未在本机实测编译</strong>；文中每一个类、函数、重载都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过，并在注释里写明了文件名与行号。
+      唯一的实测例外：<strong>第 5、6、7、8 讲的 moc 产物是本机真跑出来的</strong>
+      （<code>C:\msys64\ucrt64\share\qt6\bin\moc.exe</code>，自报 "The Qt Meta Object Compiler version 69 (Qt 6.12.0)"）。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/moc_signal_slot.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · moc 与信号槽
+      </a>
+      <a href="../visuals/connection_types.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 连接类型
+      </a>
+      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · QObject 对象树
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>8 张卡片 = 8 讲</strong>，按 <strong>第 1 步 → 第 8 步</strong> 一张张往下学，别跳。
+    这条主线分三段：<strong>第 1~4 步是「会用」</strong>——先弄懂信号槽是什么（第 1 步）、
+    把 <code>connect</code> 的几种写法与连接类型分清（第 2 步）、学会<strong>断开</strong>和管理
+    连接句柄（第 3 步）、再解决 <code>lambda</code> 捕获与对象寿命这对孪生事故（第 4 步）；
+    <strong>第 5 步是「拆开看 moc」</strong>——一张元对象表 + 一个 <code>switch</code> 派发 +
+    一段信号发射体，把前四步的道理全部落到看得见的生成代码上；
+    <strong>第 6~8 步是「建立在元对象之上的能力」</strong>——属性系统（第 6 步）、
+    父子树与所有权（第 7 步）、运行时反射（第 8 步），三者都靠第 5 步那张表才成立。
+    两道硬坎要正面跨：<strong>第 4 步 lambda 生命周期</strong>（悬空捕获不会每次都崩，是最难查的一类 bug）、
+    <strong>第 5 步 moc</strong>（忘了 <code>Q_OBJECT</code> / 忘了 <code>#include "xxx.moc"</code> 的链接期报错，
+    你这辈子还会再见）。每讲重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_signal_slot_basics.cpp" class="card">
+      <div class="card-step">第 1 步</div>
+      <div class="card-icon">🔔</div>
+      <div class="card-title">01 · 自定义信号与槽的第一课</div>
+      <div class="card-desc">signals:/slots: 宏展开的不对称真相（signals 白送 public，slots 什么都不送）；信号只声明不实现、发射 = 遍历连接表挨个调用；重复 connect 会重复调用；槽就是普通成员函数；信号参数必须可拷贝的根因。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="02_connect_variants.cpp" class="card">
+      <div class="card-step">第 2 步</div>
+      <div class="card-icon">🔌</div>
+      <div class="card-title">02 · connect 的各种写法与连接类型</div>
+      <div class="card-desc">函数指针版 / 字符串 SIGNAL-SLOT 版 / lambda 版 / 带 context 版的取舍；Qt::Auto·Direct·Queued·BlockingQueued·Unique 各连接类型会改变什么，为什么新代码一律优先函数指针写法。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="03_disconnect_and_connection.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">✂️</div>
+      <div class="card-title">03 · 断开连接与 QMetaObject::Connection</div>
+      <div class="card-desc">connect 返回的是什么句柄、disconnect 的几种重载、为什么句柄要保存并判 valid、接收者销毁时连接如何自动断开，以及「忘记断开」和「重复登记」两类泄漏的账怎么算。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="04_lambda_and_lifetime.cpp" class="card">
+      <div class="card-step">第 4 步 · 第二道坎</div>
+      <div class="card-icon">🪝</div>
+      <div class="card-title">04 · lambda 槽与生命周期</div>
+      <div class="card-desc">按值捕获与按引用捕获在信号槽里的差别、<strong>忘记传 context object</strong> 的后果、对象销毁后 lambda 仍被调用的悬空现场，以及「带 context 的 lambda」这条铁律为什么能救命。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_moc_anatomy.cpp" class="card">
+      <div class="card-step">第 5 步 · 第一道坎</div>
+      <div class="card-icon">🔬</div>
+      <div class="card-title">05 · moc 解剖（附本机实测产物）</div>
+      <div class="card-desc">Q_OBJECT 只给声明、实现体全在 moc 产物里；字符串池 + 元数据数组 + qt_static_metacall 的 switch 派发 + 每个信号一段 activate 发射体；SIGNAL()/SLOT() 宏那个数字前缀的真相；AUTOMOC 的三条硬规矩。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="06_property_system.cpp" class="card">
+      <div class="card-step">第 6 步</div>
+      <div class="card-icon">🏷️</div>
+      <div class="card-title">06 · Q_PROPERTY 与属性系统</div>
+      <div class="card-desc">本机 moc 真实接受的 12 个关键字（READ WRITE RESET MEMBER NOTIFY DESIGNABLE SCRIPTABLE STORED USER CONSTANT FINAL REQUIRED BINDABLE）；写属性 = 调 setter、NOTIFY 不会由 Qt 替你发；静态属性 vs 动态属性两种失败方式；Qt6 属性绑定 QBindable/Qt::makePropertyBinding 的真实签名（结论：没有 bind() 这个成员）。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="07_qobject_tree.cpp" class="card">
+      <div class="card-step">第 7 步</div>
+      <div class="card-icon">🌳</div>
+      <div class="card-title">07 · QObject 父子树与所有权</div>
+      <div class="card-desc">children()/setParent 的真实签名（Qt6 的 setParent 返回 void！）、父析构递归删子树、findChild/findChildren 模板（T 是指针、名字是 QAnyStringView、有 static_assert）；deleteLater() 解决的具体问题与反面现场；QPointer 与 destroyed 两条自保路线；QObjectCleanupHandler。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="08_introspection.cpp" class="card">
+      <div class="card-step">第 8 步</div>
+      <div class="card-icon">🔎</div>
+      <div class="card-title">08 · 元反射：读那张表，也用它写回</div>
+      <div class="card-desc">methodOffset/propertyOffset 是分水岭；QMetaMethod 的 name/parameterTypes/invoke、QMetaProperty 的 read/write/reset/notifySignal；查不到一律 -1（别拿 -1 去构造表条目）；Q_ENUM/Q_FLAG 让枚举能按名字读写；qobject_cast 比 dynamic_cast 更合适的三条真实理由。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>按三段推进</strong>：第 1~4 步先把「用」练熟，别急着看表；第 5 步回头把前四步的道理一次性解释清楚；第 6~8 步再往外长。跳过第 5 步直接学属性，你会一直处在「它反正能用」的黑盒状态。</li>
+      <li><strong>每个示例都要跑</strong>：8 个示例都是无人值守的——<code>QTimer::singleShot</code> 排好脚本、<code>qInfo()</code> 打结论、最后自动 <code>quit()</code>。先跑一遍看输出，再回过头读注释，效率比倒过来高得多。</li>
+      <li><strong>亲手跑一次 moc</strong>：第 5 步的注释里有完整命令（<code>moc.exe 05_moc_anatomy.cpp -o out.txt</code>）。一个 30 行的类能生成两百多行表 + switch，看三次就终身不忘，比读十篇博客管用。</li>
+      <li><strong>第 4 步的规矩要变成肌肉记忆</strong>：写带 lambda 的 connect 时<strong>永远传 context object</strong>。这条规矩的价值要到你踩第二次「界面偶发崩溃」时才显出来，但别等到那时。</li>
+      <li><strong>第 6~8 步的错误都在运行期</strong>：属性名拼错、枚举没写 <code>Q_ENUM</code>、<code>indexOfMethod</code> 返回 -1 还拿去用——编译器一个字都不说。所以这三讲的每个示例都刻意把「失败长什么样」打出来给你看。</li>
+      <li><strong>记住「未在本机实测编译」</strong>：本机运行时不全，示例暂无可执行产物；但 API 全部对着真实头文件核对过，注释里连行号都给了。换到能编译的环境，按每讲顶部注释块里的 CMake 目标名构建即可。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，元对象系统这块，外面教程多、错误更多。师傅不给你背 API，先给你三条心法：</p>
+    <ul>
+      <li><strong>第一条：信号就是一个成员函数，别把它当魔法。</strong> 它是 moc 替你写好实现体的 public 函数，函数内容就是「查这张连接表，把表里的槽挨个调用一遍」。想通了这一句，「没连接时发射为什么不报错」「重复 connect 为什么跑两遍」「同线程为什么是同步调用」全部自动通了。</li>
+      <li><strong>第二条：Q_OBJECT 不是风格，是入场券。</strong> 没写它，你的类就没有自己的元对象表，信号连不上、属性找不到、<code>qobject_cast</code> 返回空、<code>findChild</code> 直接编译不过。而它只<strong>声明</strong>不实现，所以 <code>.cpp</code> 里的类必须在末尾 <code>#include "本文件名.moc"</code>——这条链接期报错我期望你这辈子只查一次。</li>
+      <li><strong>第三条：按名字干活，就要接受错误在运行期。</strong> 字符串版 <code>connect</code>、<code>setProperty("levle",…)</code>、<code>invokeMethod("sweep")</code> 都把编译器的检查换成了运行时的查表。属性系统、反射这些能力很有价值，但<strong>内部热路径一律用函数指针写法</strong>，只有插件、配置、QML 这些「名字来自你编译单元之外」的场景才允许按名字。</li>
+      <li><strong>第四条：寿命问题只有一个解法。</strong> 第 3、4、7 讲其实都在讲同一件事——<strong>谁先死、谁还持有谁的指针</strong>。带 context 的 connect、<code>QPointer</code>、<code>deleteLater()</code>、父子树，全是这一句话的四种写法。别背 API，背这句话。</li>
+    </ul>
+    <p>慢慢来，不急。这 8 讲啃下来，你对 Qt 的理解就从「会用这些类」升级成「知道它凭什么能用」。下一阶段的线程、模型视图、视图框架，全建在你现在读到的这张表上。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

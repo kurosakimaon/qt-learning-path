@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第壹阶段 · 起步 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🚀 第壹阶段 · 起步</h1>
+    <p>把 Qt 程序的「地基」打牢 · 6 章循序渐进，从第一个窗口到无头自测</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      欢迎来到 Qt 的世界！本模块是全课程的<strong>第壹阶段「起步」</strong>，从<strong>第一个窗口</strong>讲起：
+      先立起 <code>QApplication</code>、把窗口 <code>show()</code> 出来、弄懂事件循环；再解剖一个 Qt 工程，
+      把 <code>Q_OBJECT</code> 与 <code>moc</code> 这第一道坎迈过去；接着把<strong>应用对象</strong>的职责、
+      <strong>信号槽交互</strong>、<strong>日志输出</strong>一讲讲铺开，最后落在<strong>无头运行与自动化自测</strong>——
+      这一讲本身就是给后面所有示例「跑起来验一验」用的。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      每一章都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级），本模块示例
+      <strong>未在本机实测编译</strong>；文中每一个类、函数、重载都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/startup_flow.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 启动流程
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>6 张卡片 = 6 章</strong>，按 <strong>第 1 步 → 第 6 步</strong> 一张张往下学，别跳。
+    这个顺序是有讲究的一条主线：<strong>先让窗口出来（第 1 步）</strong>建立信心 →
+    <strong>再拆开工程（第 2 步）</strong>搞懂它凭什么能跑 → <strong>认识大管家 QApplication（第 3 步）</strong> →
+    <strong>让它动起来有交互（第 4 步）</strong> → <strong>学会看它吐的日志（第 5 步）</strong> →
+    <strong>最后脱离人手、能在 CI 里无人值守自测（第 6 步）</strong>。前一步都是后一步的地基。
+    本模块有一道硬坎：<strong>第 2 步 Q_OBJECT / moc 是第一道坎</strong>——Qt 的信号槽、运行时反射全靠它，
+    迈不过去后面越学越虚；<strong>第 6 步</strong>是贯穿全课的「自测工具」，务必跟着做。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_hello_window.cpp" class="card">
+      <div class="card-step">第 1 步</div>
+      <div class="card-icon">🪟</div>
+      <div class="card-title">01 · 第一个窗口</div>
+      <div class="card-desc">为什么必须先造 QApplication；show() 只是「挂号」，真正绘制在事件循环里；Qt 会吃掉哪些内置命令行选项。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="02_project_anatomy.cpp" class="card">
+      <div class="card-step">第 2 步 · 第一道坎</div>
+      <div class="card-icon">🧱</div>
+      <div class="card-title">02 · 工程解剖（Q_OBJECT/moc）</div>
+      <div class="card-desc">自定义窗口类、Q_OBJECT 是给 moc 的标记、AUTOMOC 替你做了什么、.cpp 里的类为何要 #include "xxx.moc"，声明/实现分离（配套 startwidget.h / startwidget.cpp）。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="03_application_object.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">🎛️</div>
+      <div class="card-title">03 · QApplication 的职责</div>
+      <div class="card-desc">应用路径、setOrganizationName+setApplicationName（为 QSettings 定坐标）、desktopFileName、setFont/setPalette/setStyle + QStyleFactory::keys()、aboutToQuit。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="04_first_interaction.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">🔗</div>
+      <div class="card-title">04 · 最小交互闭环</div>
+      <div class="card-desc">QPushButton + QLineEdit + QLabel，三种 connect 写法各演一次（成员指针 / lambda / 带 context 的 lambda）；事件驱动不是轮询；Q_EMIT 与 emit 的关系。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="05_logging.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">📝</div>
+      <div class="card-title">05 · 调试输出</div>
+      <div class="card-desc">五个日志级别的分工与后果、qSetMessagePattern 占位符、qDebug().noquote().nospace() 链式接口、QLoggingCategory + QT_LOGGING_RULES 分类开关。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="06_headless_and_offscreen.cpp" class="card">
+      <div class="card-step">第 6 步 · 自测工具</div>
+      <div class="card-icon">🤖</div>
+      <div class="card-title">06 · 无头运行与自动化</div>
+      <div class="card-desc">QT_QPA_PLATFORM 的 offscreen 与 minimal 之别、为什么 CI 能测 GUI、grab() 截图存 PNG、resize/sizeHint 断言式自检、platforms 插件与 windeployqt。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>按顺序学</strong>：这 6 章是一条连贯主线，前面每一步都给下一步铺路。看不懂先记着往下走，很多概念到第 4、6 章会突然串起来。</li>
+      <li><strong>先读指南再动手</strong>：每一章动手前，先在本页点 📖 学习指南 和对应 .cpp 顶部的注释块，弄清「这一讲要解决什么」再敲。</li>
+      <li><strong>亲手把每个示例跑起来</strong>：Qt 是「跑起来才看得懂」的东西。每个示例都配了自动演示脚本，无人值守也能跑完、自己吐结论。</li>
+      <li><strong>moc 坎别绕着走</strong>：第 2 步的 Q_OBJECT / moc / AUTOMOC 是 Qt 区别于普通 C++ 的地方，务必用三个小练习把「三种忘了」的报错都亲手撞一遍。</li>
+      <li><strong>理解事件驱动</strong>：第 1 步 show() + 第 4 步信号槽合起来，就是 Qt 的心智模型——「登记响应、交给事件循环」，不是「轮询查询」。</li>
+      <li><strong>记住「未在本机实测编译」</strong>：本机运行时正在升级，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，你换到能编译的环境按注释里的 CMake 目标名构建即可。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，欢迎踏入 Qt 的大门。Qt 不是「多学几个类」那么简单，它是一整套<strong>把 C++ 和 GUI、事件、对象模型缝在一起</strong>的工程范式。入门别贪快，先把它「怎么活起来」这条主线摸清楚。</p>
+    <p>师傅给你几条起步忠告：</p>
+    <ul>
+      <li><strong>第一条：QApplication 是一切的前提。</strong> 在它之前碰任何 QWidget 都是崩。窗口 show 了没东西、一闪而过，病根多半在你没让<strong>事件循环</strong>转起来。想看到真东西，就得把动作交给 <code>exec()</code> 之后。</li>
+      <li><strong>第二条：moc 这道坎要正面跨。</strong> 别怕 Q_OBJECT / AUTOMOC / .moc 这些词，它本质就是「一个帮你生成信号槽实现的代码生成器」。撞过三种报错，你就再不怕它。</li>
+      <li><strong>第三条：用无头自测当你的安全带。</strong> 第 6 步不是收尾的彩蛋，是全课后面每个 GUI 示例能自动化验证的地基。学会 grab() + 断言 + 退出码，你写的界面就再也不是「只能靠肉眼点」的死角。</li>
+      <li><strong>第四条：诚实对待环境。</strong> 本机此刻编不动，就大方标注「未实测编译」，但 API 一律查真头文件核对，绝不凭记忆。写 Qt 和做人一样：不确定就别乱说。</li>
+    </ul>
+    <p>慢慢来，不急。起步阶段就是要稳。等你把这 6 章啃下来，事件循环、moc、信号槽、日志、无头自测都通了，就正式具备往「控件与布局」阶段进阶的本钱了。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

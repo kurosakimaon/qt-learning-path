@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第贰阶段 · 控件与布局 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🧩 第贰阶段 · 控件与布局</h1>
+    <p>把界面真的搭起来 · 10 章循序渐进：控件够用 → 窗口成型 → 尺寸谈得拢 → 长得好看、说得外话</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      徒弟，起步阶段你已经有了一个「活着的窗口」。这一关要往里面放东西：先认识最常用的
+      <strong>控件（widget）</strong>——按钮、标签、文本框、容器、便利类列表树表、对话框；
+      再用 <strong>QMainWindow</strong> 把一个真应用的窗口骨架（菜单/工具栏/中心区/状态栏/dock）搭起来；
+      然后是本模块真正的硬骨头——<strong>布局与尺寸协商（layout &amp; size negotiation）</strong>：
+      <code>sizeHint</code>、<code>minimumSizeHint</code>、<code>QSizePolicy</code>、stretch 因子、alignment 站位；
+      最后两章管「长什么样、说什么话」——<strong>样式表（QSS）</strong>与<strong>国际化（i18n）</strong>。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
+      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。每一章都是<strong>完整可编译的示例 + 详细注释</strong>，
+      全部设计成<strong>无人值守能自动跑完</strong>：用 <code>QTimer::singleShot</code> 驱动、<code>qInfo()</code> 打印证据、
+      <code>QCoreApplication::quit()</code> 收尾，<strong>主路径里没有任何阻塞调用</strong>
+      （不 <code>QDialog::exec()</code>、不弹静态 <code>QMessageBox</code>、不 <code>QFileDialog::getOpenFileName</code>、不 <code>QMenu::exec()</code>）。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级），本模块示例
+      <strong>未在本机实测编译</strong>；文中每一个类、函数、重载、枚举值都对着本机
+      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过（行号写在用到的地方）。
+      第 10 讲还额外实测了两件环境事实：<code>lupdate.exe / lrelease.exe / linguist.exe</code>
+      <strong>在</strong> <code>C:\msys64\ucrt64\bin</code>；但 <code>C:\msys64\ucrt64\translations</code>
+      <strong>目录不存在、全盘搜不到一个 .qm</strong>，所以示例不依赖外部翻译文件，<code>load()</code> 失败就老实打印 false。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+        📖 学习指南
+      </a>
+      <a href="../visuals/layout_negotiation.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 尺寸谈判
+      </a>
+      <a href="../visuals/event_filter.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+        🎬 图解 · 事件过滤器
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>10 张卡片 = 10 章</strong>，按 <strong>第 1 步 → 第 10 步</strong> 一张张往下学，别跳。
+    这条顺序是分四段铺的：<strong>01~05「控件够用」</strong>——按钮标签、文本、容器、便利类列表树表、对话框，
+    把常用零件认全；<strong>06「把窗口搭起来」</strong>——QMainWindow 的五块保留区域，
+    从前五讲的「一块面板」升级成「一个真应用窗口」；<strong>07~08「尺寸怎么谈」</strong>——
+    <strong>这是本模块的坎</strong>，7 学「空间怎么分」（stretch 与 alignment、所有权），
+    8 学「能长多大能缩多小」（sizeHint / minimumSizeHint / QSizePolicy / 硬墙），
+    界面「大变小、变窄就挤」的病全在这一段根治；<strong>09~10「长什么样、说什么话」</strong>——
+    样式表负责外观，国际化负责语言与地区格式。前一段都是后一段的地基：
+    控件不认全，窗口搭不起来；尺寸没谈明白，样式表一改就崩。
+    另外提醒一件会复发的事：<strong>第 5、6、9、10 步</strong>的文件里定义了 <code>Q_OBJECT</code> 类，
+    文件末尾必须 <code>#include "xxx.moc"</code>（起步阶段第 2 步那道坎在这儿会复发）。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_buttons_and_labels.cpp" class="card">
+      <div class="card-step">第 1 步</div>
+      <div class="card-icon">🔘</div>
+      <div class="card-title">01 · 按钮与标签</div>
+      <div class="card-desc">QAbstractButton 家族的 checkable 机制共用一套；pressed / released / clicked / toggled 各发几次、按什么顺序（用计数器实测）；autoExclusive 与 QButtonGroup 的分工；QLabel 的富文本 / setBuddy / pixmap / movie 四条路；setMenu 挂菜单的正确姿势。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="02_text_widgets.cpp" class="card">
+      <div class="card-step">第 2 步</div>
+      <div class="card-icon">⌨️</div>
+      <div class="card-title">02 · 文本控件</div>
+      <div class="card-desc">QLineEdit 的 textChanged / textEdited / editingFinished 到底何时发（投 QKeyEvent 逼出差别）；校验器三件套与三态 Invalid/Intermediate/Acceptable；QPlainTextEdit 与 QTextEdit 的取舍在内部文档布局；QTextCursor 与 beginEditBlock/endEditBlock 决定 undo 算一步还是一百步。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="03_containers.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">📦</div>
+      <div class="card-title">03 · 容器控件</div>
+      <div class="card-desc">QGroupBox / QTabWidget / QStackedWidget / QScrollArea / QSplitter / QToolBox。核心一句话：容器只负责「组织孩子」和「滚动切换」，<b>不负责尺寸谈判</b>；setWidgetResizable 的真正含义、setSizes() 是请求而 sizes() 才是谈判结果。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="04_convenience_itemviews.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">📋</div>
+      <div class="card-title">04 · 便利类列表/树/表</div>
+      <div class="card-desc">QListWidget / QTreeWidget / QTableWidget 的共同套路与「项（item）不是控件」；用 model() 实测证明内部就是一张 QAbstractItemModel；setModel 在便利类里被降级成 private；setItemWidget 的代价，以及什么时候必须弃用便利类转 model/view。</div>
+      <div class="card-meta"><span class="tag beginner">入门</span></div>
+    </a>
+
+    <a href="05_dialogs.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">💬</div>
+      <div class="card-title">05 · 对话框</div>
+      <div class="card-desc">QDialog 三条出口 exec()/open()/show() 都走 done→finished→accepted/rejected；模态三档与 setModal 只是「意图声明」；result() 在 QMessageBox 里读回的是 StandardButton 位值；QDialogButtonBox 与自定义对话框骨架（校验不过别关）。静态方法一律阻塞，本讲只写在注释里。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="06_mainwindow.cpp" class="card">
+      <div class="card-step">第 6 步 · 搭窗口</div>
+      <div class="card-icon">🪟</div>
+      <div class="card-title">06 · QMainWindow</div>
+      <div class="card-desc">五块保留区域怎么放东西及其「懒创建」语义；硬规则 QMainWindow 不能 setLayout()（打印 layout 的类名给你看谁占着位）；QAction 作为动作单元同时喂菜单/工具栏/快捷键/状态栏；QActionGroup 互斥、标准键、showMessage 的 timeout 语义、saveState/restoreState 会话恢复的顺序铁律。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="07_layout_basics.cpp" class="card">
+      <div class="card-step">第 7 步 · 第二道坎</div>
+      <div class="card-icon">📐</div>
+      <div class="card-title">07 · 布局基础</div>
+      <div class="card-desc">QBoxLayout / QGridLayout / QFormLayout 三种主布局；addWidget / addLayout / addSpacing / addStretch 各往布局里塞了哪种 QLayoutItem；<b>stretch 分「多出来的空间」、alignment 管「格子里贴哪边」</b>（两轮 resize 打印 geometry 做成可见证据）；布局与控件的所有权、同一 widget setLayout 两次会听到哪条警告。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="08_size_policies.cpp" class="card">
+      <div class="card-step">第 8 步 · 第三道坎</div>
+      <div class="card-icon">📏</div>
+      <div class="card-title">08 · 尺寸谈判</div>
+      <div class="card-desc">sizeHint 与 minimumSizeHint 各是什么；QSizePolicy 由 GrowFlag/ExpandFlag/ShrinkFlag/IgnoreFlag 四个位标志拼出来（整数值打印出来看）；setMinimumSize/MaximumSize/FixedSize 是不可协商的硬墙；谈判顺序：先夹硬墙 → 政策决定能不能缩/长 → stretch+ExpandFlag 分余量 → alignment 站位。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="09_style_sheets.cpp" class="card">
+      <div class="card-step">第 9 步</div>
+      <div class="card-icon">🎨</div>
+      <div class="card-title">09 · 样式表（QSS）</div>
+      <div class="card-desc">类型 / .类 / 通配 / #ID / [属性] 五种选择器与后代 vs 子选择器（用孙按钮测出来）；伪状态什么时候才轮到；盒模型三圈与 border-style 的有限集（写了不认的值不报错也不生效）；裸 QWidget 背景不画 → WA_StyledBackground 四格对照；qApp 级与控件级作用域；240 个按钮上实测重新 polish 的代价；浅色/深色一键换肤。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="10_internationalization.cpp" class="card">
+      <div class="card-step">第 10 步</div>
+      <div class="card-icon">🌏</div>
+      <div class="card-title">10 · 国际化（i18n）</div>
+      <div class="card-desc">tr() 三个参数各是什么——第二个是<b>给译者的注释，不是上下文</b>，上下文来自类名，要手工指定就用 QCoreApplication::translate(context, key, disambiguation, n)；复数 %n 由 tr 自己填、arg() 填不了；QTranslator::load 的三个重载与 catalog 命名规则、install/removeTranslator；QGuiApplication 的 layoutDirection / isRightToLeft（RTL 是整套镜像）；QLocale 的数字与日期两种格式。含本机实测：lupdate/lrelease 有，.qm 一个都没有。</div>
+      <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>四段分开吃</strong>：01~05 是「认零件」，允许你记不熟，但要知道去找谁；06 是「搭骨架」；<strong>07~08 必须吃透</strong>，这是本模块唯一的硬坎；09~10 是「打磨外观与语言」。</li>
+      <li><strong>别用肉眼验证布局</strong>：本模块每个示例的几何证据都在 <code>QTimer</code> 里读 <code>geometry()/size()</code> 打印出来的。show() 之后马上读，拿到的是谈判前的草稿（起步阶段第 1 步「show 只是挂号」同理）。</li>
+      <li><strong>图解页配着看</strong>：尺寸谈判的分步过程看 <a href="../visuals/layout_negotiation.html">🎬 图解 · 尺寸谈判</a>；控件收到事件又被谁截走，看 <a href="../visuals/event_filter.html">🎬 图解 · 事件过滤器</a>。</li>
+      <li><strong>便利类要知道边界</strong>：第 4 步的 <code>setModel</code> 被写成 private 就是「到此为止」的硬信号。数据量大、数据在库里、要懒加载，就转 model/view 模块，别硬撑。</li>
+      <li><strong>对话框只学非阻塞写法</strong>：第 5 步把 <code>exec()</code> 与各种静态方法挡在主路径外，是因为这套示例要能在 ctest 里无人值守跑完。<code>show()/open()</code> + 定时器自动 accept/reject 才是现代写法。</li>
+      <li><strong>样式表与 i18n 都是「不报错」的坑区</strong>：写错 border-style、写错 <code>:/</code> 资源路径、把中文裸写在代码里，Qt 一声不吭。本模块的对策统一是——<strong>打印出来给你看</strong>，不背结论。</li>
+      <li><strong>记住「未在本机实测编译」</strong>：本机此刻编不动 Qt，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，换到能编译的环境按注释里的目标名（如 <code>widgets_10_internationalization</code>）构建即可。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，控件这一关最骗人：看上去全是「一学就会」的小东西，可真要做出一套<strong>拖窗口不塌、换字体不乱、缩到最小还能用</strong>的界面，靠的不是记类名，是记<strong>尺寸是怎么谈出来的</strong>。</p>
+    <p>师傅给你几条本模块的忠告：</p>
+    <ul>
+      <li><strong>第一条：控件只管自己，布局只管分配，尺寸谈判才是总账。</strong> 01~05 那些零件都只报「我想多大」（sizeHint）；07~08 才是分钱的人。你把容器当布局用、把布局当魔法用，界面就一定跟你闹脾气。</li>
+      <li><strong>第二条：stretch 和 alignment 别混。</strong> 一个管「多出来的地方给谁」，一个管「自己那点地方贴哪边」。混了的表现是：怎么加 stretch 控件都不肯变大——因为你只贴了个边。</li>
+      <li><strong>第三条：一切证据用打印，别用眼睛。</strong> 本模块每个示例都能在 <code>-platform offscreen</code> 下跑出结论。geometry、像素、翻译查找结果，全部 qInfo() 出来，你才知道 Qt 到底谈成了什么。</li>
+      <li><strong>第四条：会「不阻塞」才算会写界面。</strong> exec() 起的是嵌套事件循环，槽里再套 exec() 就是重入的开端。无人值守能跑完的示例，才是能被自动化保护的代码。</li>
+      <li><strong>第五条：诚实对待环境。</strong> 本机没有 .qm、编不动 Qt，就大方写清楚；API 一律查真头文件核对，核不到签名的宁可不写。写 Qt 和做人一样：不确定就别乱说。</li>
+    </ul>
+    <p>把这 10 章啃下来，你就能从「放了几个控件」升级到「搭出一套站得住的界面」，再往模型视图、绘制、事件这些深水区走，脚下就有地基了。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 异步网络：一个请求的一生 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../network/index.html">第柒阶段 · 网络</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">NETWORK · 异步请求</span>
+    <h1><code>get()</code> 立刻返回，真正的工作在没有你的地方发生</h1>
+    <p>Qt 的网络 API 天生异步：<code>get()</code> 返回一个 <code>QNetworkReply</code> 指针，然后立刻返回。响应体要等 <code>finished</code> 才有，错误要单独看，对象还得你自己删。把这条生命周期走完整，才能写出「不卡界面、不泄漏、不漏错误」的网络代码。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../network/01_network_access_manager.cpp">network/01_network_access_manager.cpp</a> ·
+    <a href="../network/04_download_and_progress.cpp">network/04_download_and_progress.cpp</a> ·
+    头文件：<code>QtNetwork/qnetworkrequest.h</code> 第 205~208 行、<code>QtNetwork/qnetworkreply.h</code> 第 134~145 行
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '一次请求的三个对象',
+    nav: '三个对象',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QNetworkAccessManager、QNetworkRequest、QNetworkReply">
+        <rect class="svg-box-accent" x="30" y="35" width="210" height="100" rx="10"/>
+        <text class="svg-title" x="135" y="65" text-anchor="middle">QNetworkAccessManager</text>
+        <text class="svg-small" x="48" y="92">长寿命，一个就够</text>
+        <text class="svg-small" x="48" y="114">管连接复用、缓存、Cookie</text>
+
+        <rect class="svg-box" x="280" y="35" width="200" height="100" rx="10"/>
+        <text class="svg-title" x="380" y="65" text-anchor="middle">QNetworkRequest</text>
+        <text class="svg-small" x="298" y="92">一次请求的参数</text>
+        <text class="svg-small" x="298" y="114">URL / 头 / 超时 / 重定向策略</text>
+
+        <rect class="svg-box-warn svg-pulse" x="520" y="35" width="210" height="100" rx="10"/>
+        <text class="svg-title" x="625" y="65" text-anchor="middle">QNetworkReply</text>
+        <text class="svg-small" x="538" y="92">一次请求的结果对象</text>
+        <text class="svg-small" x="538" y="114">堆上、归你删、会发信号</text>
+
+        <path class="svg-arrow svg-flow" d="M240 85 L280 85"/>
+        <path class="svg-arrow svg-flow" d="M480 85 L520 85"/>
+
+        <rect class="svg-field" x="30" y="160" width="700" height="230" rx="10"/>
+        <text class="svg-small" x="50" y="188">三者的生命周期完全不同，这是理解 Qt 网络的关键：</text>
+
+        <rect class="svg-box" x="50" y="204" width="660" height="46" rx="6"/>
+        <text class="svg-small" x="70" y="232">manager：通常做成员变量，活到窗口关闭（它内部维护连接池）</text>
+        <rect class="svg-box" x="50" y="258" width="660" height="46" rx="6"/>
+        <text class="svg-small" x="70" y="286">request：栈上临时对象，get() 之后就没用了（值语义，可复制）</text>
+        <rect class="svg-box-warn" x="50" y="312" width="660" height="62" rx="6"/>
+        <text class="svg-small" x="70" y="338">reply：堆上、由 manager 创建、必须自己 deleteLater，</text>
+        <text class="svg-small" x="70" y="360">兄弟关系是「一个 manager 带很多 reply」，别在 reply 上存业务状态之外的东西</text>
+
+        <text class="svg-small" x="50" y="412">★ 记住这张图：写网络代码时 90% 的 bug 都是「把某个对象的寿命想错了」。</text>
+      </svg>`,
+    caption: '三个对象三种寿命：<strong><code>QNetworkAccessManager</code> 长寿命</strong>（内部维护连接池，做成员变量）、<strong><code>QNetworkRequest</code> 值语义临时对象</strong>（<code>get()</code> 之后就没用了）、<strong><code>QNetworkReply</code> 堆上、归你删</strong>。网络代码里九成的 bug 都是「把某个对象的寿命想错了」——尤其是 reply。',
+    code: `class ApiClient : public QObject {
+    Q_OBJECT
+public:
+    ApiClient(QObject *parent = nullptr)
+        : QObject(parent), m_nam(new QNetworkAccessManager(this)) {}
+
+    void fetch(const QUrl &url) {
+        QNetworkRequest req(url);          // 栈上，一次性的
+        QNetworkReply *reply = m_nam->get(req);
+        connect(reply, &QNetworkReply::finished, this, &ApiClient::onDone);
+    }
+private:
+    QNetworkAccessManager *m_nam;          // 长寿命
+};`,
+    highlight: [9, 10, 13]
+  },
+  {
+    title: 'finished 之前，body 是空的',
+    nav: 'finished',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="finished 信号到达前后">
+        <rect class="svg-box" x="30" y="35" width="230" height="90" rx="10"/>
+        <text class="svg-small" x="50" y="62">get() 之后立刻</text>
+        <text class="svg-mono" x="50" y="90">reply-&gt;readAll()</text>
+        <text class="svg-bad-text" x="50" y="112">→ 空 QByteArray</text>
+
+        <path class="svg-arrow svg-flow" d="M260 80 L320 80"/>
+        <rect class="svg-box-warn" x="320" y="35" width="180" height="90" rx="10"/>
+        <text class="svg-small" x="338" y="62">数据在路上</text>
+        <text class="svg-small" x="338" y="86">网络线程收包</text>
+        <text class="svg-small" x="338" y="110">主线程照常跑事件循环</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M500 80 L560 80"/>
+        <rect class="svg-box-good svg-pulse" x="560" y="35" width="170" height="90" rx="10"/>
+        <text class="svg-small" x="578" y="62">finished 到达</text>
+        <text class="svg-mono" x="578" y="88">readAll() 有内容</text>
+        <text class="svg-small" x="578" y="110">这是唯一可靠的读取时机</text>
+
+        <rect class="svg-field" x="30" y="155" width="700" height="235" rx="10"/>
+        <text class="svg-small" x="50" y="183">finished 之前能拿到的东西（都不是 body）：</text>
+        <text class="svg-text" x="50" y="213">· reply-&gt;isFinished() —— 还没完成</text>
+        <text class="svg-text" x="50" y="241">· reply-&gt;header(...) —— 头部可能已经有了</text>
+        <text class="svg-text" x="50" y="269">· reply-&gt;url() —— 最终 URL（重定向后可能变了）</text>
+        <text class="svg-small" x="50" y="301">所以正确姿势只有一种：连 finished，在槽里 readAll。</text>
+
+        <rect class="svg-box-bad" x="50" y="315" width="660" height="62" rx="8"/>
+        <text class="svg-small" x="70" y="341">常见错误：用 QEventLoop 在 get() 之后「等」finished ——</text>
+        <text class="svg-small" x="70" y="363">能跑，但会嵌套事件循环、阻塞调用方，且忘记加超时就会永远挂住。</text>
+
+        <text class="svg-small" x="50" y="400">★ 本仓库的所有网络示例都用「连信号 + 超时兜底 + 自动退出」，不让任何等待无限延长。</text>
+      </svg>`,
+    caption: '<code>get()</code> 之后立刻 <code>readAll()</code> 只会拿到空数组——<strong>body 要等 <code>finished</code></strong>。正确姿势只有一种：连 <code>finished</code>，在槽里 <code>readAll()</code>。用 <code>QEventLoop</code> 硬等能跑，但会嵌套事件循环、阻塞调用方，忘记加超时就会永远挂住。本仓库所有网络示例都是「连信号 + 超时兜底 + 自动退出」。',
+    code: `void ApiClient::fetch(const QUrl &url)
+{
+    QNetworkReply *reply = m_nam->get(QNetworkRequest(url));
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        const QByteArray body = reply->readAll();   // 现在才有内容
+        qInfo() << "收到" << body.size() << "字节";
+        reply->deleteLater();                       // 收工就删
+    });
+}`,
+    highlight: [5, 6, 7]
+  },
+  {
+    title: '错误与状态码：两张不同的考卷',
+    nav: '错误处理',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="网络错误与 HTTP 状态码的区别">
+        <rect class="svg-box-bad" x="30" y="35" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="195" y="62" text-anchor="middle">传输层错误</text>
+        <text class="svg-mono" x="50" y="92">reply-&gt;error()</text>
+        <text class="svg-small" x="50" y="118">连不上、超时、DNS 失败、证书问题</text>
+        <text class="svg-small" x="50" y="142">→ 根本没有响应体</text>
+        <text class="svg-small" x="50" y="168">NoError 表示传输成功</text>
+
+        <rect class="svg-box-warn" x="400" y="35" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="565" y="62" text-anchor="middle">HTTP 状态码</text>
+        <text class="svg-mono" x="420" y="92">reply-&gt;attribute(</text>
+        <text class="svg-mono" x="420" y="114">  HttpStatusCodeAttribute)</text>
+        <text class="svg-small" x="420" y="142">404 / 500 也会正常 finished</text>
+        <text class="svg-small" x="420" y="168">→ 有响应体，但业务失败</text>
+
+        <rect class="svg-field" x="30" y="205" width="700" height="185" rx="10"/>
+        <text class="svg-small" x="50" y="233">所以读响应必须分两步检查：</text>
+
+        <rect class="svg-box" x="50" y="248" width="660" height="50" rx="6"/>
+        <text class="svg-mono" x="68" y="279">if (reply-&gt;error() != NoError) { 处理传输失败; return; }</text>
+
+        <rect class="svg-box" x="50" y="308" width="660" height="50" rx="6"/>
+        <text class="svg-mono" x="68" y="339">int code = reply-&gt;attribute(HttpStatusCodeAttribute).toInt();</text>
+
+        <text class="svg-small" x="50" y="380">★ 常见错误：把 404 当成「网络错误」—— 传输是成功的，是服务端告诉你「没有」。</text>
+      </svg>`,
+    caption: '两张考卷要分开看：<strong>传输层错误</strong>（<code>reply-&gt;error()</code>：连不上、超时、DNS、证书）<strong>根本没有响应体</strong>；<strong>HTTP 状态码</strong>（<code>HttpStatusCodeAttribute</code>）是<strong>传输成功但业务失败</strong>，404/500 也会正常 <code>finished</code>。所以先判 <code>error()</code>，再读状态码——把 404 当网络错误处理是常见误解。',
+    code: `void ApiClient::onDone()
+{
+    auto *reply = qobject_cast<QNetworkReply *>(sender());
+    reply->deleteLater();
+
+    if (reply->error() != QNetworkReply::NoError) {
+        qWarning() << "传输失败" << reply->errorString();
+        return;
+    }
+    const int code = reply->attribute(
+        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (code != 200) {
+        qWarning() << "服务端返回" << code;
+        return;
+    }
+    handle(reply->readAll());
+}`,
+    highlight: [6, 9, 10]
+  },
+  {
+    title: '超时：setTransferTimeout 与自动放弃',
+    nav: '超时',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="传输超时设置">
+        <rect class="svg-box" x="30" y="35" width="330" height="140" rx="10"/>
+        <text class="svg-title" x="195" y="62" text-anchor="middle">QNetworkRequest::setTransferTimeout</text>
+        <text class="svg-small" x="50" y="90">从「有数据传输」起算的静默超时</text>
+        <text class="svg-small" x="50" y="114">不是总时长 —— 慢但持续有进度的连接不会被打断</text>
+        <text class="svg-small" x="50" y="140">单位毫秒；传 0 表示不超时（默认值）</text>
+        <text class="svg-small" x="50" y="164">Qt 5.15 起可用，Qt 6 推荐用它</text>
+
+        <rect class="svg-box-good" x="390" y="35" width="340" height="140" rx="10"/>
+        <text class="svg-title" x="560" y="62" text-anchor="middle">超时后会发生什么</text>
+        <text class="svg-small" x="410" y="90">reply-&gt;error() == TimeoutError</text>
+        <text class="svg-small" x="410" y="114">finished 照样会发</text>
+        <text class="svg-small" x="410" y="140">所以你的槽不用写两套逻辑</text>
+        <text class="svg-good-text" x="410" y="164">统一在 finished 里判 error 即可</text>
+
+        <rect class="svg-field" x="30" y="195" width="700" height="130" rx="10"/>
+        <text class="svg-small" x="50" y="223">另一种「超时」是业务层的：等太久就放弃，即使连接还活着。</text>
+        <text class="svg-small" x="50" y="253">两种都可以，但别只靠「用户会关窗口」来收场：</text>
+        <text class="svg-mono" x="50" y="283">QTimer::singleShot(5000, reply, &amp;QNetworkReply::abort);</text>
+        <text class="svg-small" x="50" y="309">abort() 会触发 finished + OperationCanceledError，走同一条收尾路径。</text>
+
+        <rect class="svg-box-warn" x="30" y="340" width="700" height="70" rx="10"/>
+        <text class="svg-small" x="50" y="366">反模式：写一个没有超时的 QEventLoop::exec() 等 finished。</text>
+        <text class="svg-small" x="50" y="390">服务器一直不回 → 界面永远等 → 用户以为程序挂了。这是「客户端卡死」最常见的原因。</text>
+      </svg>`,
+    caption: '<code>setTransferTimeout(ms)</code> 是<strong>静默超时</strong>：从「有数据传输」起算，慢但持续有进度的连接不会被打断；超时后 <code>error() == TimeoutError</code> 且 <code>finished</code> 照样发，所以收尾逻辑只有一套。也可以在业务层 <code>QTimer::singleShot(5000, reply, &amp;QNetworkReply::abort)</code>。<strong>反模式是写一个没有超时的 <code>QEventLoop::exec()</code></strong>——服务器不回，界面就永远等。',
+    code: `QNetworkRequest req(url);
+req.setTransferTimeout(8000);          // 8 秒静默就放弃
+
+QNetworkReply *reply = m_nam->get(req);
+// 业务层再兜一层：无论连接状态，5 秒后都收
+QTimer::singleShot(5000, reply, &QNetworkReply::abort);
+
+connect(reply, &QNetworkReply::finished, this, [this, reply] {
+    if (reply->error() == QNetworkReply::TimeoutError
+     || reply->error() == QNetworkReply::OperationCanceledError)
+        qWarning() << "放弃这次请求";
+    reply->deleteLater();
+});`,
+    highlight: [2, 6, 9, 10]
+  },
+  {
+    title: '进度与取消：让用户看得见也停得下',
+    nav: '进度与取消',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="下载进度与取消">
+        <rect class="svg-box" x="30" y="35" width="700" height="90" rx="10"/>
+        <text class="svg-small" x="50" y="62">两个进度信号（qnetworkreply.h 第 145 行起）：</text>
+        <text class="svg-mono" x="50" y="90">downloadProgress(qint64 received, qint64 total)</text>
+        <text class="svg-mono" x="50" y="114">uploadProgress(qint64 sent, qint64 total)</text>
+
+        <rect class="svg-field" x="30" y="145" width="340" height="150" rx="10"/>
+        <text class="svg-small" x="50" y="173">进度值的两个坑：</text>
+        <text class="svg-small" x="70" y="201">· total 可能是 -1（服务端没给长度）</text>
+        <text class="svg-small" x="70" y="225">  → 只能显示「已下载 X」</text>
+        <text class="svg-small" x="70" y="249">· 进度回调可能很密集</text>
+        <text class="svg-small" x="70" y="273">  → 别每次 setValue 都触发重布局</text>
+
+        <rect class="svg-box-warn" x="390" y="145" width="340" height="150" rx="10"/>
+        <text class="svg-small" x="410" y="173">取消要用 abort()，别用 deleteLater()：</text>
+        <text class="svg-small" x="430" y="201">abort → 会发 finished + OperationCanceledError</text>
+        <text class="svg-small" x="430" y="225">deleteLater → 直接删对象，finished 不会来</text>
+        <text class="svg-bad-text" x="430" y="255">取消后仍读 readAll() → 拿到半截数据</text>
+
+        <rect class="svg-box-good" x="30" y="315" width="700" height="95" rx="10"/>
+        <text class="svg-small" x="50" y="342">推荐的下载写法（本仓库 network/04 的做法）：</text>
+        <text class="svg-small" x="50" y="368">① 打开 QFile 先写到临时文件 ② 进度更新 UI ③ finished 里检查 error 后改名提交</text>
+        <text class="svg-small" x="50" y="392">★ 直接往最终文件写，一半失败就留下一个「看起来完整但其实是坏的」文件。</text>
+      </svg>`,
+    caption: '进度用 <code>downloadProgress(received, total)</code>，注意 <strong><code>total</code> 可能是 -1</strong>（服务端没给长度）。取消必须用 <code>abort()</code>——它会发 <code>finished</code> + <code>OperationCanceledError</code>，让收尾逻辑统一；<code>deleteLater()</code> 则直接删对象，<code>finished</code> 永远不来。下载落盘要先写临时文件，<code>finished</code> 检查无错后再改名提交。',
+    code: `auto *reply = m_nam->get(QNetworkRequest(url));
+connect(reply, &QNetworkReply::downloadProgress, this,
+        [this](qint64 got, qint64 total) {
+    m_bar->setMaximum(total > 0 ? int(total) : 0);   // ≤0 → 忙碌模式
+    m_bar->setValue(int(got));
+});
+
+m_cancelButton->disconnect();
+connect(m_cancelButton, &QPushButton::clicked,
+        reply, &QNetworkReply::abort);`,
+    highlight: [3, 4, 9]
+  },
+  {
+    title: '重定向、缓存与线程归属',
+    nav: '三个细节',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="重定向、磁盘缓存与线程归属">
+        <rect class="svg-box" x="25" y="30" width="230" height="160" rx="10"/>
+        <text class="svg-title" x="140" y="58" text-anchor="middle">重定向</text>
+        <text class="svg-small" x="45" y="86">默认不自动跟随</text>
+        <text class="svg-small" x="45" y="110">开法：</text>
+        <text class="svg-mono" x="45" y="136">req.setAttribute(</text>
+        <text class="svg-mono" x="45" y="158">  RedirectPolicyAttribute,</text>
+        <text class="svg-mono" x="45" y="180">  NoLessSafeRedirectPolicy);</text>
+
+        <rect class="svg-box" x="265" y="30" width="230" height="160" rx="10"/>
+        <text class="svg-title" x="380" y="58" text-anchor="middle">磁盘缓存</text>
+        <text class="svg-small" x="285" y="86">QNetworkDiskCache</text>
+        <text class="svg-small" x="285" y="110">setCache(cache)</text>
+        <text class="svg-small" x="285" y="134">装在 manager 上</text>
+        <text class="svg-small" x="285" y="158">适合：图标、静态资源</text>
+        <text class="svg-small" x="285" y="182">不适合：实时数据</text>
+
+        <rect class="svg-box-warn" x="505" y="30" width="225" height="160" rx="10"/>
+        <text class="svg-title" x="617" y="58" text-anchor="middle">线程归属</text>
+        <text class="svg-small" x="525" y="86">manager 属于创建它的线程</text>
+        <text class="svg-small" x="525" y="110">reply 也属于那个线程</text>
+        <text class="svg-small" x="525" y="134">它们的信号在该线程派发</text>
+        <text class="svg-good-text" x="525" y="160">所以别跨线程共用一个 manager</text>
+        <text class="svg-small" x="525" y="182">每个线程用自己的</text>
+
+        <rect class="svg-field" x="25" y="215" width="705" height="165" rx="10"/>
+        <text class="svg-small" x="45" y="243">一个必须记住的细节：reply 的 finished 在哪个线程发？</text>
+        <text class="svg-small" x="45" y="271">在 manager 所在线程（也就是创建 reply 的线程）发，通过事件循环派发。</text>
+        <text class="svg-small" x="45" y="299">如果你的槽在别的线程，默认排队连接会把它投递过去，参数依法复制。</text>
+        <text class="svg-small" x="45" y="331">★ 结论：别把 manager 当全局单例到处用。按线程各管一个，代码会干净很多。</text>
+        <text class="svg-small" x="45" y="359">★ 同理：不要在一个线程里 get()，然后在另一个线程 readAll() —— 这是未定义行为。</text>
+      </svg>`,
+    caption: '三个常被忽略的细节：<strong>重定向默认不跟随</strong>，要显式设 <code>RedirectPolicyAttribute</code>；<strong>磁盘缓存</strong>装在 manager 上（<code>setCache</code>），适合静态资源、不适合实时数据；<strong>线程归属</strong>——manager 与 reply 都属于创建它们的线程，<code>finished</code> 也在那个线程发。<strong>别跨线程共用一个 manager，更别在一个线程 <code>get()</code>、另一个线程 <code>readAll()</code></strong>。',
+    code: `QNetworkRequest req(url);
+req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                 QNetworkRequest::NoLessSafeRedirectPolicy);
+
+auto *cache = new QNetworkDiskCache(this);
+cache->setCacheDirectory(QStandardPaths::writableLocation(
+    QStandardPaths::CacheLocation) + "/http");
+m_nam->setCache(cache);      // 挂在 manager 上，不是 request 上`,
+    highlight: [2, 3, 9]
+  },
+  {
+    title: '一页收尾：七条自检',
+    nav: '自检清单',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="网络代码自检清单">
+        <rect class="svg-box-good" x="25" y="25" width="710" height="375" rx="10"/>
+        <text class="svg-small" x="45" y="55">写完一段网络代码，逐条过一遍：</text>
+
+        <text class="svg-text" x="45" y="90">① 有没有在 finished 之前读 body？→ body 是空的。</text>
+        <text class="svg-text" x="45" y="124">② 每个 reply 都 deleteLater() 了吗？→ 少了就是内存泄漏。</text>
+        <text class="svg-text" x="45" y="158">③ 分清 error() 与 HTTP 状态码了吗？→ 404 不是传输错误。</text>
+        <text class="svg-text" x="45" y="192">④ 设了超时吗？→ 没有超时 = 可能永远挂着。</text>
+        <text class="svg-text" x="45" y="226">⑤ 取消用了 abort() 还是 deleteLater()？→ 后者会吞掉 finished。</text>
+        <text class="svg-text" x="45" y="260">⑥ manager 是成员还是局部？→ 局部 = 每次新建连接池，白费。</text>
+        <text class="svg-text" x="45" y="294">⑦ 跨线程了吗？→ 每个线程自己的 manager，别共享。</text>
+
+        <rect class="svg-box-warn" x="45" y="315" width="670" height="70" rx="8"/>
+        <text class="svg-small" x="65" y="341">这七条里，前四条能挡住绝大多数「线上偶现」：</text>
+        <text class="svg-small" x="65" y="365">空响应、内存增长、把 404 当断网、以及永远转圈的加载状态。</text>
+      </svg>`,
+    caption: '七条自检里前四条能挡住绝大多数「线上偶现」：<strong>在 <code>finished</code> 前读 body</strong>（空响应）、<strong>忘 <code>deleteLater</code></strong>（内存增长）、<strong>把 404 当断网</strong>、<strong>没设超时</strong>（永远转圈）。后三条是设计层面的：取消要用 <code>abort</code>、manager 要长寿命、跨线程各管各的。',
+    code: `// 一份最小的「不容易错」骨架
+m_nam = new QNetworkAccessManager(this);      // ⑥ 长寿命
+
+void fetch(const QUrl &url) {
+    QNetworkRequest req(url);
+    req.setTransferTimeout(8000);              // ④ 超时
+
+    auto *reply = m_nam->get(req);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();                  // ② 清理
+        if (reply->error() != QNetworkReply::NoError) return;   // ③
+        const int code = reply->attribute(
+            QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (code != 200) return;
+        handle(reply->readAll());              // ① 时机正确
+    });
+}`,
+    highlight: [1, 5, 8, 9]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

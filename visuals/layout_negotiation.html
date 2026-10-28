@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 布局协商：谁决定控件多大 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../widgets/index.html">第肆阶段 · 控件</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">WIDGETS · 布局协商</span>
+    <h1>控件的大小不是「设」出来的，是「谈」出来的</h1>
+    <p>「我明明设了 200 宽，怎么变回去了？」——因为布局每轮都会重新问一遍：<strong>你理想多大（sizeHint）、最小能多小、愿不愿意长</strong>，然后按剩余空间分配。<code>setFixedWidth</code> 之所以「生效」，只是因为它同时改了 sizeHint 与最小最大值。这一页把这轮谈判的输入、时机和失败症状摊开。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../widgets/07_layout_basics.cpp">widgets/07_layout_basics.cpp</a> ·
+    <a href="../widgets/08_size_policies.cpp">widgets/08_size_policies.cpp</a> ·
+    头文件：<code>QtWidgets/qsizepolicy.h</code> 第 23~38 行、<code>QtWidgets/qlayout.h</code> 第 83/85 行
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '一轮协商的四个参与者',
+    nav: '协商模型',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="布局协商的四个输入">
+        <rect class="svg-box" x="25" y="30" width="200" height="80" rx="10"/>
+        <text class="svg-title" x="125" y="58" text-anchor="middle">sizeHint()</text>
+        <text class="svg-small" x="125" y="82" text-anchor="middle">「我理想这么大」</text>
+        <text class="svg-small" x="125" y="102" text-anchor="middle">默认由样式算出</text>
+
+        <rect class="svg-box" x="25" y="125" width="200" height="80" rx="10"/>
+        <text class="svg-title" x="125" y="153" text-anchor="middle">minimumSizeHint()</text>
+        <text class="svg-small" x="125" y="177" text-anchor="middle">「再小就难看了」</text>
+        <text class="svg-small" x="125" y="197" text-anchor="middle">是建议，可被压破</text>
+
+        <rect class="svg-box" x="25" y="220" width="200" height="80" rx="10"/>
+        <text class="svg-title" x="125" y="248" text-anchor="middle">QSizePolicy</text>
+        <text class="svg-small" x="125" y="272" text-anchor="middle">「能不能长」</text>
+        <text class="svg-small" x="125" y="292" text-anchor="middle">水平/垂直各一套</text>
+
+        <rect class="svg-box" x="25" y="315" width="200" height="80" rx="10"/>
+        <text class="svg-title" x="125" y="343" text-anchor="middle">stretch / 权重</text>
+        <text class="svg-small" x="125" y="367" text-anchor="middle">「多出来的给谁」</text>
+        <text class="svg-small" x="125" y="387" text-anchor="middle">addWidget 第二个参数</text>
+
+        <path class="svg-arrow svg-flow" d="M225 70 L300 180"/>
+        <path class="svg-arrow svg-flow" d="M225 165 L300 185"/>
+        <path class="svg-arrow svg-flow" d="M225 260 L300 200"/>
+        <path class="svg-arrow svg-flow" d="M225 355 L300 215"/>
+
+        <rect class="svg-box-accent svg-pulse" x="300" y="140" width="200" height="110" rx="12"/>
+        <text class="svg-title" x="400" y="172" text-anchor="middle">QLayout::activate()</text>
+        <text class="svg-small" x="400" y="196" text-anchor="middle">按四个输入算矩形</text>
+        <text class="svg-small" x="400" y="218" text-anchor="middle">然后 setGeometry</text>
+        <text class="svg-small" x="400" y="238" text-anchor="middle">一格一格定下来</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M500 195 L560 195"/>
+        <rect class="svg-box-good" x="560" y="155" width="180" height="80" rx="10"/>
+        <text class="svg-title" x="650" y="185" text-anchor="middle">每个子控件</text>
+        <text class="svg-small" x="650" y="210" text-anchor="middle">收到 setGeometry</text>
+
+        <rect class="svg-field" x="300" y="280" width="440" height="115" rx="10"/>
+        <text class="svg-small" x="320" y="308">布局从不「挪动」一个控件 —— 它只是算出矩形，然后调 setGeometry。</text>
+        <text class="svg-small" x="320" y="334">所以你在自己的控件里重写 setGeometry/ resizeEvent，也是在参与这一轮协商。</text>
+        <text class="svg-small" x="320" y="362">★ 这是理解一切布局怪异行为的总钥匙。</text>
+      </svg>`,
+    caption: '布局的输入只有四样：<strong><code>sizeHint()</code>（理想）、<code>minimumSizeHint()</code>（下限建议）、<code>QSizePolicy</code>（能否生长）、stretch（多余空间给谁）</strong>。布局算出矩形后调 <code>setGeometry</code>——它从不「挪动」控件，只是把算好的矩形交出去。理解这一条，布局的一切怪异行为都有了解释入口。',
+    code: `auto *layout = new QHBoxLayout(this);
+layout->addWidget(m_side, 0);      // stretch 0：不抢多余空间
+layout->addWidget(m_main, 1);      // stretch 1：抢
+
+// 布局自己也是对象：margins 与 spacing 都会占空间
+layout->setContentsMargins(8, 8, 8, 8);
+layout->setSpacing(6);`,
+    highlight: [1, 2, 3]
+  },
+  {
+    title: 'QSizePolicy 真值表：七个值的位含义',
+    nav: '策略真值',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QSizePolicy 枚举的真值">
+        <rect class="svg-box-accent" x="20" y="20" width="720" height="115" rx="10"/>
+        <text class="svg-small" x="40" y="46">PolicyFlag（qsizepolicy.h 第 23~28 行）</text>
+        <text class="svg-mono" x="40" y="72">GrowFlag = 1    ExpandFlag = 2    ShrinkFlag = 4    IgnoreFlag = 8</text>
+        <text class="svg-small" x="40" y="98">注意：ExpandFlag 是 2，不是 4 —— 网上不少表格抄错了顺序。</text>
+        <text class="svg-small" x="40" y="120">这带来一个后果：Expanding(7) 包含 Shrink，而 MinimumExpanding(3) 不含。</text>
+
+        <rect class="svg-box" x="20" y="150" width="720" height="180" rx="10"/>
+        <text class="svg-small" x="40" y="176">Policy（第 30~38 行，括号内是位组合）</text>
+<text class="svg-mono" x="40" y="204">Fixed            = 0       不能长不能缩，就是 sizeHint</text>
+<text class="svg-mono" x="40" y="228">Minimum          = 1       可以长，不能小于 sizeHint</text>
+<text class="svg-mono" x="40" y="252">Maximum          = 4       可以缩，不能大于 sizeHint</text>
+<text class="svg-mono" x="40" y="276">Preferred        = 5       能长能缩，但希望是 sizeHint（默认）</text>
+<text class="svg-mono" x="40" y="300">Expanding        = 7       能长能缩，且极力想占满剩余空间</text>
+<text class="svg-mono" x="40" y="324">MinimumExpanding = 3       不小于 sizeHint，且极力想长</text>
+
+        <rect class="svg-field" x="20" y="345" width="720" height="62" rx="10"/>
+        <text class="svg-small" x="40" y="371">Ignored = 13（Shrink|Grow|Ignore）—— 连 sizeHint 都基本被忽略，只受最小尺寸约束。</text>
+        <text class="svg-small" x="40" y="394">选择困难时的默认答案：文本类用 Preferred，主区域用 Expanding，按钮/标签用 Fixed 或 Minimum。</text>
+      </svg>`,
+    caption: '七个 <code>Policy</code> 值都是 <code>PolicyFlag</code> 的位组合：<code>GrowFlag=1</code>、<code>ExpandFlag=2</code>、<code>ShrinkFlag=4</code>、<code>IgnoreFlag=8</code>。<strong><code>Expanding=7</code> 包含 Shrink，<code>MinimumExpanding=3</code> 不含</strong>——这一位之差决定了「窗口缩小时它会不会被压」。默认的 <code>Preferred=5</code> 最万能；拿不准就用它。',
+    code: `// 主编辑区：占满剩余
+m_edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
+// 按钮：不参与拉伸
+btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+// 只调水平方向也行
+m_list->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);`,
+    highlight: [1, 2, 5]
+  },
+  {
+    title: '什么时候会重新协商',
+    nav: '触发时机',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="触发布局重新计算的时机">
+        <rect class="svg-box-good" x="25" y="25" width="230" height="210" rx="10"/>
+        <text class="svg-title" x="140" y="52" text-anchor="middle">一定会重排</text>
+        <text class="svg-small" x="45" y="80">· 父窗口 resize</text>
+        <text class="svg-small" x="45" y="104">· addWidget / removeWidget</text>
+        <text class="svg-small" x="45" y="128">· 控件 show / hide</text>
+        <text class="svg-small" x="45" y="152">· setContentsMargins / setSpacing</text>
+        <text class="svg-small" x="45" y="176">· 字体、样式、语言切换</text>
+        <text class="svg-small" x="45" y="200">· 显式 layout()-&gt;activate()</text>
+        <text class="svg-small" x="45" y="224">· 调了 updateGeometry()</text>
+
+        <rect class="svg-box-bad" x="275" y="25" width="240" height="210" rx="10"/>
+        <text class="svg-title" x="395" y="52" text-anchor="middle">不会重排</text>
+        <text class="svg-small" x="295" y="80">· 只改了控件内部数据</text>
+        <text class="svg-small" x="295" y="104">· 重写了 sizeHint 但没通知</text>
+        <text class="svg-small" x="295" y="128">· 改了 QFont 之外的样式细节</text>
+        <text class="svg-small" x="295" y="152">· 调了 setText 但控件自己</text>
+        <text class="svg-small" x="295" y="176">  没触发 sizeHint 变化</text>
+        <text class="svg-text" fill="#b45309" x="295" y="212">→ 表现为「显示不全 / 挤在一起」</text>
+
+        <rect class="svg-box-accent" x="535" y="25" width="205" height="210" rx="10"/>
+        <text class="svg-title" x="637" y="52" text-anchor="middle">标准动作</text>
+        <text class="svg-small" x="555" y="82">1. 改内部状态</text>
+        <text class="svg-small" x="555" y="108">2. updateGeometry()</text>
+        <text class="svg-small" x="555" y="134">3. update()</text>
+        <text class="svg-small" x="555" y="170">前者管「多大」，</text>
+        <text class="svg-small" x="555" y="196">后者管「重画」。</text>
+        <text class="svg-small" x="555" y="222">两个都要，别只做一半。</text>
+
+        <rect class="svg-field" x="25" y="255" width="715" height="150" rx="10"/>
+        <text class="svg-small" x="45" y="283">最经典的「布局不更新」，几乎都是同一类：</text>
+        <text class="svg-text" x="45" y="313">自定义控件里换了文字/图标，sizeHint() 的返回值变了，但没人通知布局 → 布局还用旧值。</text>
+        <text class="svg-mono" x="45" y="343">void Badge::setCount(int n) { m_n = n; updateGeometry(); update(); }</text>
+        <text class="svg-small" x="45" y="373">漏掉 updateGeometry() → 徽标被裁掉一角；漏掉 update() → 尺寸对了但画面还是旧的。</text>
+      </svg>`,
+    caption: '布局重新计算的触发点很明确：<strong>父窗口 resize、增删子控件、显示/隐藏、margins/spacing 变化、字体或样式切换、显式 <code>activate()</code>、<code>updateGeometry()</code></strong>。而「我只改了内部数据」「我重写了 <code>sizeHint</code> 但没通知」都不在列表里——于是出现「文字显示不全」「挤在一起」。标准动作永远是两步：<strong>改状态 → <code>updateGeometry()</code></strong>，再加一步 <strong><code>update()</code></strong> 管重画。',
+    code: `void Badge::setCount(int n)
+{
+    if (n == m_count) return;
+    m_count = n;
+    updateGeometry();   // 让布局重新问我 sizeHint
+    update();           // 让画面重画
+}
+
+QSize Badge::sizeHint() const
+{
+    return fontMetrics().size(Qt::TextSingleLine,
+                              QString::number(m_count)).grownBy({6, 4});
+}`,
+    highlight: [5, 6]
+  },
+  {
+    title: 'LayoutRequest 是排队的：构造函数里 geometry() 是 0',
+    nav: '为何还没布局',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="LayoutRequest 事件与构造函数时机">
+        <rect class="svg-box" x="25" y="30" width="280" height="90" rx="10"/>
+        <text class="svg-small" x="45" y="58">Widget 构造中</text>
+        <text class="svg-mono" x="45" y="84">new QLabel(this); label-&gt;geometry()</text>
+        <text class="svg-bad-text" x="45" y="108">→ 全是 0 / 默认值</text>
+
+        <path class="svg-arrow svg-flow" d="M305 75 L370 75"/>
+        <rect class="svg-box-warn" x="370" y="45" width="170" height="70" rx="10"/>
+        <text class="svg-small" x="455" y="72" text-anchor="middle">投递 LayoutRequest</text>
+        <text class="svg-small" x="455" y="94" text-anchor="middle">不是立刻生效</text>
+
+        <path class="svg-arrow svg-flow" d="M540 75 L600 75"/>
+        <rect class="svg-box-accent svg-pulse" x="600" y="45" width="140" height="70" rx="10"/>
+        <text class="svg-small" x="670" y="72" text-anchor="middle">回到事件循环</text>
+        <text class="svg-small" x="670" y="94" text-anchor="middle">布局才真正算</text>
+
+        <rect class="svg-field" x="25" y="145" width="715" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="173">所以这三件事在构造函数里都不成立：</text>
+        <text class="svg-text" x="45" y="203">① 读子控件的 geometry() 拿真实尺寸（还没算）；② 按宽度切分文本（width() == 100 是默认值）；</text>
+        <text class="svg-text" x="45" y="231">③ 假设 show() 之后立刻就画好了（还要再等一轮）。</text>
+
+        <rect class="svg-box-bad" x="25" y="280" width="345" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="306">常见错误：</text>
+        <text class="svg-mono" x="45" y="332">m_label-&gt;setFixedWidth(width() / 2);</text>
+        <text class="svg-small" x="45" y="358">width() 此刻是默认值 → 定死了一个错误宽度，</text>
+        <text class="svg-small" x="45" y="380">之后布局再也改不动它（Fixed）。</text>
+
+        <rect class="svg-box-good" x="395" y="280" width="345" height="120" rx="10"/>
+        <text class="svg-small" x="415" y="306">正确做法：</text>
+        <text class="svg-small" x="415" y="332">· 交给 stretch / sizePolicy 去分</text>
+        <text class="svg-small" x="415" y="358">· 或重写 resizeEvent(QResizeEvent *)</text>
+        <text class="svg-small" x="415" y="380">在那里 width() 才是真的</text>
+      </svg>`,
+    caption: '<code>LayoutRequest</code> 是<strong>投递</strong>的，不是立刻执行：构造函数里读 <code>geometry()</code> / <code>width()</code> 拿到的还是默认值。所以「在构造函数里按 <code>width()/2</code> 设固定宽度」是经典陷阱——你锁死了一个错误的值，之后布局再也改不动它。需要真实尺寸，就在 <code>resizeEvent</code> 里做，或者干脆交给 stretch 与 <code>sizePolicy</code>。',
+    code: `MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+{
+    auto *host = new QWidget;
+    auto *lay  = new QHBoxLayout(host);
+    m_side = new QListWidget;
+    m_main = new QTextEdit;
+    lay->addWidget(m_side, 1);   // 比例 1:3
+    lay->addWidget(m_main, 3);
+    setCentralWidget(host);
+    // 此刻 m_main->width() 还不可信
+}`,
+    highlight: [7, 8, 13]
+  },
+  {
+    title: '嵌套布局、margins 与 stretch 的实际分配',
+    nav: '空间分配',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="嵌套布局的空间分配">
+        <rect class="svg-box" x="30" y="30" width="700" height="150" rx="10"/>
+        <text class="svg-small" x="50" y="56">外层水平布局（总宽 700，减去 margins 与 spacing 后分配）</text>
+
+        <rect class="svg-box-accent" x="50" y="70" width="170" height="95" rx="6"/>
+        <text class="svg-small" x="135" y="112" text-anchor="middle">侧栏 stretch=1</text>
+        <text class="svg-small" x="135" y="134" text-anchor="middle">≈ 175px</text>
+
+        <rect class="svg-box-good" x="240" y="70" width="470" height="95" rx="6"/>
+        <text class="svg-small" x="475" y="112" text-anchor="middle">主区 stretch=3 ≈ 525px</text>
+        <text class="svg-small" x="475" y="134" text-anchor="middle">里面还有一个垂直布局（按钮 + 文本）</text>
+
+        <rect class="svg-field" x="30" y="200" width="340" height="195" rx="10"/>
+        <text class="svg-small" x="50" y="228">多余空间怎么算（简化直觉）：</text>
+        <text class="svg-text" x="50" y="258">① 先满足每个控件的 minimum/sizeHint</text>
+        <text class="svg-text" x="50" y="284">② 剩下的按 stretch 比例分</text>
+        <text class="svg-text" x="50" y="310">③ 不参与拉伸的（Fixed）一分不拿</text>
+        <text class="svg-small" x="50" y="342">stretch 全为 0 时，按 sizePolicy 判断谁愿长；</text>
+        <text class="svg-small" x="50" y="368">都愿长就均分 —— 这时「谁先加进来」不影响。</text>
+
+        <rect class="svg-box-warn" x="390" y="200" width="340" height="195" rx="10"/>
+        <text class="svg-small" x="410" y="228">三个常见意外：</text>
+        <text class="svg-text" x="410" y="258">· 设了 margins 又设 spacing → 双重留白</text>
+        <text class="svg-text" x="410" y="284">· 把控件加成布局的子控件，又重新 setParent</text>
+        <text class="svg-small" x="410" y="310">  → 它从布局里消失，界面上莫名少一块</text>
+        <text class="svg-text" x="410" y="338">· 嵌套太深：每层 margins 都在吃空间</text>
+        <text class="svg-small" x="410" y="366">诊断法：给每层布局设不同背景色（临时），</text>
+        <text class="svg-small" x="410" y="386">一眼看出空间被哪层吃掉。</text>
+      </svg>`,
+    caption: '分配逻辑的直觉版：<strong>先满足下限，再把剩余空间按 stretch 比例分</strong>；<code>Fixed</code> 的控件一分不拿。stretch 全为 0 时改看 <code>sizePolicy</code>，都愿长就均分。三个常见意外：<strong>margins 与 spacing 双重留白</strong>、<strong>把已在布局里的控件重新 setParent（它会从布局里消失）</strong>、<strong>嵌套太深每层都吃空间</strong>。',
+    code: `auto *outer = new QHBoxLayout(this);
+outer->setContentsMargins(0, 0, 0, 0);   // 外层不要留白
+outer->setSpacing(0);                     // 也不留缝
+outer->addWidget(m_side, 1);
+outer->addWidget(m_main, 3);
+
+auto *inner = new QVBoxLayout;
+inner->setContentsMargins(8, 8, 8, 8);   // 留白放在需要的那层
+inner->addWidget(m_toolbar);
+inner->addWidget(m_text, 1);`,
+    highlight: [2, 3, 6]
+  },
+  {
+    title: '尺寸约束：三种「定死」的差别',
+    nav: '尺寸约束',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="三种尺寸约束">
+        <rect class="svg-box" x="25" y="25" width="230" height="150" rx="10"/>
+        <text class="svg-title" x="140" y="52" text-anchor="middle">setFixedSize(w,h)</text>
+        <text class="svg-small" x="45" y="80">最小 = 最大 = 尺寸</text>
+        <text class="svg-small" x="45" y="104">布局无权改动</text>
+        <text class="svg-small" x="45" y="128">适合：图标、分隔条</text>
+        <text class="svg-bad-text" x="45" y="156">滥用：窗口无法适配屏幕</text>
+
+        <rect class="svg-box" x="265" y="25" width="230" height="150" rx="10"/>
+        <text class="svg-title" x="380" y="52" text-anchor="middle">setMinimumSize / Maximum</text>
+        <text class="svg-small" x="285" y="80">给出可伸缩区间</text>
+        <text class="svg-small" x="285" y="104">布局在区间内自由安排</text>
+        <text class="svg-small" x="285" y="128">适合：主窗口下限定住</text>
+        <text class="svg-good-text" x="285" y="156">推荐：既安全又灵活</text>
+
+        <rect class="svg-box" x="505" y="25" width="230" height="150" rx="10"/>
+        <text class="svg-title" x="620" y="52" text-anchor="middle">sizeConstraint 属性</text>
+        <text class="svg-small" x="525" y="80">设在 QLayout 上</text>
+        <text class="svg-small" x="525" y="104">SetFixedSize 等：让</text>
+        <text class="svg-small" x="525" y="128">「布局」去约束整窗</text>
+        <text class="svg-small" x="525" y="156">适合：对话框自适应</text>
+
+        <rect class="svg-field" x="25" y="195" width="710" height="140" rx="10"/>
+        <text class="svg-small" x="45" y="223">三个层级的优先级（从高到低）：</text>
+        <text class="svg-text" x="45" y="253">显式的 setFixedSize / setMinimumSize &gt; QSizePolicy &gt; sizeHint</text>
+        <text class="svg-small" x="45" y="283">很多人以为「设了 sizePolicy 就定了尺寸」—— 其实它只是「意愿」，</text>
+        <text class="svg-small" x="45" y="307">真正落地的是布局算出来的矩形。意愿与结果之间还隔着 stretch 和别人的意愿。</text>
+
+        <rect class="svg-box-warn" x="25" y="345" width="710" height="62" rx="10"/>
+        <text class="svg-small" x="45" y="371">调试布局的三板斧：① 临时背景色看边界；② 打印 geometry() 与 sizeHint()；</text>
+        <text class="svg-small" x="45" y="393">③ 用 Qt Designer 预览一下同一套布局 —— 差别往往立刻暴露。</text>
+      </svg>`,
+    caption: '优先级从高到低：<strong>显式的 <code>setFixedSize</code>/<code>setMinimumSize</code> &gt; <code>QSizePolicy</code> &gt; <code>sizeHint</code></strong>。「设了 sizePolicy 就定了尺寸」是误解——它只是<strong>意愿</strong>，落地的是布局算出的矩形。日常推荐 <code>setMinimumSize</code> 而不是 <code>setFixedSize</code>：既保证可用，又不会让窗口在大字体或小屏幕上崩掉。',
+    code: `// 对话框常用：给布局加约束，让整窗跟着内容走
+auto *lay = new QVBoxLayout(this);
+lay->setSizeConstraint(QLayout::SetFixedSize);   // 窗口 = 内容大小
+
+// 主窗口常用：只保下限
+setMinimumSize(880, 560);
+
+// 具体某个控件定死
+m_icon->setFixedSize(24, 24);`,
+    highlight: [2, 3, 6]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

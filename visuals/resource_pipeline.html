@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 资源系统：把文件编进 exe - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../storage/index.html">第柒阶段 · 存储</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">STORAGE · 资源系统</span>
+    <h1><code>:/icons/save.png</code> —— 这个路径在磁盘上并不存在</h1>
+    <p>Qt 的资源系统把图标、qss、翻译文件、小数据直接<strong>编进可执行文件</strong>，运行期用 <code>:/</code> 前缀读取。好处是「拷一个 exe 就能跑」；代价是「改一个图标要重编」「每个字节都常驻内存」。这一页讲清它的机制、边界，以及什么时候该把它请出去。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 6</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../storage/04_resource_system.cpp">storage/04_resource_system.cpp</a> ·
+    配套清单：<a href="../storage/resource_demo.qrc">storage/resource_demo.qrc</a> ·
+    演示文件：<code>storage/demo/hello.txt</code>、<code>storage/demo/logo.svg</code>
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '.qrc 是一份清单，不是目录',
+    nav: 'qrc 是什么',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="qrc 文件格式与路径规则">
+        <rect class="svg-box" x="25" y="30" width="330" height="250" rx="10"/>
+        <text class="svg-small" x="45" y="56">storage/resource_demo.qrc（节选）</text>
+        <text class="svg-mono" x="45" y="86">&lt;RCC&gt;</text>
+        <text class="svg-mono" x="45" y="110">  &lt;qresource prefix="/storage"&gt;</text>
+        <text class="svg-mono" x="45" y="134">    &lt;file&gt;demo/hello.txt&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="158">    &lt;file&gt;demo/logo.svg&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="182">  &lt;/qresource&gt;</text>
+        <text class="svg-mono" x="45" y="206">  &lt;qresource prefix="/brand"&gt;</text>
+        <text class="svg-mono" x="45" y="230">    &lt;file alias="logo.svg"&gt;demo/logo.svg&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="254">  &lt;/qresource&gt;</text>
+        <text class="svg-mono" x="45" y="278">&lt;/RCC&gt;</text>
+
+        <rect class="svg-field" x="380" y="30" width="355" height="250" rx="10"/>
+        <text class="svg-small" x="400" y="58">路径是怎么拼出来的：</text>
+        <text class="svg-mono" x="400" y="88">":" + prefix + "/" + 条目路径(或 alias)</text>
+        <text class="svg-small" x="400" y="114">所以上面四条分别是：</text>
+        <text class="svg-mono" x="400" y="142">:/storage/demo/hello.txt</text>
+        <text class="svg-mono" x="400" y="166">:/storage/demo/logo.svg</text>
+        <text class="svg-mono" x="400" y="190">:/brand/logo.svg</text>
+        <text class="svg-small" x="400" y="220">★ &lt;file&gt; 的路径相对 .qrc 所在目录</text>
+        <text class="svg-small" x="400" y="244">★ alias 只换「挂载后的路径」，不换磁盘文件名</text>
+        <text class="svg-small" x="400" y="268">★ 同一份字节挂两次 = 真的存两份</text>
+
+        <rect class="svg-box-warn" x="25" y="300" width="710" height="95" rx="10">
+        </rect>
+        <text class="svg-small" x="45" y="328">最常犯的错：以为 qrc 里写了目录，就自动包含目录下所有文件。</text>
+        <text class="svg-small" x="45" y="354">它是一行一行的清单：没列进去的文件，运行期就是「不存在」。</text>
+        <text class="svg-small" x="45" y="380">（用 qt_add_resources 时同理：每个文件都要出现在 FILES / BASE 里。）</text>
+      </svg>`,
+    caption: '<code>.qrc</code> 是<strong>一行一行的清单</strong>，不是目录扫描：没列进去的文件，运行期就是「不存在」。路径公式是 <code>":" + prefix + 条目路径(或 alias)</code>；<code>&lt;file&gt;</code> 里的路径<strong>相对 .qrc 所在目录</strong>；<code>alias</code> 只改挂载后的路径，不改磁盘文件名；<strong>同一份字节挂两个路径 = 真的存两份</strong>。',
+    code: `<RCC>
+    <qresource prefix="/storage">
+        <file>demo/hello.txt</file>
+        <file>demo/logo.svg</file>
+    </qresource>
+    <qresource prefix="/brand">
+        <file alias="logo.svg">demo/logo.svg</file>
+    </qresource>
+</RCC>`,
+    highlight: [2, 3, 6, 7]
+  },
+  {
+    title: '构建期：rcc 把它变成一大块只读字节',
+    nav: 'rcc 编译',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="rcc 把资源编进二进制">
+        <rect class="svg-box" x="25" y="45" width="180" height="80" rx="8"/>
+        <text class="svg-small" x="45" y="72">resource_demo.qrc</text>
+        <text class="svg-small" x="45" y="96">+ demo/*.txt / *.svg</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M205 85 L270 85"/>
+        <rect class="svg-box-warn svg-pulse" x="270" y="45" width="150" height="80" rx="8"/>
+        <text class="svg-title" x="345" y="75" text-anchor="middle">rcc</text>
+        <text class="svg-small" x="345" y="100" text-anchor="middle">构建期跑一次</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M420 85 L485 85"/>
+        <rect class="svg-box-accent" x="485" y="35" width="250" height="100" rx="8"/>
+        <text class="svg-small" x="505" y="62">qrc_resource_demo.cpp</text>
+        <text class="svg-small" x="505" y="86">一个 unsigned char[] 数组</text>
+        <text class="svg-small" x="505" y="110">+ 一段注册用的结构体</text>
+
+        <path class="svg-arrow svg-flow" d="M610 135 L610 170"/>
+        <rect class="svg-box-good" x="420" y="170" width="315" height="75" rx="8"/>
+        <text class="svg-small" x="440" y="198">链接进可执行文件（.exe）</text>
+        <text class="svg-small" x="440" y="222">→ 运行期不读磁盘，直接从内存里给</text>
+
+        <rect class="svg-field" x="25" y="170" width="370" height="75" rx="8"/>
+        <text class="svg-small" x="45" y="198">代价一：exe 变大</text>
+        <text class="svg-small" x="45" y="222">（图标、翻译、qss 都算在里面）</text>
+
+        <rect class="svg-field" x="25" y="270" width="710" height="125" rx="10"/>
+        <text class="svg-small" x="45" y="298">CMake 侧只需要三行，AUTORCC 会替你调 rcc：</text>
+        <text class="svg-mono" x="45" y="328">set(CMAKE_AUTORCC ON)</text>
+        <text class="svg-mono" x="45" y="352">qt_add_executable(demo main.cpp)</text>
+        <text class="svg-mono" x="45" y="376">target_sources(demo PRIVATE resource_demo.qrc)</text>
+        <text class="svg-small" x="45" y="398">★ 也可以直接用 qt_add_resources(demo "demo" PREFIX "/storage" FILES …)，效果等价。</text>
+      </svg>`,
+    caption: '构建期 <code>rcc</code> 把清单里的文件变成<strong>一个 <code>unsigned char[]</code> 数组 + 注册结构</strong>，链接进 exe。运行期不读磁盘，直接从内存里给——所以「拷一个 exe 就能跑」。代价是 <strong>exe 变大</strong>，而且图标、翻译、qss 都算在里面。CMake 里三行就够：<code>AUTORCC ON</code> + 目标 + <code>target_sources(... .qrc)</code>。',
+    code: `# CMakeLists.txt
+set(CMAKE_AUTORCC ON)                                  # 让 CMake 自动调 rcc
+qt_add_executable(storage_04_resource_system main.cpp)
+target_sources(storage_04_resource_system PRIVATE
+    storage/resource_demo.qrc)                         # 清单进构建
+
+# 等价写法（不用 .qrc 文件）：
+# qt_add_resources(target "demo" PREFIX "/storage" FILES demo/hello.txt)`,
+    highlight: [1, 3, 4]
+  },
+  {
+    title: '运行期：用 :/ 前缀像普通文件一样读',
+    nav: '怎么读',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="运行期读取资源">
+        <rect class="svg-box-accent" x="25" y="35" width="330" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="62">读文件：跟普通文件一模一样</text>
+        <text class="svg-mono" x="45" y="90">QFile f(":/storage/demo/hello.txt");</text>
+        <text class="svg-mono" x="45" y="114">f.open(QIODevice::ReadOnly);</text>
+        <text class="svg-mono" x="45" y="138">QByteArray all = f.readAll();</text>
+
+        <rect class="svg-box-accent" x="380" y="35" width="355" height="120" rx="10"/>
+        <text class="svg-small" x="400" y="62">读图片：QPixmap / QIcon 直接吃路径</text>
+        <text class="svg-mono" x="400" y="90">QPixmap pm(":/storage/demo/logo.svg");</text>
+        <text class="svg-mono" x="400" y="114">QIcon icon(":/storage/demo/logo.svg");</text>
+        <text class="svg-small" x="400" y="140">SVG 需要 Qt Svg 插件（部署时要带上）</text>
+
+        <rect class="svg-box-good" x="25" y="175" width="710" height="90" rx="10"/>
+        <text class="svg-small" x="45" y="203">能用的地方比想象的多 —— 只要接受 QIODevice 的类都能读：</text>
+        <text class="svg-mono" x="45" y="231">QFile / QDir(":/") / QTextStream / QDataStream / QXmlStreamReader</text>
+        <text class="svg-mono" x="45" y="255">QImageReader / QPixmap / QIcon / QSS 的 url() / QTranslator::load</text>
+
+        <rect class="svg-field" x="25" y="285" width="710" height="110" rx="10"/>
+        <text class="svg-small" x="45" y="313">两个「不像文件」的地方：</text>
+        <text class="svg-text" x="45" y="343">· 只读：open(WriteOnly) 一律失败，这不是权限问题，是设计如此。</text>
+        <text class="svg-text" x="45" y="371">· QDir(":/") 能列出条目，但不存在「修改时间 / 大小」这类有意义的属性。</text>
+
+        <text class="svg-small" x="45" y="412">★ 判断「它在不在」：QFile::exists(":/…") 或 QFileInfo(":/…").exists()。</text>
+      </svg>`,
+    caption: '读资源跟读普通文件<strong>一模一样</strong>：<code>QFile(":/…")</code>、<code>QPixmap(":/…")</code>、<code>QIcon(":/…")</code>。只要接受 <code>QIODevice</code> 的类都能吃：<code>QTextStream</code>、<code>QXmlStreamReader</code>、QSS 的 <code>url()</code>、<code>QTranslator::load</code>。两个不像文件的地方：<strong>只读</strong>（写会失败，是设计如此），以及 <code>QDir</code> 读不到有意义的修改时间。',
+    code: `// 存在性检查要用 : 路径
+if (!QFile::exists(QStringLiteral(":/storage/demo/hello.txt")))
+    qWarning() << "资源没编进来：检查 qrc 与 AUTORCC";
+
+QFile f(QStringLiteral(":/storage/demo/hello.txt"));
+if (f.open(QIODevice::ReadOnly))
+    qInfo().noquote() << QString::fromUtf8(f.readAll());
+
+// 写是绝对会失败的 —— 别试
+qInfo() << "可写吗" << f.open(QIODevice::WriteOnly);   // false`,
+    highlight: [2, 5, 9]
+  },
+  {
+    title: '三种「放哪儿」的选择',
+    nav: '放哪儿',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="内置资源、外部 rcc、磁盘文件的取舍">
+        <rect class="svg-box-good" x="20" y="30" width="235" height="230" rx="10"/>
+        <text class="svg-title" x="137" y="58" text-anchor="middle">编进 exe（.qrc）</text>
+        <text class="svg-small" x="40" y="86">适合：</text>
+        <text class="svg-small" x="40" y="110">· 图标、光标、小图片</text>
+        <text class="svg-small" x="40" y="134">· 默认 qss / 主题</text>
+        <text class="svg-small" x="40" y="158">· 翻译文件</text>
+        <text class="svg-small" x="40" y="182">· 几十 KB 的模板/规则</text>
+        <text class="svg-good-text" x="40" y="214">优点：单文件分发、不怕丢</text>
+        <text class="svg-small" x="40" y="242">缺点：改一个图标要重编</text>
+
+        <rect class="svg-box-warn" x="265" y="30" width="235" height="230" rx="10"/>
+        <text class="svg-title" x="382" y="58" text-anchor="middle">外部 .rcc</text>
+        <text class="svg-small" x="285" y="86">适合：</text>
+        <text class="svg-small" x="285" y="110">· 多语言包、主题包</text>
+        <text class="svg-small" x="285" y="134">· 体积大但不常变的资源</text>
+        <text class="svg-small" x="285" y="158">· 想「不重编 exe 就更新」</text>
+        <text class="svg-text" fill="#b45309" x="285" y="190">用法：QResource::registerResource()</text>
+        <text class="svg-small" x="285" y="218">注册后同样是 :/ 路径</text>
+        <text class="svg-small" x="285" y="246">★ 文件本身仍要随安装包发出去</text>
+
+        <rect class="svg-box" x="510" y="30" width="230" height="230" rx="10"/>
+        <text class="svg-title" x="625" y="58" text-anchor="middle">磁盘文件</text>
+        <text class="svg-small" x="530" y="86">适合：</text>
+        <text class="svg-small" x="530" y="110">· 用户数据（文档、项目）</text>
+        <text class="svg-small" x="530" y="134">· 大媒体（视频、大图）</text>
+        <text class="svg-small" x="530" y="158">· 会被修改的任何东西</text>
+        <text class="svg-good-text" x="530" y="190">放到 QStandardPaths 的目录</text>
+        <text class="svg-small" x="530" y="218">别写死盘符或相对路径</text>
+        <text class="svg-small" x="530" y="246">★ 用户数据永远不该进 qrc</text>
+
+        <rect class="svg-field" x="20" y="280" width="720" height="115" rx="10"/>
+        <text class="svg-small" x="40" y="308">一条简单判据：<strong>这个文件用户会不会改？会不会大？</strong></text>
+        <text class="svg-text" x="40" y="338">会改 / 会大 → 磁盘（QStandardPaths）。不会改、不大、必须随程序走 → qrc。</text>
+        <text class="svg-text" x="40" y="366">介于两者（多语言包、主题包）→ 外部 .rcc，注册后照旧用 :/ 路径。</text>
+        <text class="svg-small" x="40" y="390">★ 把「用户数据」放进 qrc，是所有资源系统相关 bug 里最蠢也最常见的一种。</text>
+      </svg>`,
+    caption: '判据只有两条：<strong>用户会不会改？会不会大？</strong>都不会 → 编进 <code>.qrc</code>（单文件分发）；多语言包/主题包这类「大但不常变」→ <strong>外部 <code>.rcc</code></strong>，<code>QResource::registerResource</code> 之后照样用 <code>:/</code>；<strong>会改的永远放磁盘</strong>，位置由 <code>QStandardPaths</code> 决定。把用户数据编进 qrc 是最蠢也最常见的错。',
+    code: `// 外部资源包：运行期注册，之后路径不变
+if (!QResource::registerResource(appDir + "/themes.rcc"))
+    qWarning() << "主题包缺失，走默认主题";
+
+QFile theme(QStringLiteral(":/themes/dark.qss"));   // 与内置资源同样写法
+
+// 用户数据的位置：交给 QStandardPaths
+const QString dir = QStandardPaths::writableLocation(
+    QStandardPaths::AppDataLocation);`,
+    highlight: [2, 3, 5, 8]
+  },
+  {
+    title: '容易翻车的三个细节',
+    nav: '三个坑',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="资源系统的三个常见问题">
+        <rect class="svg-box-bad" x="25" y="30" width="710" height="110" rx="10"/>
+        <text class="svg-title" x="45" y="58">① 静态库里的资源要手动初始化</text>
+        <text class="svg-small" x="45" y="86">资源所在的静态库若没有符号被引用，链接器会把整个 .o 丢掉 —— 连带资源也没了。</text>
+        <text class="svg-small" x="45" y="112">解法：在用到它之前调一次 Q_INIT_RESOURCE(资源基名)；动态库/可执行文件里通常不需要。</text>
+
+        <rect class="svg-box-warn" x="25" y="155" width="710" height="110" rx="10"/>
+        <text class="svg-title" x="45" y="183">② 高 DPI 图片要按约定命名</text>
+        <text class="svg-small" x="45" y="211">save.png + save@2x.png + save@3x.png 放在同一前缀下，QPixmap/QIcon 会自动挑合适的那份。</text>
+        <text class="svg-small" x="45" y="237">手写文件名会绕开这套机制 —— 高分屏上就糊。</text>
+        <text class="svg-small" x="45" y="259">（本仓库的 logo.svg 是矢量，不存在这个问题 —— 能用 SVG 就尽量用。）</text>
+
+        <rect class="svg-box-warn" x="25" y="280" width="710" height="110" rx="10"/>
+        <text class="svg-title" x="45" y="308">③ 部署时别忘了插件</text>
+        <text class="svg-small" x="45" y="336">SVG 靠 Qt Svg 插件，JPEG 靠 imageformats 插件。资源编进去了，插件没带上 → 照样加载失败。</text>
+        <text class="svg-small" x="45" y="362">症状：开发机正常，客户机「图片显示不出来」。</text>
+        <text class="svg-small" x="45" y="384">工具：windeployqt 会把常用插件一起拷过去（见 build_deploy 那一节）。</text>
+      </svg>`,
+    caption: '三个细节会在交付前咬人：<strong>静态库里的资源要 <code>Q_INIT_RESOURCE</code></strong>（否则整个 <code>.o</code> 被链接器丢掉）；<strong>高 DPI 图片要按 <code>@2x</code> 约定命名</strong>（手写文件名会绕开自动挑选，高分屏就糊）；<strong>部署别忘插件</strong>——资源编进去了但 Qt Svg 插件没带上，SVG 照样加载失败。',
+    code: `// ① 静态库里的资源
+Q_INIT_RESOURCE(resource_demo);      // 基名 = .qrc 文件名去掉扩展名
+
+// ② 高 DPI：同名不同倍率，交给 Qt 挑
+//    icons/save.png / icons/save@2x.png / icons/save@3x.png
+QIcon icon(QStringLiteral(":/icons/save.png"));
+
+// ③ 部署：插件要一起走
+//    windeployqt --release MyApp.exe`,
+    highlight: [1, 5, 8]
+  },
+  {
+    title: '一页总结：资源系统的边界',
+    nav: '边界',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="资源系统能做什么与不能做什么">
+        <rect class="svg-box-good" x="25" y="30" width="345" height="230" rx="10"/>
+        <text class="svg-title" x="197" y="58" text-anchor="middle">它给你的</text>
+        <text class="svg-small" x="45" y="88">· 单文件分发：exe 就是全部</text>
+        <text class="svg-small" x="45" y="114">· 不怕丢文件、不怕相对路径错</text>
+        <text class="svg-small" x="45" y="140">· 与 QIODevice 生态无缝</text>
+        <text class="svg-small" x="45" y="166">· 可压缩，体积可控</text>
+        <text class="svg-small" x="45" y="192">· 启动即可用，无需查找路径</text>
+        <text class="svg-small" x="45" y="218">· 支持多倍率图片与多语言条目</text>
+        <text class="svg-small" x="45" y="244">· 运行期还能读（QResource）</text>
+
+        <rect class="svg-box-bad" x="390" y="30" width="345" height="230" rx="10"/>
+        <text class="svg-title" x="562" y="58" text-anchor="middle">它不给你</text>
+        <text class="svg-small" x="410" y="88">· 写权限（永远只读）</text>
+        <text class="svg-small" x="410" y="114">· 热更新（改了要重编或换 .rcc）</text>
+        <text class="svg-small" x="410" y="140">· 流式读取超大文件（常驻内存）</text>
+        <text class="svg-small" x="410" y="166">· 有意义的文件时间戳</text>
+        <text class="svg-small" x="410" y="192">· 用户可见的「文件位置」</text>
+        <text class="svg-small" x="410" y="218">· 跨进程共享（除外部 .rcc）</text>
+        <text class="svg-small" x="410" y="244">· 自动的插件依赖</text>
+
+        <rect class="svg-field" x="25" y="285" width="710" height="110" rx="10"/>
+        <text class="svg-small" x="45" y="313">所以最终的判断只有一句：</text>
+        <text class="svg-text" x="45" y="345"><strong>随程序发布、不修改、体积小</strong> → 进 qrc；其余一律放外面。</text>
+        <text class="svg-small" x="45" y="375">把这条线守住，资源系统就是纯粹的福利；越线，它就是无缘无故的麻烦。</text>
+      </svg>`,
+    caption: '资源系统给的是<strong>分发便利</strong>，不给的是<strong>可变性</strong>：永远只读、不支持热更新、大文件常驻内存、没有有意义的时间戳。最终判断只有一句：<strong>随程序发布、不修改、体积小 → 进 qrc；其余一律放外面</strong>。守住这条线它是福利，越线它是麻烦。',
+    code: `// 一个项目的典型分工
+// qrc：icons/ (SVG 为主)、themes/default.qss、translations/*.qm
+// 外部 .rcc：themes/extra.rcc（可单独更新）
+// 磁盘 AppDataLocation：projects.db、logs/、用户导入的图片`,
+    highlight: [1, 2, 3]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

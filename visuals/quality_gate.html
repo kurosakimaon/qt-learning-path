@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 质量门：让 bug 在最便宜的地方被抓住 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../quality/tutorial.md">第拾阶段 · 工程质量</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">QUALITY · 质量门</span>
+    <h1>质量不是「认真一点」，是四道会拦人的门</h1>
+    <p>同一个 bug，在写代码时发现只值一分钟，在 CI 里发现值半小时，到了用户手里就值一次事故。这一页把「静态门 → 单元门 → 界面门 → 交付门」拆开看：每道门拦什么、用什么工具拦、失败了拿什么当证据。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 6</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../quality/tutorial.md">quality/tutorial.md</a> ·
+    单元测试：<a href="../quality/01_qtest_unit.cpp">quality/01_qtest_unit.cpp</a> ·
+    界面测试：<a href="../quality/02_qtest_gui.cpp">quality/02_qtest_gui.cpp</a> ·
+    分层：<a href="../quality/03_architecture_layers.cpp">quality/03_architecture_layers.cpp</a> ·
+    实战自检：<a href="../projects/todo_desktop/tutorial.md">todo_desktop/tutorial.md</a>
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: 'bug 越晚被发现，越贵',
+    nav: '为什么',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="缺陷发现阶段与修复成本">
+        <text class="svg-title" x="30" y="35">同一个 bug，在不同阶段被抓住的代价</text>
+
+        <rect class="svg-box-good" x="25" y="60" width="130" height="90" rx="10"/>
+        <text class="svg-small" x="90" y="88" text-anchor="middle">写代码时</text>
+        <text class="svg-mono" x="90" y="116" text-anchor="middle">1 分钟</text>
+        <text class="svg-small" x="90" y="140" text-anchor="middle">改一行，重跑</text>
+
+        <rect class="svg-box" x="175" y="60" width="130" height="90" rx="10"/>
+        <text class="svg-small" x="240" y="88" text-anchor="middle">本地自检</text>
+        <text class="svg-mono" x="240" y="116" text-anchor="middle">5 分钟</text>
+        <text class="svg-small" x="240" y="140" text-anchor="middle">定位 + 补断言</text>
+
+        <rect class="svg-box-warn" x="325" y="60" width="130" height="90" rx="10"/>
+        <text class="svg-small" x="390" y="88" text-anchor="middle">CI / 测试</text>
+        <text class="svg-mono" x="390" y="116" text-anchor="middle">30 分钟</text>
+        <text class="svg-small" x="390" y="140" text-anchor="middle">翻日志、复现</text>
+
+        <rect class="svg-box-bad" x="475" y="60" width="130" height="90" rx="10"/>
+        <text class="svg-small" x="540" y="88" text-anchor="middle">已合入主干</text>
+        <text class="svg-mono" x="540" y="116" text-anchor="middle">半天</text>
+        <text class="svg-small" x="540" y="140" text-anchor="middle">回滚、通知、重发</text>
+
+        <rect class="svg-box-bad" x="625" y="60" width="110" height="90" rx="10"/>
+        <text class="svg-small" x="680" y="88" text-anchor="middle">用户手里</text>
+        <text class="svg-mono" x="680" y="116" text-anchor="middle">一次事故</text>
+        <text class="svg-small" x="680" y="140" text-anchor="middle">信任 + 赔偿</text>
+
+        <path class="svg-arrow" d="M155 105 L175 105"/>
+        <path class="svg-arrow" d="M305 105 L325 105"/>
+        <path class="svg-arrow" d="M455 105 L475 105"/>
+        <path class="svg-arrow" d="M605 105 L625 105"/>
+
+        <rect class="svg-field" x="25" y="180" width="710" height="205" rx="10"/>
+        <text class="svg-small" x="45" y="208">质量门的经济学：</text>
+        <text class="svg-text" x="45" y="238">· 门越靠左，越便宜；但门越靠左，能覆盖的场景越少。</text>
+        <text class="svg-text" x="45" y="266">· 所以不是「只要一道最严的门」，而是「每道门拦它最擅长的那类错」。</text>
+        <text class="svg-text" x="45" y="294">· 静态门拦「写错」，单元门拦「算错」，界面门拦「接错」，交付门拦「带错」。</text>
+        <text class="svg-good-text" x="45" y="330">四道门都绿，才叫「可交付」；只看「我这儿能跑」，不叫。</text>
+        <text class="svg-small" x="45" y="362">★ 门的价值不在「通过」，而在「该红的时候一定红」。</text>
+      </svg>`,
+    caption: '缺陷的修复成本随阶段指数上升：写代码时一分钟，用户手里就是一次事故。所以质量不是「认真一点」，而是<strong>在每一层放一道会拦人的门</strong>。四道门各拦一类错：静态门拦「写错」，单元门拦「算错」，界面门拦「接错」，交付门拦「带错」。',
+    code: `// 门的第一条纪律：失败必须让流程停下来
+// 不是「打印一条 warning 然后继续」
+if (!ok) {
+    qCritical() << "gate failed:" << why;
+    return 1;                    // ← 退出码就是结论
+}`,
+    highlight: [3, 4, 5]
+  },
+  {
+    title: '四道门：从左到右，越来越贵',
+    nav: '四道门',
+    ms: 8000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="四道质量门流水线">
+        <rect class="svg-box-accent" x="20" y="45" width="160" height="120" rx="10"/>
+        <text class="svg-title" x="100" y="72" text-anchor="middle">① 静态门</text>
+        <text class="svg-small" x="38" y="100">moc + 编译器</text>
+        <text class="svg-small" x="38" y="124">-fsyntax-only</text>
+        <text class="svg-small" x="38" y="148">-Wall -Wextra 零警告</text>
+
+        <rect class="svg-box" x="205" y="45" width="160" height="120" rx="10"/>
+        <text class="svg-title" x="285" y="72" text-anchor="middle">② 单元门</text>
+        <text class="svg-small" x="223" y="100">QtTest + QCOMPARE</text>
+        <text class="svg-small" x="223" y="124">QTEST_GUILESS_MAIN</text>
+        <text class="svg-small" x="223" y="148">纯逻辑，无窗口</text>
+
+        <rect class="svg-box-warn" x="390" y="45" width="160" height="120" rx="10"/>
+        <text class="svg-title" x="470" y="72" text-anchor="middle">③ 界面门</text>
+        <text class="svg-small" x="408" y="100">QTEST_MAIN + offscreen</text>
+        <text class="svg-small" x="408" y="124">QSignalSpy / QTRY</text>
+        <text class="svg-small" x="408" y="148">点按钮、验信号</text>
+
+        <rect class="svg-box-good" x="575" y="45" width="160" height="120" rx="10"/>
+        <text class="svg-title" x="655" y="72" text-anchor="middle">④ 交付门</text>
+        <text class="svg-small" x="593" y="100">干净机器冒烟</text>
+        <text class="svg-small" x="593" y="124">windeployqt 产物</text>
+        <text class="svg-small" x="593" y="148">自检退出码 = 0</text>
+
+        <path class="svg-arrow" d="M180 105 L205 105"/>
+        <path class="svg-arrow" d="M365 105 L390 105"/>
+        <path class="svg-arrow" d="M550 105 L575 105"/>
+
+        <rect class="svg-field" x="20" y="195" width="350" height="190" rx="10"/>
+        <text class="svg-small" x="40" y="223">每道门要回答的问题</text>
+        <text class="svg-text" x="40" y="253">① 这段代码编得过吗？签名对吗？</text>
+        <text class="svg-text" x="40" y="281">② 这段逻辑算得对吗？边界呢？</text>
+        <text class="svg-text" x="40" y="309">③ 点下去，信号与界面动了吗？</text>
+        <text class="svg-text" x="40" y="337">④ 换台没装 Qt 的机器，还起得来吗？</text>
+        <text class="svg-small" x="40" y="369">★ 四问都答「是」，才允许发布。</text>
+
+        <rect class="svg-box-bad" x="390" y="195" width="345" height="190" rx="10"/>
+        <text class="svg-small" x="410" y="223">最贵的错误：跳过左边，只想右边</text>
+        <text class="svg-small" x="410" y="253">· 不编、不测，直接打包 → 用户当测试员</text>
+        <text class="svg-small" x="410" y="281">· 只跑单元测试，不跑界面 → 信号接错</text>
+        <text class="svg-small" x="410" y="309">· 只在自己机器跑 → 换机就缺 DLL</text>
+        <text class="svg-bad-text" x="410" y="345">门的顺序就是「便宜的先上」。</text>
+        <text class="svg-small" x="410" y="371">越早红，越省事；越晚红，越像事故。</text>
+      </svg>`,
+    caption: '四道门从左到右：<strong>静态门</strong>（能编过、签名对）、<strong>单元门</strong>（纯逻辑算得对）、<strong>界面门</strong>（无头点按钮、信号真的发）、<strong>交付门</strong>（干净机器起得来）。顺序就是「便宜的先上」：能在编译期拦下的，绝不留给运行时；能在单元测试拦下的，绝不留给用户。',
+    code: `# 四道门在命令行里长这样（本仓库的做法）
+cmake -G Ninja -B build -S .
+cmake --build build                       # ① 编不过就停
+
+ctest --test-dir build --output-on-failure  # ②③ 单元 + 界面用例
+# ④ 把 build/bin 收进 deploy/，在干净机器上双击
+
+# 任何一步非 0 退出，后面的门都不该开`,
+    highlight: [2, 4, 8]
+  },
+  {
+    title: '可测性：业务逻辑先离开 QWidget',
+    nav: '可测性',
+    ms: 8000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="分层与可测性">
+        <rect class="svg-box" x="30" y="45" width="200" height="90" rx="10"/>
+        <text class="svg-title" x="130" y="72" text-anchor="middle">UI 层</text>
+        <text class="svg-small" x="48" y="100">QWidget / QDialog</text>
+        <text class="svg-small" x="48" y="124">只管收集输入、显示结果</text>
+
+        <rect class="svg-box-accent" x="280" y="45" width="200" height="90" rx="10"/>
+        <text class="svg-title" x="380" y="72" text-anchor="middle">应用 / 领域层</text>
+        <text class="svg-small" x="298" y="100">Service / 纯逻辑</text>
+        <text class="svg-small" x="298" y="124">可脱离窗口编译与测试</text>
+
+        <rect class="svg-box-good" x="530" y="45" width="200" height="90" rx="10"/>
+        <text class="svg-title" x="630" y="72" text-anchor="middle">存储 / 基础设施</text>
+        <text class="svg-small" x="548" y="100">SQLite / JSON / 内存</text>
+        <text class="svg-small" x="548" y="124">接口后面可替换</text>
+
+        <path class="svg-arrow" d="M230 90 L280 90"/>
+        <path class="svg-arrow" d="M480 90 L530 90"/>
+
+        <rect class="svg-box-bad" x="30" y="165" width="700" height="80" rx="10"/>
+        <text class="svg-mono" x="50" y="194">#include &lt;QWidget&gt;   ← 出现在领域层，会怎样？</text>
+        <text class="svg-small" x="50" y="222">① 测试必须先有 QApplication 与平台插件；② 换存储要改界面；③ CI 变慢、变脆。</text>
+
+        <rect class="svg-field" x="30" y="265" width="335" height="130" rx="10"/>
+        <text class="svg-small" x="50" y="293">可测的写法</text>
+        <text class="svg-mono" x="50" y="323">double total = computeStats(tasks);</text>
+        <text class="svg-small" x="50" y="349">纯输入 → 纯输出，直接断言</text>
+        <text class="svg-good-text" x="50" y="377">QTEST_GUILESS_MAIN 就够</text>
+
+        <rect class="svg-box-warn" x="395" y="265" width="335" height="130" rx="10"/>
+        <text class="svg-small" x="415" y="293">难测的写法</text>
+        <text class="svg-mono" x="415" y="323">double total = ui->label->text().toDouble();</text>
+        <text class="svg-small" x="415" y="349">真相在控件里，测试得先造窗口</text>
+        <text class="svg-bad-text" x="415" y="377">最后只能「手动点一遍」</text>
+      </svg>`,
+    caption: '可测性不是「测试写得多」，而是<strong>业务逻辑能不能离开 <code>QWidget</code></strong>。领域层一旦 <code>#include &lt;QWidget&gt;</code>，测试就得先有 <code>QApplication</code> 和平台插件，CI 变慢变脆；反过来，纯函数「输入 → 输出」用 <code>QTEST_GUILESS_MAIN</code> 就能断言。<strong>先分层，再谈测试。</strong>',
+    code: `// 领域层：不碰 QWidget，可直接断言
+TaskStats computeStats(const QVector<Task>& tasks, QDate today);
+
+// 测试：QTEST_GUILESS_MAIN，不需要平台插件
+QCOMPARE(stats.total, 3);
+QCOMPARE(stats.overdue, 1);   // 已完成的不算逾期
+
+// UI 层只负责把结果放到控件上，
+// 不负责「算得对不对」。`,
+    highlight: [1, 4, 5]
+  },
+  {
+    title: 'QtTest：两种入口，两种战场',
+    nav: 'QtTest',
+    ms: 8000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QtTest 的两种入口">
+        <rect class="svg-box-good" x="25" y="40" width="345" height="150" rx="10"/>
+        <text class="svg-title" x="197" y="68" text-anchor="middle">纯逻辑战场</text>
+        <text class="svg-mono" x="45" y="98">QTEST_GUILESS_MAIN(TestLogic)</text>
+        <text class="svg-small" x="45" y="126">· 不需要 QApplication</text>
+        <text class="svg-small" x="45" y="150">· 不需要平台插件</text>
+        <text class="svg-small" x="45" y="174">· CI 里最快、最稳</text>
+
+        <rect class="svg-box-warn" x="390" y="40" width="345" height="150" rx="10"/>
+        <text class="svg-title" x="562" y="68" text-anchor="middle">界面战场</text>
+        <text class="svg-mono" x="410" y="98">QTEST_MAIN(TestGui)</text>
+        <text class="svg-small" x="410" y="126">· 要 QApplication</text>
+        <text class="svg-small" x="410" y="150">· 要平台插件（offscreen 即可）</text>
+        <text class="svg-small" x="410" y="174">· 能点按钮、验信号</text>
+
+        <rect class="svg-field" x="25" y="215" width="710" height="175" rx="10"/>
+        <text class="svg-small" x="45" y="243">四个最常用的断言/工具：</text>
+        <text class="svg-mono" x="45" y="273">QCOMPARE(actual, expected)   // 打印两边的值与类型</text>
+        <text class="svg-mono" x="45" y="299">QVERIFY(condition)           // 只打印表达式文本</text>
+        <text class="svg-mono" x="45" y="325">QSignalSpy spy(obj, &amp;Obj::sig);  // 数次数、取参数</text>
+        <text class="svg-mono" x="45" y="351">QTRY_COMPARE(a, b)           // 异步：按步长重试，成功即过</text>
+        <text class="svg-small" x="45" y="377">★ 异步不要 sleep；用 QTRY 或 spy.wait(期限)，失败也要有上限。</text>
+      </svg>`,
+    caption: 'QtTest 有两个入口：<code>QTEST_GUILESS_MAIN</code> 测纯逻辑，不要窗口和插件；<code>QTEST_MAIN</code> 测界面，要 <code>QApplication</code>，但 <code>QT_QPA_PLATFORM=offscreen</code> 就能无头跑。断言首选 <code>QCOMPARE</code>（会打印两边的值和类型），异步用 <code>QTRY_*</code> 或 <code>QSignalSpy::wait</code>，<strong>永远不要用 sleep 等结果</strong>。',
+    code: `class TestModel : public QObject {
+    Q_OBJECT
+private slots:
+    void setDoneEmitsSignals();
+};
+
+void TestModel::setDoneEmitsSignals()
+{
+    TaskModel model;
+    QSignalSpy spy(&model, &TaskModel::countsChanged);
+
+    QVERIFY(model.setDone(0, true));
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(spy.at(0).at(1).toInt(), 1);   // done
+}
+
+QTEST_GUILESS_MAIN(TestModel)`,
+    highlight: [10, 11, 12]
+  },
+  {
+    title: '性能门：先量，再猜',
+    nav: '性能门',
+    ms: 8000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="性能测量闭环">
+        <rect class="svg-box" x="25" y="40" width="150" height="90" rx="10"/>
+        <text class="svg-small" x="100" y="68" text-anchor="middle">① 立基线</text>
+        <text class="svg-small" x="43" y="94">预热 + 多轮</text>
+        <text class="svg-small" x="43" y="116">取中位数</text>
+
+        <rect class="svg-box" x="205" y="40" width="150" height="90" rx="10"/>
+        <text class="svg-small" x="280" y="68" text-anchor="middle">② 装计数器</text>
+        <text class="svg-small" x="223" y="94">data() 被调几次</text>
+        <text class="svg-small" x="223" y="116">index() 被问几次</text>
+
+        <rect class="svg-box-warn" x="385" y="40" width="150" height="90" rx="10"/>
+        <text class="svg-small" x="460" y="68" text-anchor="middle">③ 改一处</text>
+        <text class="svg-small" x="403" y="94">只改一个变量</text>
+        <text class="svg-small" x="403" y="116">其他都不动</text>
+
+        <rect class="svg-box-good" x="565" y="40" width="170" height="90" rx="10"/>
+        <text class="svg-small" x="650" y="68" text-anchor="middle">④ 对比 + 定预算</text>
+        <text class="svg-small" x="583" y="94">差值归因到调用次数</text>
+        <text class="svg-small" x="583" y="116">超预算就让 CI 红</text>
+
+        <path class="svg-arrow" d="M175 85 L205 85"/>
+        <path class="svg-arrow" d="M355 85 L385 85"/>
+        <path class="svg-arrow" d="M535 85 L565 85"/>
+
+        <rect class="svg-field" x="25" y="165" width="710" height="105" rx="10"/>
+        <text class="svg-small" x="45" y="193">性能问题的高发区（先查这几处，别先怀疑编译器）：</text>
+        <text class="svg-text" x="45" y="223">字符串拼接 · 容器扩容 · 线性查找 · 重绘与缓存 · 打开着的日志</text>
+        <text class="svg-small" x="45" y="251">★ 每一项都能用「调用次数 × 单次成本」拆开，别凭感觉。</text>
+
+        <rect class="svg-box-bad" x="25" y="290" width="710" height="100" rx="10"/>
+        <text class="svg-small" x="45" y="318">最浪费时间的做法：</text>
+        <text class="svg-bad-text" x="45" y="348">没量就优化 → 改了三处 → 不知道哪处有用 → 全部回滚</text>
+        <text class="svg-small" x="45" y="376">先量，再猜；一次只改一个变量。</text>
+      </svg>`,
+    caption: '性能门的方法只有一句：<strong>先量，再猜</strong>。立基线（预热、多轮、中位数）→ 装计数器（<code>data()</code>/<code>index()</code> 各被调几次）→ 一次只改一个变量 → 用「调用次数 × 单次成本」解释差值。最浪费时间的做法是没量就优化，改了三处却不知道哪处有用。',
+    code: `QElapsedTimer timer;
+timer.start();
+
+// 预热一次，避免把首次分配算进去
+runOnce();
+
+qint64 best = std::numeric_limits<qint64>::max();
+for (int i = 0; i < 7; ++i) {
+    QElapsedTimer t; t.start();
+    runOnce();
+    best = qMin(best, t.elapsed());   // 取多轮里较好的一轮
+}
+
+qInfo() << "median-ish:" << best << "ms"
+        << "data() calls:" << g_dataCalls;`,
+    highlight: [3, 9, 13]
+  },
+  {
+    title: '交付门：退出码说话，干净机器验收',
+    nav: '交付门',
+    ms: 8000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="交付门与退出码">
+        <rect class="svg-box-accent" x="25" y="35" width="710" height="80" rx="10"/>
+        <text class="svg-mono" x="45" y="66">$ cmake --build build &amp;&amp; ctest --test-dir build --output-on-failure</text>
+        <text class="svg-small" x="45" y="94">Shell 的 &amp;&amp; 就是第一道闸：前一步非 0，后面的门根本不开。</text>
+
+        <rect class="svg-box" x="25" y="140" width="230" height="110" rx="10"/>
+        <text class="svg-small" x="45" y="168">① 编译退出码</text>
+        <text class="svg-mono" x="45" y="198">0 = 过</text>
+        <text class="svg-small" x="45" y="226">非 0 = 停在静态门</text>
+
+        <rect class="svg-box" x="275" y="140" width="230" height="110" rx="10"/>
+        <text class="svg-small" x="295" y="168">② ctest 退出码</text>
+        <text class="svg-mono" x="295" y="198">0 = 全绿</text>
+        <text class="svg-small" x="295" y="226">非 0 = 哪个用例红了</text>
+
+        <rect class="svg-box-good" x="525" y="140" width="210" height="110" rx="10"/>
+        <text class="svg-small" x="545" y="168">③ 自检退出码</text>
+        <text class="svg-mono" x="545" y="198">app --self-check</text>
+        <text class="svg-small" x="545" y="226">0 = 38 项全过</text>
+
+        <path class="svg-arrow" d="M255 195 L275 195"/>
+        <path class="svg-arrow" d="M505 195 L525 195"/>
+
+        <rect class="svg-field" x="25" y="275" width="710" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="303">最后一步只能人工：在一台「没装 Qt」的干净机器上</text>
+        <text class="svg-text" x="45" y="333">□ 双击能起窗口　□ 图标正常　□ 中文不乱码</text>
+        <text class="svg-text" x="45" y="361">□ 数据写在 AppDataLocation　□ 卸载不留垃圾</text>
+        <text class="svg-small" x="45" y="387">★ 这一页过不了，前面三道门全绿也不算交付。</text>
+      </svg>`,
+    caption: '交付门只认两样东西：<strong>退出码</strong>和<strong>干净机器</strong>。编译、<code>ctest</code>、<code>--self-check</code> 任何一步非 0 就停；全绿之后，还要在一台没装 Qt 的机器上双击、看图标、看中文、看数据目录、看卸载残留。前面三门证明「代码对」，最后一门证明「拿得出手」。',
+    code: `# 本仓库的交付前链路
+cmake -G Ninja -B build -S .
+cmake --build build
+QT_QPA_PLATFORM=offscreen ctest --test-dir build --output-on-failure
+./build/bin/todo_desktop --self-check   # 退出码 0 才算过
+
+mkdir deploy && cp build/bin/todo_desktop.exe deploy/
+windeployqt --release --no-translations deploy/todo_desktop.exe
+# 然后把 deploy/ 拷到干净虚拟机，走人工清单`,
+    highlight: [3, 4, 7]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

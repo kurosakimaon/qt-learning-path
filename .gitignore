@@ -1,0 +1,110 @@
+# ============================================================================
+#  Qt 学习项目 .gitignore
+#  编译产物、moc/rcc/uic 生成物、IDE 与临时文件一律不进仓库
+# ============================================================================
+
+# ---------- 构建目录 ----------
+build/
+build-*/
+cmake-build-*/
+out/
+bin/
+lib/
+dist/
+install/
+deploy/
+
+# ---------- 可执行与库 ----------
+*.exe
+*.dll
+*.lib
+*.a
+*.so
+*.so.*
+*.dylib
+*.app
+*.msi
+
+# ---------- CMake 生成物 ----------
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+install_manifest.txt
+*.cmake.stamp
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+*.sln
+*.vcxproj
+*.vcxproj.filters
+
+# ---------- Qt 自动生成物（AUTOMOC / AUTORCC / AUTOUIC）----------
+moc_*.cpp
+moc_*.h
+*.moc
+qrc_*.cpp
+ui_*.h
+.qmake.stash
+Makefile
+Makefile.*
+*.pro.user
+*.pro.user.*
+
+# ---------- 翻译产物 ----------
+# .ts 是源文件（要进仓库），.qm 是 lrelease 编出来的二进制（不进）
+*.qm
+
+# ---------- 调试与性能分析 ----------
+*.pdb
+*.ilk
+*.idb
+*.dSYM/
+*.gcda
+*.gcno
+*.gcov
+*.trace
+*.etl
+
+# ---------- 示例运行产物 ----------
+# 绘图示例会把结果存成 PNG / SVG，测试示例会往临时目录写文件；
+# 若你在源码目录里直接跑过，这些产物不该跟着提交。
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+!assets/**/*.png
+!assets/**/*.jpg
+!assets/**/*.svg
+!docs/**/*.png
+!_assets/preview/*.png
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+# 注意：不要按 *.txt 排除文件——CMakeLists.txt 也以 .txt 结尾，
+# 一条 *.txt 会把全仓库的构建脚本一起漏掉。
+
+# ---------- 编辑器 / IDE ----------
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.cache/
+.clangd/
+.qtc_clangd/
+*.autosave
+
+# ---------- 本地环境与密钥 ----------
+.env
+.env.*
+*.pem
+*.key
+*.pfx

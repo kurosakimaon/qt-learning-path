@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第拾壹阶段讲义 · Qt6 的 CMake 到底怎么写 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+<style>
+  .container { max-width: 1040px; }
+  .doc-section {
+    background: rgba(255,255,255,0.96);
+    border-radius: 16px;
+    padding: 26px 30px;
+    margin-bottom: 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.28);
+  }
+  .doc-section h2 {
+    color: #15803d;
+    margin: 0 0 14px;
+    font-size: 21px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .doc-section h3 { color: #166534; font-size: 16px; margin: 22px 0 8px; }
+  .doc-section p, .doc-section li { color: #444; font-size: 14px; line-height: 1.9; }
+  .doc-section ul, .doc-section ol { padding-left: 22px; margin: 8px 0; }
+  .doc-section code {
+    background: #f1f5f9; color: #0f172a; padding: 1px 6px;
+    border-radius: 5px; font-family: Consolas, 'Courier New', monospace; font-size: 12.5px;
+  }
+  pre {
+    background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 12px;
+    overflow-x: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12.5px;
+    line-height: 1.75; margin: 12px 0;
+  }
+  pre .c { color: #94a3b8; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #f0fdf4; color: #166534; }
+  td code { font-size: 12px; }
+  .warn {
+    background: #fff7ed; border-left: 4px solid #f59e0b; color: #7c2d12;
+    padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 13.5px; line-height: 1.9;
+  }
+  .fact { color: #be123c; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+  &nbsp;
+  <a href="index.html" class="back-btn">第拾壹阶段首页</a>
+
+  <div class="header">
+    <h1>🔧 Qt6 的 CMake 到底怎么写</h1>
+    <p>从 6 行骨架到部署，五份可单独构建的工程逐份拆开</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 这一页讲什么</h2>
+    <p>
+      这一页是「构建」这件事的地图。左边是 <code>CMakeLists.txt</code> 里的每一行，右边是它到底让构建系统做了什么；
+      五个目录 <code>qt_cmake_01_widgets</code> … <code>qt_cmake_05_translations</code> 各自是一个<strong>独立工程</strong>，
+      每个都能在自己的目录里单独 <code>cmake -B build -S .</code>，不依赖仓库顶层。
+    </p>
+    <p>
+      先记住一件事：<strong>CMake 不编译代码</strong>。它只做三件事——读你的描述、生成「Ninja / Makefile / Visual Studio 工程」，
+      然后由那个生成物去调编译器。所以「CMake 报错」和「编译报错」是两个阶段，别混着查。
+    </p>
+    <p class="fact">
+      诚实标注：本库当前环境无法链接 Qt 运行时，这五份工程<strong>未在本机实际 configure/build</strong>；
+      其中的 C++ 源码都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 检查（零 error、零 warning），
+      CMake 里用到的函数与参数都对着本机 <code>C:\msys64\ucrt64\lib\cmake\Qt6*</code> 的真实实现核对过。
+    </p>
+  </div>
+
+  <div class="doc-section">
+    <h2>① 最小骨架：六行</h2>
+    <p>这是 <code>qt_cmake_01_widgets/CMakeLists.txt</code> 的骨架（注释在文件里有，这里只留骨架）：</p>
+<pre>cmake_minimum_required(VERSION 3.21)
+project(hello_widgets LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+qt_standard_project_setup()
+qt_add_executable(hello_widgets main.cpp)
+target_link_libraries(hello_widgets PRIVATE Qt6::Widgets)</pre>
+    <h3>每一行在做什么</h3>
+    <ul>
+      <li><code>cmake_minimum_required(VERSION 3.21)</code>：低于这个版本的 CMake 会拒绝配置。Qt 6.12 建议 ≥ 3.21；本库所有示例都按这个下限写。</li>
+      <li><code>project(... LANGUAGES CXX)</code>：声明工程名与语言。<strong>只写 CXX</strong>，不写 C，能省掉一次 C 编译器的探测。</li>
+      <li><code>find_package(Qt6 REQUIRED COMPONENTS Widgets)</code>：找 <code>Qt6Config.cmake</code>，并导入 <code>Qt6::Widgets</code> 这个<strong>导入目标</strong>。它自带 include 路径、编译定义（例如 <code>QT_WIDGETS_LIB</code>）和依赖的 Gui、Core。</li>
+      <li><code>qt_standard_project_setup()</code>：打开 AUTOMOC 与 AUTOUIC、设置策略组、定输出目录、准备 i18n 变量。<span class="fact">它不打开 AUTORCC。</span></li>
+      <li><code>qt_add_executable(...)</code>：在 <code>add_executable</code> 之上做 Qt 特化的事（Windows 入口点、移动平台处理、标记为 Qt 目标）。</li>
+      <li><code>target_link_libraries(... PRIVATE Qt6::Widgets)</code>：可执行文件没有下游，<code>PRIVATE</code> 足够；<strong>库</strong>就不一样了（见第 ③ 节）。</li>
+    </ul>
+    <div class="warn">
+      <strong>常见误解</strong>：<code>qt_standard_project_setup()</code> 并不等于「打开所有自动化」。在 6.12 的实现里，
+      它只对 <code>CMAKE_AUTOMOC</code> 和 <code>CMAKE_AUTOUIC</code> 赋 <code>TRUE</code>；
+      <code>CMAKE_AUTORCC</code> 保持原样。想用「.qrc 当源文件」的老路线，必须自己打开它（第 ④ 节有两个工程的原始写法）。
+    </div>
+  </div>
+
+  <div class="doc-section">
+    <h2>② 为什么不是我 include 了 Qt 头就能编？</h2>
+    <p>
+      因为编译器需要<strong>头文件路径</strong>，链接器需要<strong>库文件名</strong>，而这两样都不是「头文件放在那儿」就能自动知道的。
+      <code>Qt6::Widgets</code> 这个导入目标把三样东西一起交给你：
+    </p>
+    <table>
+      <tr><th>它带的东西</th><th>内容（举例）</th><th>不链接它会怎样</th></tr>
+      <tr><td>INTERFACE_INCLUDE_DIRECTORIES</td><td><code>…/include/qt6</code>、<code>…/include/qt6/QtWidgets</code> 等</td><td><code>fatal error: QApplication: No such file or directory</code></td></tr>
+      <tr><td>INTERFACE_COMPILE_DEFINITIONS</td><td><code>QT_WIDGETS_LIB</code>、<code>QT_CORE_LIB</code> 等</td><td>某些头文件里被 <code>#ifdef</code> 包住的声明消失（例如 QtTest 里操作 QWidget 的那组重载）</td></tr>
+      <tr><td>INTERFACE_LINK_LIBRARIES</td><td><code>Qt6Widgets.dll</code> / <code>libQt6Widgets.so</code> 及其依赖</td><td>链接期 <code>undefined reference to QApplication::…</code></td></tr>
+    </table>
+    <p>
+      <code>find_package(Qt6 COMPONENTS Widgets)</code> 会自动把 <code>Gui</code>、<code>Core</code> 带进来——因为 Widgets 依赖它们。
+      所以你不需要写三遍 <code>find_package</code>。
+    </p>
+  </div>
+
+  <div class="doc-section">
+    <h2>③ 一个库 + 一个界面：PUBLIC / PRIVATE 到底影响谁</h2>
+    <p>看 <code>qt_cmake_02_structure</code>：</p>
+<pre>add_library(greeting STATIC
+    src/greeting.cpp
+    include/greeting/greeting.h          <span class="c"># 头文件放进源列表：让 AUTOMOC 与 IDE 都看得到</span>
+)
+target_include_directories(greeting PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(greeting PUBLIC Qt6::Core)
+
+add_executable(greeting_app src/main.cpp)
+target_link_libraries(greeting_app PRIVATE greeting Qt6::Widgets)</pre>
+    <ul>
+      <li><strong>PUBLIC</strong>：我自己用，<strong>下游也继承</strong>。所以 <code>greeting_app</code> 不用再写 include 路径，也能 <code>#include &lt;greeting/greeting.h&gt;</code>，还能 include <code>&lt;QTimer&gt;</code>（因为 Qt6::Core 是 PUBLIC 传下来的）。</li>
+      <li><strong>PRIVATE</strong>：只我自己用，下游看不到。<code>Qt6::Widgets</code> 在 app 上是 PRIVATE——这很好，说明「界面」是这一层的事，库本身不知道界面存在。</li>
+      <li><strong>INTERFACE</strong>：我自己不用、只给下游用（本工程没用到，常见于 header-only 库）。</li>
+    </ul>
+    <p>
+      这正是<a href="../quality/03_architecture_layers.cpp">第拾阶段第 3 讲</a>分层的构建层面：<strong>依赖方向写在 CMake 里，比写在文档里管用</strong>。
+      库的 PUBLIC 属性里一旦出现 Widgets，下游就再也没法把它链进命令行工具。
+    </p>
+  </div>
+
+  <div class="doc-section">
+    <h2>④ 资源：两条路线，都要会认</h2>
+    <p><code>qt_cmake_03_resources</code> 同时用了两条路线：</p>
+<pre><span class="c"># 路线 B（推荐）：直接从文件列表造资源，不需要 .qrc</span>
+qt_add_resources(resource_app "app_assets"
+    PREFIX "/"
+    FILES assets/style.qss assets/logo.svg
+)                          <span class="c"># → ":/style.qss"、":/logo.svg"</span>
+
+<span class="c"># 路线 A（传统）：.qrc 当源文件，靠 AUTORCC 跑 rcc</span>
+set(CMAKE_AUTORCC ON)      <span class="c"># ← qt_standard_project_setup() 不会替你打开它</span>
+target_sources(resource_app PRIVATE assets/legacy.qrc)   <span class="c"># → ":/legacy/style.qss"</span></pre>
+    <p>
+      两条路的产物都进同一棵资源树，运行时读法完全一样：<code>QFile(":/…")</code>。
+      区别在构建期：<code>qt_add_resources</code> 由 Qt 的 CMake 层管理（增量、别名、压缩都能配），
+      <code>.qrc</code> 则由 <code>rcc</code> 处理。Qt6 的 CMake 层默认让 AUTORCC 用 zstd 压缩，
+      本机 Qt 没编 zstd 或你设了 <code>QT_NO_AUTORCC_ZSTD</code> 时会追加 <code>--no-zstd</code>。
+    </p>
+    <div class="warn">
+      资源是<strong>只读</strong>的。要写用户数据，请用 <code>QStandardPaths::writableLocation()</code> 拿目录，
+      别试图写 <code>:/</code>。运行时细节见<a href="../storage/04_resource_system.cpp">storage/04_resource_system.cpp</a> 与
+      <a href="../visuals/resource_pipeline.html">图解 · 资源系统</a>。
+    </div>
+  </div>
+
+  <div class="doc-section">
+    <h2>⑤ 测试：让 CTest 替你判卷</h2>
+<pre>find_package(Qt6 REQUIRED COMPONENTS Core Test)
+enable_testing()                                   <span class="c"># 必须在顶层目录调用</span>
+
+add_library(calc STATIC src/calc.cpp include/calc/calc.h)
+target_link_libraries(calc PUBLIC Qt6::Core)
+
+add_executable(tst_calc tests/tst_calc.cpp)
+target_link_libraries(tst_calc PRIVATE calc Qt6::Test)
+add_test(NAME tst_calc COMMAND tst_calc)
+set_tests_properties(tst_calc PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 30)</pre>
+    <p>
+      <code>add_test</code> 只做一件事：把「跑这个可执行文件」注册成用例，<strong>退出码 0 = 通过</strong>。
+      QtTest 的 <code>QTEST_GUILESS_MAIN</code> 不需要平台插件（它只建 <code>QCoreApplication</code>）；
+      但把它设成 <code>offscreen</code> 是个好习惯——哪天你换成 <code>QTEST_MAIN</code>，CI 上没有显示器也不会突然红。
+    </p>
+    <p>
+      <code>./build/tst_calc</code> 单独跑时，每个测试函数会打印一行 <code>PASS</code> 或 <code>FAIL</code>；
+      <code>ctest --test-dir build --output-on-failure</code> 则把它们收成一张表。测试类怎么写见
+      <a href="../quality/01_qtest_unit.cpp">quality/01_qtest_unit.cpp</a>。
+    </p>
+  </div>
+
+  <div class="doc-section">
+    <h2>⑥ 翻译：lupdate → lrelease → 资源</h2>
+<pre>find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 QUIET COMPONENTS LinguistTools)    <span class="c"># 精简安装可能没带</span>
+
+qt_standard_project_setup(
+    I18N_SOURCE_LANGUAGE zh_CN
+    I18N_TRANSLATED_LANGUAGES en
+)
+
+qt_add_executable(translations_app src/main.cpp)
+
+if(Qt6LinguistTools_FOUND)
+    qt_add_translations(translations_app TS_FILE_BASE translations_app)
+endif()</pre>
+    <table>
+      <tr><th>阶段</th><th>工具</th><th>产物</th><th>谁触发</th></tr>
+      <tr><td>抽取字符串</td><td><code>lupdate</code></td><td><code>translations_app_en.ts</code></td><td>构建时的 <code>update_translations</code> 目标</td></tr>
+      <tr><td>编译翻译</td><td><code>lrelease</code></td><td><code>translations_app_en.qm</code></td><td><code>release_translations</code> / 构建</td></tr>
+      <tr><td>装进程序</td><td>Qt 的 CMake 层</td><td><code>:/i18n/translations_app_en.qm</code></td><td><code>RESOURCE_PREFIX</code> 默认 <code>/i18n</code></td></tr>
+      <tr><td>运行期生效</td><td><code>QTranslator</code></td><td>—</td><td>你的代码：<code>load()</code> + <code>installTranslator()</code></td></tr>
+    </table>
+    <div class="warn">
+      第一次构建生成的 <code>.ts</code> 是<strong>空的</strong>（原文都在，译文是空的）。要用 Qt Linguist 打开它、逐条填译文，
+      再重新构建。<code>.ts</code> 是 XML、适合进版本库；<code>.qm</code> 是二进制，通常不提交。
+    </div>
+  </div>
+
+  <div class="doc-section">
+    <h2>⑦ 从 build 目录到别人的电脑</h2>
+    <p>
+      开发机上能跑，是因为 Qt 的 DLL 在 <code>PATH</code> 里（或者你在 Qt Creator 里运行，它替你设好了环境）。
+      拷到别人电脑上就只剩一个 exe 和一句 <code>0xC0000135</code>。标准做法：
+    </p>
+<pre><span class="c"># Windows：让 Qt 自己读 exe 的导入表，把需要的 DLL 与插件拷到 deploy/</span>
+windeployqt --release --dir deploy build/hello_widgets.exe
+
+<span class="c"># deploy/ 里至少要有：
+#   hello_widgets.exe
+#   Qt6Core.dll Qt6Gui.dll Qt6Widgets.dll …
+#   platforms/qwindows.dll        ← 缺它 → "no Qt platform plugin could be initialized"
+#   styles/ imageformats/         ← 缺它 → 控件样式或图片悄悄不见</span></pre>
+    <p>
+      <code>install(TARGETS … RUNTIME DESTINATION bin)</code> 那条规则是给「正规安装」用的：
+      <code>cmake --install build --prefix dist</code> 把产物放到 <code>dist/bin</code>，再用 windeployqt 收依赖。
+      完整的目录树、报错对照与 <code>qt.conf</code> 用法见
+      <a href="../visuals/deployment_tree.html">图解 · 部署</a>。
+    </p>
+    <p>
+      静态链接能让「一个 exe 走天下」，代价是：每个插件都要 <code>Q_IMPORT_PLUGIN</code> 显式引入、
+      体积大、而且 LGPL 下静态链接有额外义务。团队项目里更常见的是「动态链接 + 安装包」。
+    </p>
+  </div>
+
+  <div class="doc-section">
+    <h2>⑧ 五个工程对照表</h2>
+    <table>
+      <tr><th>目录</th><th>教你什么</th><th>关键 CMake 语句</th><th>构建后跑什么</th></tr>
+      <tr>
+        <td><a href="qt_cmake_01_widgets/CMakeLists.txt">qt_cmake_01_widgets</a></td>
+        <td>最小骨架、qt_standard_project_setup、qt_add_executable</td>
+        <td><code>find_package</code> / <code>qt_add_executable</code> / <code>target_link_libraries</code></td>
+        <td><code>hello_widgets -platform offscreen</code></td>
+      </tr>
+      <tr>
+        <td><a href="qt_cmake_02_structure/CMakeLists.txt">qt_cmake_02_structure</a></td>
+        <td>库 + 界面、PUBLIC/PRIVATE、手写 AUTOMOC</td>
+        <td><code>add_library</code> / <code>target_include_directories(... PUBLIC)</code></td>
+        <td><code>greeting_app</code></td>
+      </tr>
+      <tr>
+        <td><a href="qt_cmake_03_resources/CMakeLists.txt">qt_cmake_03_resources</a></td>
+        <td>qrc 两条路线、只读资源</td>
+        <td><code>qt_add_resources</code> / <code>set(CMAKE_AUTORCC ON)</code></td>
+        <td><code>resource_app</code></td>
+      </tr>
+      <tr>
+        <td><a href="qt_cmake_04_tests/CMakeLists.txt">qt_cmake_04_tests</a></td>
+        <td>库 + 应用 + QtTest + CTest</td>
+        <td><code>enable_testing</code> / <code>add_test</code> / <code>set_tests_properties</code></td>
+        <td><code>ctest --test-dir build --output-on-failure</code></td>
+      </tr>
+      <tr>
+        <td><a href="qt_cmake_05_translations/CMakeLists.txt">qt_cmake_05_translations</a></td>
+        <td>tr() → .ts → .qm → :/i18n/</td>
+        <td><code>qt_add_translations</code> + <code>I18N_*</code></td>
+        <td><code>translations_app</code></td>
+      </tr>
+    </table>
+    <p>每个目录都可以独立执行：</p>
+<pre>cd build_deploy/qt_cmake_04_tests
+cmake -G Ninja -B build -S .
+cmake --build build
+ctest --test-dir build --output-on-failure</pre>
+  </div>
+
+  <div class="doc-section">
+    <h2>⑨ 报错对照表</h2>
+    <table>
+      <tr><th>报错</th><th>阶段</th><th>真正的原因</th></tr>
+      <tr><td><code>Could not find a package configuration file provided by "Qt6"</code></td><td>configure</td><td>CMake 不知道 Qt 装在哪：加 <code>-DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/mingw_64</code>，或直接用 <code>qt-cmake</code>/<code>Qt Creator</code> 打开工程</td></tr>
+      <tr><td><code>undefined reference to vtable for Xxx</code> / <code>staticMetaObject</code></td><td>链接</td><td>有 <code>Q_OBJECT</code> 但没跑 moc：检查 AUTOMOC 是否真的对该目标生效；写在 .cpp 里的类要在末尾 <code>#include "xxx.moc"</code></td></tr>
+      <tr><td><code>No such signal ...</code>（运行期警告）</td><td>运行</td><td>信号名拼错，或参数类型不匹配——字符串版 connect 只能运行期发现，尽量用函数指针版</td></tr>
+      <tr><td><code>this application failed to start because no Qt platform plugin could be initialized</code></td><td>运行</td><td>缺 <code>platforms/qwindows.dll</code>（Windows）：用 <code>windeployqt</code>；调试时设 <code>QT_DEBUG_PLUGINS=1</code> 看它找了哪些路径</td></tr>
+      <tr><td><code>0xC0000135</code> / <code>0xC0000139</code></td><td>启动</td><td>缺 DLL / DLL 版本不匹配（Debug 与 Release 混用最常见）</td></tr>
+      <tr><td><code>moc: Cannot open options file specified with @</code></td><td>构建</td><td>路径里有空格或中文且没加引号——把工程放到纯 ASCII 路径下最省事</td></tr>
+    </table>
+  </div>
+
+  <footer class="page-foot">
+    相关讲义：<a href="tutorial.md">build_deploy/tutorial.md</a> ·
+    顶层构建：<a href="../CMakeLists.txt">CMakeLists.txt</a> ·
+    部署图解：<a href="../visuals/deployment_tree.html">visuals/deployment_tree.html</a> ·
+    资源运行时：<a href="../storage/04_resource_system.cpp">storage/04_resource_system.cpp</a>
+  </footer>
+</div>
+</body>
+</html>

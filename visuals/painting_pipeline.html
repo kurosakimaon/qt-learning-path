@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 绘制管线：从 paintEvent 到屏幕 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../painting/index.html">第伍阶段 · 绘制</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">PAINTING · 绘制管线</span>
+    <h1><code>paintEvent</code> 不是往屏幕上画，是往一张图上画</h1>
+    <p>「为什么我的动画闪？」「为什么每帧都慢？」——答案几乎总在绘制管线里。<code>QPainter</code> 画的是<strong>后备存储</strong>（一张离屏图），最后由窗口系统一次性贴到屏幕。搞清这条链路，你就知道 <code>update()</code> 为什么要合并、裁剪为什么能救命、<code>repaint()</code> 为什么被劝退。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../painting/01_painter_basics.cpp">painting/01_painter_basics.cpp</a> ·
+    <a href="../painting/06_custom_widget.cpp">painting/06_custom_widget.cpp</a> ·
+    <a href="../painting/05_images_and_pixmaps.cpp">painting/05_images_and_pixmaps.cpp</a>
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '入口只有一个：paintEvent',
+    nav: '绘制入口',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="paintEvent 的调用入口">
+        <rect class="svg-box" x="25" y="30" width="220" height="80" rx="10"/>
+        <text class="svg-small" x="135" y="58" text-anchor="middle">系统要求重画</text>
+        <text class="svg-small" x="135" y="82" text-anchor="middle">窗口暴露 / 尺寸变化</text>
+
+        <rect class="svg-box" x="25" y="125" width="220" height="80" rx="10"/>
+        <text class="svg-small" x="135" y="153" text-anchor="middle">你调了 update()</text>
+        <text class="svg-small" x="135" y="177" text-anchor="middle">（图变了、状态变了）</text>
+
+        <path class="svg-arrow svg-flow" d="M245 70 L310 130"/>
+        <path class="svg-arrow svg-flow" d="M245 165 L310 150"/>
+
+        <rect class="svg-box-accent svg-pulse" x="310" y="110" width="180" height="80" rx="10"/>
+        <text class="svg-title" x="400" y="142" text-anchor="middle">paintEvent</text>
+        <text class="svg-small" x="400" y="166" text-anchor="middle">唯一的绘制入口</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M490 150 L560 150"/>
+        <rect class="svg-box-good" x="560" y="110" width="175" height="80" rx="10"/>
+        <text class="svg-small" x="647" y="138" text-anchor="middle">QPainter p(this);</text>
+        <text class="svg-small" x="647" y="162" text-anchor="middle">画到这张「纸」上</text>
+
+        <rect class="svg-field" x="25" y="225" width="710" height="175" rx="10"/>
+        <text class="svg-small" x="45" y="253">在 paintEvent 之外拿 QPainter(this) 画，基本都不算数：</text>
+        <text class="svg-text" x="45" y="283">· 构造里画 → 画完就被覆盖（而且没有画笔设备上下文）</text>
+        <text class="svg-text" x="45" y="309">· 定时器里画 → 会被当作非法绘制，Qt 会警告</text>
+        <text class="svg-text" x="45" y="335">· 想「立即画」→ 正确做法是改状态 + update()，等循环来叫你</text>
+        <text class="svg-small" x="45" y="367">★ 一句话：绘制永远由框架发起，你只负责「被叫到的时候怎么画」。</text>
+      </svg>`,
+    caption: '绘制的入口只有 <code>paintEvent</code>，而且<strong>由框架发起</strong>：系统要求重画、或你调了 <code>update()</code>。你从不主动「画一下」，只负责「被叫到的时候怎么画」。在构造函数、定时器里直接构造 <code>QPainter(this)</code> 都不算数——要么被覆盖，要么触发警告。',
+    code: `void Gauge::paintEvent(QPaintEvent *event)
+{
+    QPainter p(this);                 // 指向本控件
+    p.setRenderHint(QPainter::Antialiasing);
+    p.drawArc(rect().adjusted(8, 8, -8, -8),
+              30 * 16, 120 * 16);
+}
+
+// 状态变了：请求重画，而不是自己去画
+void Gauge::setValue(double v) { m_value = v; update(); }`,
+    highlight: [2, 3, 11]
+  },
+  {
+    title: '真正发生的事：画到后备存储，再贴到屏幕',
+    nav: '后备存储',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="绘制到后备存储再上屏">
+        <rect class="svg-box-accent" x="25" y="40" width="190" height="110" rx="10"/>
+        <text class="svg-title" x="120" y="72" text-anchor="middle">paintEvent</text>
+        <text class="svg-small" x="120" y="96" text-anchor="middle">QPainter 指令</text>
+        <text class="svg-small" x="120" y="118" text-anchor="middle">画线、填色、写字</text>
+        <text class="svg-small" x="120" y="138" text-anchor="middle">（逻辑坐标）</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M215 95 L275 95"/>
+        <rect class="svg-box-warn" x="275" y="35" width="220" height="120" rx="10"/>
+        <text class="svg-title" x="385" y="66" text-anchor="middle">后备存储</text>
+        <text class="svg-small" x="385" y="92" text-anchor="middle">一张离屏位图（backing store）</text>
+        <text class="svg-small" x="385" y="116" text-anchor="middle">按物理像素存，含高 DPI 缩放</text>
+        <text class="svg-small" x="385" y="140" text-anchor="middle">控件树共享同一张</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M495 95 L555 95"/>
+        <rect class="svg-box-good svg-pulse" x="555" y="35" width="180" height="120" rx="10"/>
+        <text class="svg-title" x="645" y="66" text-anchor="middle">屏幕</text>
+        <text class="svg-small" x="645" y="92" text-anchor="middle">一次位块传送</text>
+        <text class="svg-small" x="645" y="116" text-anchor="middle">（blit / composite）</text>
+        <text class="svg-small" x="645" y="140" text-anchor="middle">窗口系统统一提交</text>
+
+        <rect class="svg-field" x="25" y="185" width="710" height="120" rx="10"/>
+        <text class="svg-small" x="45" y="213">这条链路带来三个直接结论：</text>
+        <text class="svg-text" x="45" y="243">① 天然双缓冲：你永远画在离屏图上，所以不会看到「画了一半」的中间态。</text>
+        <text class="svg-text" x="45" y="269">② 同一时刻只能有一个 QPainter 画同一个设备 —— 重入会警告并可能崩溃。</text>
+        <text class="svg-text" x="45" y="295">③ 子控件的绘制被父控件裁剪：超出父区域的部分不会被画出来。</text>
+
+        <rect class="svg-box-warn" x="25" y="325" width="710" height="82" rx="10"/>
+        <text class="svg-small" x="45" y="351">「闪屏」一般不是双缓冲失效，而是：</text>
+        <text class="svg-small" x="45" y="375">先画了一块不透明的底，再画内容 —— 这两步之间被系统提交了。改法是把底和内容放进同一帧。</text>
+      </svg>`,
+    caption: '<code>QPainter</code> 画的是一张<strong>离屏位图（backing store）</strong>，最后由窗口系统一次性贴到屏幕。于是：<strong>天然双缓冲</strong>（看不到画一半的中间态）、<strong>同一时刻只能有一个 QPainter 画同一设备</strong>、<strong>子控件绘制被父控件裁剪</strong>。所谓「闪屏」通常不是双缓冲失效，而是你先画底、再画内容，两步之间被提交了。',
+    code: `// 闪屏的典型来源：分成两次提交
+p.fillRect(rect(), Qt::white);   // 第一帧：白底
+// ……这里若发生了一次提交，用户就看到白屏……
+drawContent(p);                  // 第二帧：内容
+
+// 改法：状态一起改，一次 update
+void View::setContent(const QPixmap &pm) { m_pm = pm; update(); }`,
+    highlight: [2, 3, 4]
+  },
+  {
+    title: 'update 与 repaint：合并与立即',
+    nav: 'update vs repaint',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="update 与 repaint 的差别">
+        <rect class="svg-box-good" x="25" y="30" width="340" height="150" rx="10"/>
+        <text class="svg-title" x="195" y="58" text-anchor="middle">update()</text>
+        <text class="svg-small" x="45" y="88">· 记下「这块脏了」，立刻返回</text>
+        <text class="svg-small" x="45" y="112">· 多次调用会<strong>合并</strong>成一次 paintEvent</text>
+        <text class="svg-small" x="45" y="136">· 可以带矩形 / 区域，只弄脏一部分</text>
+        <text class="svg-small" x="45" y="164">→ 永远优先用它</text>
+
+        <rect class="svg-box-bad" x="395" y="30" width="340" height="150" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">repaint()</text>
+        <text class="svg-small" x="415" y="88">· <strong>立即同步</strong>调用 paintEvent</text>
+        <text class="svg-small" x="415" y="112">· 不合并：调十次就画十次</text>
+        <text class="svg-small" x="415" y="136">· 在事件处理中嵌套一次绘制</text>
+        <text class="svg-bad-text" x="415" y="164">文档明确劝退：除特殊需要外别用</text>
+
+        <rect class="svg-field" x="25" y="200" width="710" height="195" rx="10"/>
+        <text class="svg-small" x="45" y="228">合并到底有多管用？看一段「移动后重画」的代码：</text>
+
+        <rect class="svg-box-accent" x="45" y="244" width="300" height="70" rx="8"/>
+        <text class="svg-mono" x="63" y="268">for (auto *w : m_cells)</text>
+        <text class="svg-mono" x="63" y="292">    w-&gt;update();        // 100 次调用</text>
+        <text class="svg-small" x="63" y="310">→ 通常只产生 1 次 paintEvent</text>
+
+        <rect class="svg-box-bad" x="365" y="244" width="350" height="70" rx="8"/>
+        <text class="svg-mono" x="383" y="268">for (auto *w : m_cells)</text>
+        <text class="svg-mono" x="383" y="292">    w-&gt;repaint();      // 100 次全画</text>
+        <text class="svg-small" x="383" y="310">→ 100 次重绘，卡顿的经典来源</text>
+
+        <text class="svg-small" x="45" y="345">★ 合并还有一个隐藏好处：你在一次循环里改十次状态，用户只看到最后一帧。</text>
+        <text class="svg-small" x="45" y="371">★ 想「限帧」：用一个 QTimer 定时 update()，比每次都画更稳。</text>
+      </svg>`,
+    caption: '<code>update()</code> 只是<strong>标脏并返回</strong>，多次调用会合并成一次 <code>paintEvent</code>；<code>repaint()</code> 是<strong>立即同步</strong>重绘，不合并，文档明确劝退。所以循环里调 <code>update()</code> 一百次通常只画一次，而 <code>repaint()</code> 一百次就真画一百次——这是「一滚动就卡」的常见来源。想限帧就用定时器驱动 <code>update()</code>。',
+    code: `// 批量改状态：合并成一次绘制
+for (auto *cell : m_cells) {
+    cell->setValue(next[i]);
+    cell->update();               // 调 100 次，画 1 次
+}
+
+// 限帧：让绘制跟着定时器走
+connect(&m_frameTimer, &QTimer::timeout, this, [this] {
+    advanceFrame();
+    update();
+});
+m_frameTimer.start(16);           // ≈60fps`,
+    highlight: [2, 3, 9]
+  },
+  {
+    title: '裁剪：paintEvent 里的区域是「脏区」',
+    nav: '脏区裁剪',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="脏区裁剪与局部重绘">
+        <rect class="svg-box" x="40" y="40" width="380" height="240" rx="10"/>
+        <text class="svg-small" x="60" y="66">控件区域（整块）</text>
+        <rect class="svg-box-warn" x="200" y="110" width="150" height="90" rx="4"/>
+        <text class="svg-small" x="275" y="152" text-anchor="middle">脏区</text>
+        <text class="svg-small" x="275" y="174" text-anchor="middle">event-&gt;rect()</text>
+
+        <rect class="svg-field" x="450" y="40" width="280" height="240" rx="10"/>
+        <text class="svg-small" x="470" y="68">两个可用的信息：</text>
+        <text class="svg-mono" x="470" y="100">event-&gt;rect()</text>
+        <text class="svg-small" x="470" y="124">矩形近似，快，常用</text>
+        <text class="svg-mono" x="470" y="156">event-&gt;region()</text>
+        <text class="svg-small" x="470" y="180">精确区域（可能是多个矩形）</text>
+        <text class="svg-small" x="470" y="212">QPainter 已经自动裁剪到脏区，</text>
+        <text class="svg-small" x="470" y="236">你画到区域外也不会被显示 →</text>
+        <text class="svg-small" x="470" y="260">但那些绘制指令照样要花时间。</text>
+
+        <rect class="svg-box-good" x="40" y="300" width="690" height="105" rx="10"/>
+        <text class="svg-small" x="60" y="328">所以「按需绘制」的写法是主动跳过不相关的部分：</text>
+        <text class="svg-mono" x="60" y="356">if (!event-&gt;rect().intersects(itemRect(i))) continue;</text>
+        <text class="svg-small" x="60" y="384">一万个元素的画布，滚一下只有几十个落在脏区 —— 这就是「不卡」的真正来源。</text>
+      </svg>`,
+    caption: '传进 <code>paintEvent</code> 的矩形就是<strong>脏区</strong>。<code>QPainter</code> 已自动裁剪，画到区域外不会被显示——但<strong>绘制指令照样耗时</strong>。所以「按需绘制」是主动跳过：先判断 <code>event-&gt;rect()</code> 与元素矩形是否相交，再决定画不画。一万个元素的画布滚动时只重画几十个，这才是「不卡」的真正来源。',
+    code: `void Canvas::paintEvent(QPaintEvent *event)
+{
+    QPainter p(this);
+    const QRect dirty = event->rect();
+    for (int i = 0; i < m_items.size(); ++i) {
+        const QRect r = itemRect(i);
+        if (!dirty.intersects(r))
+            continue;              // 脏区外的元素直接跳过
+        paintItem(p, i, r);
+    }
+}`,
+    highlight: [4, 5, 6, 7]
+  },
+  {
+    title: '设备像素比：逻辑像素与物理像素',
+    nav: '高 DPI',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="设备像素比下的坐标换算">
+        <rect class="svg-box" x="30" y="35" width="300" height="140" rx="10"/>
+        <text class="svg-title" x="180" y="62" text-anchor="middle">逻辑坐标（你写的）</text>
+        <rect class="svg-field" x="55" y="78" width="250" height="80" rx="4"/>
+        <text class="svg-small" x="180" y="108" text-anchor="middle">width() = 400</text>
+        <text class="svg-small" x="180" y="132" text-anchor="middle">rect() = (0,0,400,h)</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M330 105 L400 105"/>
+        <rect class="svg-box-warn" x="400" y="55" width="150" height="100" rx="8"/>
+        <text class="svg-small" x="475" y="85" text-anchor="middle">devicePixelRatio</text>
+        <text class="svg-small" x="475" y="110" text-anchor="middle">常见 1 / 1.25</text>
+        <text class="svg-small" x="475" y="132" text-anchor="middle">1.5 / 2</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M550 105 L620 105"/>
+        <rect class="svg-box-good" x="620" y="35" width="115" height="140" rx="8"/>
+        <text class="svg-small" x="677" y="62" text-anchor="middle">物理像素</text>
+        <text class="svg-small" x="677" y="90" text-anchor="middle">400 × 2</text>
+        <text class="svg-small" x="677" y="112" text-anchor="middle">= 800</text>
+        <text class="svg-small" x="677" y="140" text-anchor="middle">真实位图宽度</text>
+        <text class="svg-small" x="677" y="162" text-anchor="middle">（更清晰）</text>
+
+        <rect class="svg-field" x="30" y="200" width="705" height="130" rx="10"/>
+        <text class="svg-small" x="50" y="228">在 Qt 6 里你基本不用手动乘 —— 但两个场合必须想到它：</text>
+        <text class="svg-text" x="50" y="258">① 自己造 QPixmap/QImage 做缓存：按 dpr 放大，再 setDevicePixelRatio(dpr)，否则会糊。</text>
+        <text class="svg-text" x="50" y="286">② 读像素做命中测试：鼠标坐标是逻辑坐标，位图是物理像素，换算错就「点不准」。</text>
+        <text class="svg-small" x="50" y="314">Qt 6 默认启用高 DPI 缩放，Qt 5 时代那套 AA_EnableHighDpiScaling 属性已经不需要了。</text>
+
+        <rect class="svg-box-warn" x="30" y="345" width="705" height="62" rx="10"/>
+        <text class="svg-small" x="50" y="371">自查：把窗口拖到第二块不同缩放的屏上，看你的自绘控件是否变糊、字号是否跳变。</text>
+        <text class="svg-small" x="50" y="393">这是高 DPI 问题最容易被发现、也最容易被忽略的一步。</text>
+      </svg>`,
+    caption: '你写的是<strong>逻辑像素</strong>，屏幕上是<strong>物理像素</strong>，两者差一个 <code>devicePixelRatio</code>（常见 1.25 / 1.5 / 2）。Qt 6 默认开启高 DPI 缩放，多数时候不用手动乘。但两个场合必须想到它：<strong>自己造位图做缓存</strong>（按 dpr 放大并 <code>setDevicePixelRatio</code>，否则糊）和<strong>像素级命中测试</strong>（鼠标是逻辑坐标，位图是物理像素）。',
+    code: `// 自造缓存位图：按 dpr 放大，否则高分屏上发虚
+const qreal dpr = devicePixelRatioF();
+QPixmap cache(QSize(width(), height()) * dpr);
+cache.setDevicePixelRatio(dpr);
+cache.fill(Qt::transparent);
+QPainter cp(&cache);
+drawContent(cp);            // 用逻辑坐标画，dpr 自动换算
+
+// 鼠标位置 → 逻辑坐标（Qt 6 的 position() 已是逻辑坐标）
+void Canvas::mousePressEvent(QMouseEvent *e) {
+    qInfo() << e->position();       // 直接可用
+}`,
+    highlight: [2, 4, 5]
+  },
+  {
+    title: '位图选型与性能三条线',
+    nav: '位图与性能',
+    ms: 7500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QPixmap 与 QImage 的分工及优化要点">
+        <rect class="svg-box-accent" x="25" y="25" width="230" height="130" rx="10"/>
+        <text class="svg-title" x="140" y="52" text-anchor="middle">QPixmap</text>
+        <text class="svg-small" x="45" y="80">面向屏幕的位图</text>
+        <text class="svg-small" x="45" y="104">可能由图形后端加速</text>
+        <text class="svg-bad-text" x="45" y="130">只能在 GUI 线程用</text>
+        <text class="svg-small" x="45" y="152">适合：缓存、图标、背景</text>
+
+        <rect class="svg-box" x="265" y="25" width="230" height="130" rx="10"/>
+        <text class="svg-title" x="380" y="52" text-anchor="middle">QImage</text>
+        <text class="svg-small" x="285" y="80">面向像素的位图</text>
+        <text class="svg-small" x="285" y="104">可读可写每个像素</text>
+        <text class="svg-good-text" x="285" y="130">可在别的线程处理</text>
+        <text class="svg-small" x="285" y="152">适合：解码、滤镜、算法</text>
+
+        <path class="svg-arrow" d="M495 90 L545 90"/>
+        <rect class="svg-box-good" x="545" y="45" width="190" height="90" rx="8"/>
+        <text class="svg-small" x="563" y="72">工作线程里 QImage</text>
+        <text class="svg-small" x="563" y="96">→ 回主线程转 QPixmap</text>
+        <text class="svg-small" x="563" y="120">这是最稳的分工</text>
+
+        <rect class="svg-field" x="25" y="175" width="710" height="130" rx="10"/>
+        <text class="svg-small" x="45" y="203">性能三条线（按收益排序）：</text>
+        <text class="svg-text" x="45" y="233">① <strong>少画</strong>：脏区判断、只画可见元素 —— 收益最大，改动最小。</text>
+        <text class="svg-text" x="45" y="259">② <strong>缓存</strong>：把不变的复杂图案预先画进 QPixmap，每帧只 drawPixmap。</text>
+        <text class="svg-text" x="45" y="285">③ <strong>少改状态</strong>：save/restore 配对；别在循环里反复构造 QFont / QColor / QPen。</text>
+
+        <rect class="svg-box-warn" x="25" y="320" width="710" height="82" rx="10"/>
+        <text class="svg-small" x="45" y="346">两个高频低级错：</text>
+        <text class="svg-small" x="45" y="370">· 在 paintEvent 里读文件、查数据库、做字符串拼接 → 每帧都做一次，必卡。</text>
+        <text class="svg-small" x="45" y="392">· 在 paintEvent 里 new QPainter 之外的堆对象而不释放 → 长时间运行内存涨。</text>
+      </svg>`,
+    caption: '分工：<strong><code>QImage</code> 给算法与工作线程</strong>（可逐像素读写、可跨线程），<strong><code>QPixmap</code> 给屏幕</strong>（可能被图形后端加速，只能在 GUI 线程用）；工作线程处理完 <code>QImage</code>，回主线程再转 <code>QPixmap</code>。优化按收益排序：<strong>少画 &gt; 缓存 &gt; 少改状态</strong>。最常见的低级错是在 <code>paintEvent</code> 里读文件或拼字符串——每帧一次，必卡。',
+    code: `// 工作线程里处理像素
+QImage Worker::blur(const QImage &src) {
+    QImage out = src.convertToFormat(QImage::Format_ARGB32);
+    for (int y = 0; y < out.height(); ++y)
+        for (int x = 0; x < out.width(); ++x)
+            /* 读改写 out.pixelColor / setPixelColor */;
+    return out;
+}
+
+// 主线程收结果并转成屏幕用位图
+void Page::onBlurred(const QImage &img) {
+    m_cache = QPixmap::fromImage(img);
+    update();
+}`,
+    highlight: [1, 2, 11, 12]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+/* 最小样式表：只演示「qss 也能走资源系统」这一件事。
+   运行时用 qApp->setStyleSheet(...) 从 ":/style.qss" 读进来即可。
+   注意：qss 里的 url(...) 要用资源路径，例如 url(:/logo.svg)。 */
+
+QLabel#headline {
+    color: #15803d;
+    font-size: 20px;
+    font-weight: 700;
+    padding: 18px 24px;
+    background: #ecfdf5;
+    border: 2px solid #41cd52;
+    border-radius: 14px;
+}

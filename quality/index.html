@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>第拾阶段 · 工程质量与资深实践 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="../_assets/module.css">
+</head>
+<body>
+<div class="container">
+  <a href="../学习路线图.html" class="back-btn">← 返回总路线图</a>
+
+  <div class="header">
+    <h1>🏗️ 第拾阶段 · 工程质量与资深实践</h1>
+    <p>让代码「经得起别人改、经得起机器验」 · 7 章从单元测试一路走到百万行不卡</p>
+  </div>
+
+  <div class="intro-section">
+    <h2>📖 模块简介</h2>
+    <p>
+      走到这里，你已经能写出会弹窗、会画图、会存数据、会联网、会多线程的程序了。但「能跑」和「能交付」之间还差一层：
+      <strong>下次改动之后，你怎么知道它还对？</strong> 这一阶段回答的就是这个问题。它的每一讲都在做同一件事——
+      把「我觉得应该没问题」换成<strong>机器能判定的结论</strong>。
+    </p>
+    <p style="margin-top: 10px;">
+      本模块共 <strong>7 章</strong>：第 1 讲 QtTest 单元测试（测试类就是个 <code>QObject</code>，槽就是测试函数）；
+      第 2 讲界面测试（在没有鼠标的机器上把按钮点下去）；第 3 讲分层架构（让依赖只朝一个方向流）；
+      第 4 讲所有权与生命周期（这一行 <code>delete</code> 到底该谁写）；第 5 讲错误处理（返回值与异常两条道，别走混）；
+      第 6 讲性能测量（先量，再猜）；第 7 讲百万行视图优化（视图只问它要的那几十行）。
+      前两讲是 QtTest 用例（正常退出码 0 = 通过，可被 CTest 直接采集），后五讲是「可运行的架构与性能实验」，
+      每一讲都把结论写进打印与退出码，跑完自己判卷。
+    </p>
+    <p style="margin-top: 10px;">
+      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      目标名 <code>quality_01_qtest_unit</code> … <code>quality_07_large_view_optimization</code>，已登记在顶层
+      <code>CMakeLists.txt</code> 的「第拾阶段 · 工程质量与资深实践（quality/）」一节；本组额外链
+      <code>Qt6::Test</code> 与 <code>Qt6::Concurrent</code>。顶层把每个示例都注册成了 CTest 用例，并强制
+      <code>QT_QPA_PLATFORM=offscreen</code> 运行，所以不需要显示器、不需要鼠标。
+    </p>
+    <p style="margin-top: 10px; color:#be123c;">
+      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>（两个 QtTest 用例也还没在
+      CTest 里跑过）；每个 .cpp 都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
+      的编译期核对（零 error、零 warning）。每个类、函数、宏、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code>
+      里的真实头文件逐字核对过，查不到的一律不写。第 6、7 讲的性能数字<strong>全部由测量得出、文中不编造具体毫秒值</strong>：
+      示例只承诺相对关系（例如「关掉更新再批量插入，布局次数显著更少」），以你机器打印的数字为准。
+    </p>
+    <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+        📖 学习指南
+      </a>
+      <a href="../visuals/quality_gate.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 四道质量门
+      </a>
+      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 对象树
+      </a>
+      <a href="../visuals/model_view.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+        🎬 图解 · 模型/视图
+      </a>
+      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+    </div>
+  </div>
+
+  <div class="section-title">
+    <span>📂</span> 学习文件列表
+  </div>
+  <p class="list-note">
+    <strong>7 张卡片 = 7 章</strong>，按 <strong>第 1 步 → 第 7 步</strong> 依次学。
+    这条主线是「先学会验（测试）→ 再学会让代码验得动（分层、所有权、错误）→ 最后学会量（性能）」：
+    <strong>第 1 步</strong>单元测试 → <strong>第 2 步</strong>界面测试 → <strong>第 3 步</strong>分层架构 →
+    <strong>第 4 步</strong>所有权与生命周期 → <strong>第 5 步</strong>错误处理 → <strong>第 6 步</strong>性能测量 →
+    <strong>第 7 步</strong>百万行视图。
+    本模块有<strong>三道硬坎</strong>：
+    <strong>① 第 1 步「被测代码得先能被测」坎</strong>——你把业务逻辑直接写进 <code>QDialog</code>，就注定了它只能靠手点验收；
+    第 1 讲特意把折扣算法抽成不碰 <code>QWidget</code> 的 <code>PricingEngine</code>，就是为了让你看见这道坎在<strong>写代码时</strong>就决定了；
+    <strong>② 第 2 步「无头点按钮」坎</strong>——<code>QTest::keyClicks</code> 只认 Latin-1（<code>toLatin1()</code>，qtestkeyboard.h 第 265 行），
+    中文敲不进去；<code>QSignalSpy</code> 配 <code>spy.wait(期限)</code> 才等得住异步信号；
+    <strong>③ 第 6 步「量错了不如不量」坎</strong>——一次取值是噪声，平均值会被离群点带偏；
+    必须先立「预热 + 多轮取中位数」的脚手架，再用它去测东西。
+    <strong>这一阶段的价值不在多学几个类，而在换一种工作方式</strong>：
+    从「改完跑一下看看」换成「改完让机器告诉我它还对不对」。
+    每章重点与练习见 <a href="tutorial.md">📖 学习指南</a>。
+  </p>
+
+  <div class="card-grid">
+    <a href="01_qtest_unit.cpp" class="card">
+      <div class="card-step">第 1 步 · 第一道坎</div>
+      <div class="card-icon">✅</div>
+      <div class="card-title">01 · QtTest 单元测试</div>
+      <div class="card-desc">一个测试类 = QObject 子类 + private slots；四个钩子 initTestCase/init/cleanup/cleanupTestCase 谁每轮跑、谁只跑一次（计数与顺序真打出来）；QCOMPARE 会把操作数原文 + 实际值 + 类型打出来，QVERIFY 只有表达式文本；数据驱动两套写法（f_data + newRow / addRow）；QEXPECT_FAIL 标已知缺陷；最值钱的一半在代码外——被测逻辑得先抽成不碰 QWidget 的类。</div>
+      <div class="card-meta"><span class="tag elementary">可验证性</span><span class="tag framework">测试框架</span></div>
+    </a>
+
+    <a href="02_qtest_gui.cpp" class="card">
+      <div class="card-step">第 2 步 · 第二道坎</div>
+      <div class="card-icon">🖱️</div>
+      <div class="card-title">02 · 界面测试：无头点按钮</div>
+      <div class="card-desc">QTEST_MAIN 与 QTEST_GUILESS_MAIN 只差一行，差的是「要不要 QApplication 与平台插件」；keyClicks 只操作你递过去的控件、不依赖焦点，因此能在没有窗口管理器的机器上跑；★ 但它只认 Latin-1，中文敲不进去；QSignalSpy 数信号次数与参数，spy.wait(期限) 等异步；模态 exec() 用 QTimer::singleShot 关掉；QTRY_VERIFY / QTRY_COMPARE 比固定 qWait 稳。</div>
+      <div class="card-meta"><span class="tag hard">无头 GUI</span><span class="tag framework">测试框架</span></div>
+    </a>
+
+    <a href="03_architecture_layers.cpp" class="card">
+      <div class="card-step">第 3 步</div>
+      <div class="card-icon">🏛️</div>
+      <div class="card-title">03 · 分层架构：依赖只朝一个方向</div>
+      <div class="card-desc">UI 层只认识 Service、应用层只认识 ITodoStore 接口、领域层只认 QtCore 值类型、基础设施层实现接口——四层用运行期证据钉住，而不是一句「要有架构」。业务逻辑里 include &lt;QWidget&gt; 的后果：业务只能在有窗口的进程里跑、换存储要改界面、写测试要连数据库。用假存储（FakeStore）证明「换掉一层，别的层不用动」。</div>
+      <div class="card-meta"><span class="tag framework">架构</span><span class="tag hard">依赖方向</span></div>
+    </a>
+
+    <a href="04_ownership_and_lifetime.cpp" class="card">
+      <div class="card-step">第 4 步</div>
+      <div class="card-icon">🧬</div>
+      <div class="card-title">04 · 所有权与生命周期</div>
+      <div class="card-desc">九成难查的崩溃不是算法错，是对象死在了不该死的时候。六件工具逐个量：parent/child 树 + children()、std::unique_ptr、deleteLater + DeferredDelete、QPointer（裸指针做不到）、connect 的 context 参数、QObject 禁止拷贝（编译期事实）。★ 销毁顺序是「实现细节」不是契约——本讲不承诺子对象先后，只承诺「父析构会收走子」。</div>
+      <div class="card-meta"><span class="tag hard">生命周期</span><span class="tag framework">所有权</span></div>
+    </a>
+
+    <a href="05_error_handling.cpp" class="card">
+      <div class="card-step">第 5 步</div>
+      <div class="card-icon">🚨</div>
+      <div class="card-title">05 · 错误处理：两条道别走混</div>
+      <div class="card-desc">Qt 的错误处理是两套风格并存：返回值型（QFile::open + errorString、QJsonDocument::fromJson + QJsonParseError、QSqlQuery::exec + lastError，一个异常都不抛）与抛异常型（std::vector::at 越界、operator new 失败、某些配置下的 QVariant 转换）。本讲把 catch 计数摆成 0、越界 at 抓到 1 次，两种风格一次对齐；层间传错自己写 Result&lt;T&gt;（错误码 + 消息 + 是否可恢复 + 上下文）。</div>
+      <div class="card-meta"><span class="tag hard">错误建模</span><span class="tag elementary">进阶入门</span></div>
+    </a>
+
+    <a href="06_performance_profiling.cpp" class="card">
+      <div class="card-step">第 6 步 · 第三道坎</div>
+      <div class="card-icon">⏱️</div>
+      <div class="card-title">06 · 性能：先量，再猜</div>
+      <div class="card-desc">「有点卡」的信息量是零，它的完整版是「这个函数每次 3.2 ms，一帧调 8 次」。先立测量脚手架（预热 + 多轮取中位数 + 用已知答案的测量校准计时器），再测五个高发区：字符串拼接与隐式共享、容器增长与 reserve、线性 vs 哈希查找、重绘 vs 缓存、日志开销。顺序不能反：先学量，再学优化。</div>
+      <div class="card-meta"><span class="tag framework">测量方法</span><span class="tag hard">性能</span></div>
+    </a>
+
+    <a href="07_large_view_optimization.cpp" class="card">
+      <div class="card-step">第 7 步 · 收尾</div>
+      <div class="card-icon">🚀</div>
+      <div class="card-title">07 · 百万行不卡</div>
+      <div class="card-desc">「一百多万条记录一打开就卡死」的第一句抢救是：你有没有把一百万行都塞进控件？六个阶段把「不一定」变成「一定」：视图只问可见区（data() 只被叫几百次）、canFetchMore/fetchMore 分批取、列宽策略代价可数、12 万行过滤排序一秒内出结果且对得上、批量更新关掉布局、data() 里的重活。手法只有一句：数调用次数。</div>
+      <div class="card-meta"><span class="tag hard">性能</span><span class="tag framework">模型视图</span></div>
+    </a>
+  </div>
+
+  <div class="feature-section">
+    <h2>📚 学习建议</h2>
+    <ul>
+      <li><strong>先让代码能被测，再写测试</strong>：如果一段逻辑必须开窗口才能验，说明它混了两件事。把纯逻辑抽出去，界面上只剩「取值 + 转调 + 显示」。</li>
+      <li><strong>测试是给未来的自己写的</strong>：半年后你不会记得这个函数为什么有那个 <code>if</code>。测试里的 <code>QCOMPARE</code> 就是那时的说明书。</li>
+      <li><strong>分层不是画在文档里的图</strong>：它是 <code>#include</code> 的方向。业务层不 include 任何 Widget 头文件，这一条守住了，架构就活了一半。</li>
+      <li><strong>所有权要能在构造函数里说清</strong>：谁 new、谁 delete、失败了谁收。写不出来的那种所有权，一定会变成崩溃。</li>
+      <li><strong>错误要能回答三个问题</strong>：哪儿错的、还能不能救、用户该看到什么。一个 bool 回答不了。</li>
+      <li><strong>性能只信自己量出来的数</strong>：本模块所有性能结论都由示例当场测量并打印。你优化任何东西之前，先给它装一个计数器。</li>
+    </ul>
+  </div>
+
+  <div class="master-section">
+    <h2>👴 老师傅的话</h2>
+    <p>徒弟，到了这一关，师傅要跟你说的不是「哪个类怎么用」，而是<strong>手艺人的三条职业习惯</strong>。前面的模块教你写得出功能，这一阶段教你别把自己的活变成别人的灾难。</p>
+    <ul>
+      <li><strong>第一条：能自动验的，绝不靠手点。</strong> 你今天点了一遍，明天改一行代码就又得点一遍。测试不是给别人看的，是给你自己的懒准备的——懒到不想重复劳动，就写个用例。</li>
+      <li><strong>第二条：边界清楚了，代码才活得久。</strong> 哪一层认识谁、谁拥有谁、错误从哪来、性能热点在哪——这四件事清楚，代码就能改；不清楚，改一行倒一片。分层、所有权、错误建模，讲的都是边界。</li>
+      <li><strong>第三条：数字比感觉值钱。</strong> 「感觉有点慢」是零信息。装上计数器、量出中位数，你才知道该改哪里、改完有没有用。第 6、7 讲教你的不是技巧，是<strong>量法</strong>。</li>
+      <li><strong>第四条：不确定的签名，一律回头文件。</strong> 这一阶段师傅拆掉的错误说法最多：Qt6 的 <code>QStandardItem</code> 不是 QObject、<code>filterFixedColumn</code> 不存在、<code>SelectionFlag</code> 里没有 <code>CommandMask</code>……写 Qt 和做人一样，<strong>编不出来的名字，就别写进去</strong>。</li>
+      <li><strong>第五条：把「未链接未运行」也当成纪律。</strong> 示例在本机还没跑过的时候，师傅会明说。你也一样——没有证据的结论，宁可标成推理，也不要说成事实。</li>
+    </ul>
+    <p>这七讲啃下来，你手上就不只是「会 Qt」，而是「能用 Qt 交付」。下一站是第拾壹阶段「构建与部署」，把这份手艺装进别人的电脑里。加油，徒弟！</p>
+  </div>
+</div>
+</body>
+</html>

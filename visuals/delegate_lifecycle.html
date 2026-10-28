@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 委托的生命周期：画一格与管一个编辑器 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../model_view/index.html">第陆阶段 · 模型视图</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">MODEL/VIEW · 委托</span>
+    <h1>画一格和造一个编辑器，是两件完全不同的事</h1>
+    <p>委托（Delegate）同时管两件事：<strong>把一格画出来</strong>（一秒画几百次），以及<strong>在需要编辑时造一个小控件</strong>（一次只有一个）。搞混这两件事，就会写出「一编辑就丢值」「编辑器位置飘」「输入非要回车两次才生效」的代码。这一页按时间顺序走一遍委托的完整生命周期。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../model_view/04_delegate.cpp">model_view/04_delegate.cpp</a> ·
+    <a href="../model_view/03_editing_and_flags.cpp">model_view/03_editing_and_flags.cpp</a> ·
+    接口按 <code>QtWidgets/qabstractitemdelegate.h</code> 第 41/45/53/55/57/61/66/73 行核对
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '两种调用频率，决定了一切',
+    nav: '两种职责',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="paint 与 createEditor 的调用频率">
+        <rect class="svg-box-accent" x="25" y="30" width="350" height="170" rx="10"/>
+        <text class="svg-title" x="200" y="58" text-anchor="middle">paint / sizeHint</text>
+        <text class="svg-small" x="45" y="88">· 每画一格调一次 paint</text>
+        <text class="svg-small" x="45" y="112">· 滚动、重绘、选中都会重来</text>
+        <text class="svg-small" x="45" y="136">· 一秒可能几百次</text>
+        <text class="svg-bad-text" x="45" y="164">所以这里绝不能做重活</text>
+        <text class="svg-small" x="45" y="188">（读文件、查库、拼长字符串）</text>
+
+        <rect class="svg-box-good" x="395" y="30" width="340" height="170" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">createEditor 系列</text>
+        <text class="svg-small" x="415" y="88">· 只在「真开始编辑」时调一次</text>
+        <text class="svg-small" x="415" y="112">· 同时最多一个（默认单击/双击）</text>
+        <text class="svg-small" x="415" y="136">· 编辑器是真实的 QWidget</text>
+        <text class="svg-good-text" x="415" y="164">这里可以稍重一点</text>
+        <text class="svg-small" x="415" y="188">但也不该弹对话框、做长 I/O</text>
+
+        <rect class="svg-field" x="25" y="220" width="710" height="180" rx="10"/>
+        <text class="svg-small" x="45" y="248">五个公开虚函数，分两组（qabstractitemdelegate.h）：</text>
+
+        <rect class="svg-box" x="45" y="264" width="330" height="50" rx="8"/>
+        <text class="svg-mono" x="63" y="295">paint(painter, option, index)</text>
+
+        <rect class="svg-box" x="45" y="322" width="330" height="50" rx="8"/>
+        <text class="svg-mono" x="63" y="353">sizeHint(option, index)</text>
+
+        <rect class="svg-box-warn" x="390" y="264" width="330" height="50" rx="8"/>
+        <text class="svg-mono" x="408" y="295">createEditor(parent, option, index)</text>
+
+        <rect class="svg-box-warn" x="390" y="322" width="330" height="50" rx="8"/>
+        <text class="svg-mono" x="408" y="353">setEditorData / setModelData / updateEditorGeometry</text>
+
+        <text class="svg-small" x="45" y="394">左边两个管「画」，右边三个管「编辑」—— 混着写，就是大多数委托 bug 的来源。</text>
+      </svg>`,
+    caption: '两个频率差了两个数量级：<code>paint</code> / <code>sizeHint</code> <strong>一秒可能几百次</strong>，<code>createEditor</code> 系列<strong>一次编辑才一次</strong>。所以重活绝不能放进 <code>paint</code>。五个公开虚函数据此分组：左边两个管画，右边三个管编辑——混着写就是大多数委托 bug 的来源。',
+    code: `// 画：一秒几百次，只能做轻活
+void StatusDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
+                           const QModelIndex &idx) const;
+
+// 编辑：一次编辑一次，可以稍重
+QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
+                      const QModelIndex &idx) const override;`,
+    highlight: [1, 2]
+  },
+  {
+    title: 'paint：自己画之前，先想清楚要不要甩锅给基类',
+    nav: 'paint',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="paint 的职责与常见写法">
+        <rect class="svg-box" x="25" y="30" width="230" height="260" rx="10"/>
+        <text class="svg-small" x="45" y="58">opt 里你常用的字段：</text>
+        <text class="svg-mono" x="45" y="88">opt.rect</text>
+        <text class="svg-small" x="45" y="108">要画的矩形</text>
+        <text class="svg-mono" x="45" y="136">opt.state</text>
+        <text class="svg-small" x="45" y="156">选中 / 悬停 / 可用</text>
+        <text class="svg-mono" x="45" y="184">opt.palette</text>
+        <text class="svg-small" x="45" y="204">主题色（别硬编码颜色）</text>
+        <text class="svg-mono" x="45" y="232">opt.font / opt.text</text>
+        <text class="svg-small" x="45" y="252">样式已经准备好的字体与文字</text>
+        <text class="svg-small" x="45" y="278">★ 选中态要用 palette.highlightText</text>
+
+        <rect class="svg-box-good" x="275" y="30" width="460" height="120" rx="10"/>
+        <text class="svg-small" x="295" y="58">写法 A（推荐起步）：先让基类画好底子，再叠加自己的东西</text>
+        <text class="svg-mono" x="295" y="86">QStyledItemDelegate::paint(p, opt, idx);</text>
+        <text class="svg-mono" x="295" y="110">// 再画进度条 / 徽标 / 小图标</text>
+        <text class="svg-small" x="295" y="138">选中底、焦点框、文字都是现成的</text>
+
+        <rect class="svg-box-warn" x="275" y="165" width="460" height="125" rx="10"/>
+        <text class="svg-small" x="295" y="193">写法 B：全部自己画（性能更好，但要自己处理所有状态）</text>
+        <text class="svg-mono" x="295" y="221">p-&gt;fillRect(opt.rect, opt.palette.base());</text>
+        <text class="svg-mono" x="295" y="245">p-&gt;drawText(opt.rect, Qt::AlignLeft, text);</text>
+        <text class="svg-small" x="295" y="273">漏掉选中态、禁用态、焦点框 → 看起来「很土」</text>
+
+        <rect class="svg-box-bad" x="25" y="305" width="710" height="95" rx="10"/>
+        <text class="svg-small" x="45" y="331">三个常见的 paint 错误：</text>
+        <text class="svg-small" x="45" y="357">① 在 paint 里 new QFont/QColor/QPixmap → 每帧都分配，滚动就顿。</text>
+        <text class="svg-small" x="45" y="379">② 硬编码颜色 → 深色主题下白底黑字看不见。用 opt.palette 或 QPalette。</text>
+        <text class="svg-small" x="45" y="399">③ 修改了 painter 状态没恢复 → 影响同一帧后续绘制。</text>
+      </svg>`,
+    caption: '<code>opt</code> 里最常用的是 <code>rect</code>（画哪儿）、<code>state</code>（选中/悬停/禁用）、<strong><code>palette</code>（主题色）</strong>、<code>font</code>/<code>text</code>。<strong>起步推荐先调基类 <code>QStyledItemDelegate::paint</code> 画底子，再叠加自己的元素</strong>——选中底、焦点框、文字都现成。自己全画性能更好但要处理所有状态，漏了选中态就会「很土」。硬编码颜色在深色主题下必翻车。',
+    code: `void StatusDelegate::paint(QPainter *p,
+                          const QStyleOptionViewItem &opt,
+                          const QModelIndex &idx) const
+{
+    QStyledItemDelegate::paint(p, opt, idx);      // 底子交给基类
+
+    const int pct = idx.data(Qt::UserRole + 1).toInt();
+    QRect bar = opt.rect.adjusted(4, opt.rect.height() - 10,
+                                  -4, -4);
+    p->fillRect(bar, opt.palette.mid());           // 轨道
+    QRect fill = bar;
+    fill.setWidth(bar.width() * pct / 100);
+    p->fillRect(fill, opt.palette.highlight());    // 进度
+}`,
+    highlight: [6, 7, 10]
+  },
+  {
+    title: 'createEditor：什么时候才会真的造一个控件',
+    nav: 'createEditor',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="createEditor 的触发条件与返回值">
+        <rect class="svg-box-warn" x="25" y="25" width="330" height="170" rx="10"/>
+        <text class="svg-title" x="190" y="53" text-anchor="middle">这几个条件都成立才发生</text>
+        <text class="svg-small" x="45" y="82">① 模型的 flags() 里有 ItemIsEditable</text>
+        <text class="svg-small" x="45" y="106">② 视图的 editTriggers 允许这次交互</text>
+        <text class="svg-small" x="45" y="130">③ 用户确实进入了编辑状态</text>
+        <text class="svg-small" x="45" y="154">④ index 有效且该列可编辑</text>
+        <text class="svg-small" x="45" y="178">少一条 → createEditor 根本不会被调用</text>
+
+        <rect class="svg-box" x="375" y="25" width="360" height="170" rx="10"/>
+        <text class="svg-title" x="555" y="53" text-anchor="middle">返回值决定用什么编辑器</text>
+        <text class="svg-small" x="395" y="82">· QLineEdit —— 文本</text>
+        <text class="svg-small" x="395" y="106">· QSpinBox / QDoubleSpinBox —— 数值</text>
+        <text class="svg-small" x="395" y="130">· QComboBox —— 枚举/选项</text>
+        <text class="svg-small" x="395" y="154">· 自定义 QWidget —— 任何东西</text>
+        <text class="svg-small" x="395" y="178">返回 nullptr = 这格不可编辑</text>
+
+        <rect class="svg-field" x="25" y="215" width="710" height="185" rx="10"/>
+        <text class="svg-small" x="45" y="243">两个关键设计决定：</text>
+        <text class="svg-text" x="45" y="273">① 按 index 分列造不同编辑器 —— 同一个委托可以管多种类型（第 4 讲的做法）。</text>
+        <text class="svg-text" x="45" y="299">② 别忘了给它父对象：parent 就是视图的 viewport，销毁由 Qt 接管。</text>
+        <text class="svg-small" x="45" y="330">★ 默认实现 QStyledItemDelegate::createEditor 会自动挑 QLineEdit / QSpinBox / QComboBox /</text>
+        <text class="svg-small" x="45" y="354">  QDateEdit 等（按 QVariant 类型与元属性），所以很多情况下你根本不用重写它。</text>
+        <text class="svg-small" x="45" y="384">★ 需要「只输入数字」这类约束时，先试 setEditorData + validator，别急着自造控件。</text>
+      </svg>`,
+    caption: '<code>createEditor</code> 要四个条件同时成立才会被调用：<strong>模型 flags 里有 <code>ItemIsEditable</code>、视图的 <code>editTriggers</code> 允许、用户真进入编辑、index 有效</strong>。少一条就没有编辑器——这也是「双击没反应」的排查清单。默认实现会自动按类型挑 <code>QLineEdit</code>/<code>QSpinBox</code>/<code>QComboBox</code>，<strong>所以多数情况你根本不用重写它</strong>。',
+    code: `QWidget *TodoDelegate::createEditor(QWidget *parent,
+        const QStyleOptionViewItem &opt,
+        const QModelIndex &idx) const
+{
+    Q_UNUSED(opt);
+    if (idx.column() == 0) {                // 标题列 → 文本编辑
+        auto *edit = new QLineEdit(parent);
+        return edit;
+    }
+    auto *box = new QComboBox(parent);      // 状态列 → 下拉
+    box->addItems({QStringLiteral("未完成"), QStringLiteral("已完成")});
+    return box;
+}`,
+    highlight: [6, 7, 10, 11]
+  },
+  {
+    title: 'setEditorData：模型 → 编辑器（方向一）',
+    nav: '入数据',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="setEditorData 把模型数据装进编辑器">
+        <rect class="svg-box" x="30" y="40" width="200" height="90" rx="10"/>
+        <text class="svg-small" x="130" y="70" text-anchor="middle">模型里的值</text>
+        <text class="svg-mono" x="130" y="98" text-anchor="middle">"买牛奶"</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M230 85 L300 85"/>
+        <text class="svg-small" x="265" y="72" text-anchor="middle">setEditorData</text>
+
+        <rect class="svg-box-accent svg-pulse" x="300" y="40" width="180" height="90" rx="10"/>
+        <text class="svg-small" x="318" y="68">编辑器</text>
+        <text class="svg-mono" x="318" y="96">edit-&gt;setText(…)</text>
+        <text class="svg-small" x="318" y="118">刚造出来是空的</text>
+
+        <rect class="svg-field" x="510" y="30" width="230" height="115" rx="10"/>
+        <text class="svg-small" x="530" y="58">记忆法：</text>
+        <text class="svg-text" x="530" y="86">Editor 在前 = 往编辑器里放</text>
+        <text class="svg-small" x="530" y="112">Model 在后 = 从模型里拿</text>
+        <text class="svg-small" x="530" y="134">「把模型的数装进编辑器」</text>
+
+        <rect class="svg-box-bad" x="30" y="175" width="330" height="185" rx="10"/>
+        <text class="svg-title" x="195" y="203" text-anchor="middle">漏写的后果</text>
+        <text class="svg-small" x="50" y="232">重写 createEditor 后必须重写 setEditorData，</text>
+        <text class="svg-small" x="50" y="256">否则编辑器起来是空的：</text>
+        <text class="svg-small" x="50" y="282">· 用户以为「值丢了」</text>
+        <text class="svg-small" x="50" y="306">· 一确认就把空值写回模型</text>
+        <text class="svg-bad-text" x="50" y="338">→ 「一编辑就丢值」的真相</text>
+
+        <rect class="svg-box-good" x="390" y="175" width="350" height="185" rx="10"/>
+        <text class="svg-title" x="565" y="203" text-anchor="middle">常见的类型转换</text>
+        <text class="svg-mono" x="410" y="232">edit-&gt;setText(idx.data().toString());</text>
+        <text class="svg-mono" x="410" y="258">spin-&gt;setValue(idx.data().toInt());</text>
+        <text class="svg-mono" x="410" y="284">box-&gt;setCurrentIndex(</text>
+        <text class="svg-mono" x="410" y="308">    idx.data().toInt());</text>
+        <text class="svg-small" x="410" y="336">role 用 Qt::EditRole 更准确</text>
+
+        <rect class="svg-box-warn" x="30" y="372" width="710" height="40" rx="8"/>
+        <text class="svg-small" x="50" y="397">能用默认实现就别重写：QStyledItemDelegate 已经按 QVariant 类型处理好了大多数控件。</text>
+      </svg>`,
+    caption: '<code>setEditorData(editor, index)</code> = <strong>把模型的数装进编辑器</strong>：Editor 在前、Model 在后，方向是从模型往编辑器。重写了 <code>createEditor</code> 就必须一并重写它，否则<strong>编辑器起来是空的，用户一确认就把空值写回模型</strong>——这就是「一编辑就丢值」的真相。取值用 <code>Qt::EditRole</code> 比 <code>DisplayRole</code> 更准确。',
+    code: `void TodoDelegate::setEditorData(QWidget *editor,
+                                 const QModelIndex &idx) const
+{
+    if (auto *edit = qobject_cast<QLineEdit *>(editor))
+        edit->setText(idx.data(Qt::EditRole).toString());
+    else if (auto *box = qobject_cast<QComboBox *>(editor))
+        box->setCurrentIndex(idx.data(Qt::EditRole).toInt());
+}`,
+    highlight: [4, 5, 6]
+  },
+  {
+    title: 'updateEditorGeometry：把编辑器摆到格子上',
+    nav: '摆位置',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="updateEditorGeometry 设置编辑器几何">
+        <rect class="svg-box" x="40" y="45" width="300" height="200" rx="10"/>
+        <text class="svg-small" x="60" y="70">视图 viewport</text>
+        <rect class="svg-box-warn" x="150" y="120" width="150" height="45" rx="4"/>
+        <text class="svg-small" x="168" y="140">被编辑的格子</text>
+        <text class="svg-small" x="168" y="158">opt.rect</text>
+
+        <rect class="svg-box-accent" x="150" y="120" width="150" height="45" rx="4" fill="none" stroke-dasharray="5 4"/>
+        <text class="svg-small" x="360" y="145">编辑器 setGeometry(opt.rect)</text>
+
+        <rect class="svg-field" x="390" y="45" width="340" height="200" rx="10"/>
+        <text class="svg-small" x="410" y="72">这个函数会被多次调用：</text>
+        <text class="svg-small" x="410" y="100">· 编辑器刚创建时</text>
+        <text class="svg-small" x="410" y="124">· 格子尺寸变化时</text>
+        <text class="svg-small" x="410" y="148">· 滚动 / 布局变化时</text>
+        <text class="svg-small" x="410" y="176">所以实现必须是「随时可重算」的，</text>
+        <text class="svg-small" x="410" y="200">不能依赖「只调一次」。</text>
+        <text class="svg-small" x="410" y="228">★ 不重写它 → 编辑器出现在 (0,0)</text>
+
+        <rect class="svg-box-bad" x="40" y="265" width="690" height="70" rx="10"/>
+        <text class="svg-small" x="60" y="291">症状：一进入编辑，输入框跑到视图左上角，或者宽度只覆盖一半格子。</text>
+        <text class="svg-small" x="60" y="315">原因：既没重写 updateEditorGeometry，也没调基类实现。</text>
+
+        <rect class="svg-box-good" x="40" y="350" width="690" height="62" rx="10"/>
+        <text class="svg-small" x="60" y="376">一般直接 opt.rect 就够；需要留白时 adjusted() 一下，但别把编辑器做得比格子大太多，</text>
+        <text class="svg-small" x="60" y="398">否则会盖住相邻格子的视觉反馈。</text>
+      </svg>`,
+    caption: '<code>updateEditorGeometry</code> 把编辑器摆到 <code>opt.rect</code>。它<strong>会被多次调用</strong>（创建时、尺寸变化时、滚动时），所以实现必须「随时可重算」。不重写它，编辑器会出现在 <code>(0,0)</code>——「输入框跑到视图左上角」就是这个原因。一般直接用 <code>opt.rect</code>，需要留白时 <code>adjusted()</code> 一下，但别大太多，否则盖住相邻格子的反馈。',
+    code: `void TodoDelegate::updateEditorGeometry(QWidget *editor,
+        const QStyleOptionViewItem &opt,
+        const QModelIndex &idx) const
+{
+    Q_UNUSED(idx);
+    editor->setGeometry(opt.rect);        // 就摆在格子原位
+}`,
+    highlight: [6]
+  },
+  {
+    title: 'setModelData：编辑器 → 模型（方向二，别搞反）',
+    nav: '回数据',
+    ms: 7500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="setModelData 把编辑器内容写回模型">
+        <rect class="svg-box-accent" x="30" y="40" width="190" height="90" rx="10"/>
+        <text class="svg-small" x="48" y="68">编辑器（用户输入）</text>
+        <text class="svg-mono" x="48" y="96">"买牛奶和面包"</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M220 85 L290 85"/>
+        <text class="svg-small" x="255" y="72" text-anchor="middle">setModelData</text>
+
+        <rect class="svg-box-accent svg-pulse" x="290" y="40" width="200" height="90" rx="10"/>
+        <text class="svg-small" x="308" y="68">模型</text>
+        <text class="svg-mono" x="308" y="96">model-&gt;setData(idx, v)</text>
+        <text class="svg-small" x="308" y="118">内部数据被改</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M490 85 L560 85"/>
+        <rect class="svg-box-warn" x="560" y="40" width="180" height="90" rx="10"/>
+        <text class="svg-small" x="578" y="68">dataChanged</text>
+        <text class="svg-small" x="578" y="92">视图标脏重绘</text>
+        <text class="svg-small" x="578" y="114">回到拉取式</text>
+
+        <rect class="svg-field" x="30" y="155" width="710" height="120" rx="10"/>
+        <text class="svg-small" x="50" y="183">两个方向，一句话区分（这是全模块最容易搞混的一对）：</text>
+        <text class="svg-text" x="50" y="213">setEditorData(editor, index) —— 模型 → 编辑器：打开编辑器时，把旧值装进去</text>
+        <text class="svg-text" x="50" y="241">setModelData(editor, model, index) —— 编辑器 → 模型：关编辑器时，把新值交回去</text>
+        <text class="svg-small" x="50" y="267">前者只是「显示」，后者才「提交」。写反了 → 打开是空的 / 提交是旧的。</text>
+
+        <rect class="svg-box-bad" x="30" y="290" width="345" height="115" rx="10"/>
+        <text class="svg-small" x="50" y="316">两个常见失误：</text>
+        <text class="svg-small" x="50" y="342">① 直接改 item 而不走 setData</text>
+        <text class="svg-small" x="50" y="366">  → 不发 dataChanged，界面不更新</text>
+        <text class="svg-small" x="50" y="392">② 不检查 setData 返回值</text>
+
+        <rect class="svg-box-good" x="395" y="290" width="345" height="115" rx="10"/>
+        <text class="svg-small" x="415" y="316">更省事的做法：</text>
+        <text class="svg-mono" x="415" y="342">QStyledItemDelegate::setModelData(</text>
+        <text class="svg-mono" x="415" y="364">    editor, model, idx);</text>
+        <text class="svg-small" x="415" y="390">基类会从编辑器属性读值并写回</text>
+
+              </svg>`,
+    caption: '两个方向必须先分清：<strong><code>setEditorData</code> = 模型 → 编辑器</strong>（打开时装旧值，只管显示），<strong><code>setModelData</code> = 编辑器 → 模型</strong>（关闭时交新值，这一步才提交）。写反了就是「打开是空的 / 提交是旧的」。写回一定要走 <code>setData</code>，别直接改 item——否则不发 <code>dataChanged</code>，界面不更新。',
+    code: `void TodoDelegate::setModelData(QWidget *editor,
+                               QAbstractItemModel *model,
+                               const QModelIndex &idx) const
+{
+    if (auto *edit = qobject_cast<QLineEdit *>(editor))
+        model->setData(idx, edit->text(), Qt::EditRole);   // 走 setData
+    else if (auto *box = qobject_cast<QComboBox *>(editor))
+        model->setData(idx, box->currentIndex(), Qt::EditRole);
+    // setData 内部负责 emit dataChanged
+}`,
+    highlight: [5, 7]
+  },
+  {
+    title: '关闭、销毁与剩下三个钩子',
+    nav: '收尾',
+    ms: 7500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="编辑器关闭与销毁的流程">
+        <rect class="svg-box" x="30" y="30" width="150" height="60" rx="8"/>
+        <text class="svg-small" x="105" y="58" text-anchor="middle">用户按回车</text>
+        <text class="svg-small" x="105" y="78" text-anchor="middle">/ Tab / 点别处</text>
+
+        <path class="svg-arrow svg-flow" d="M180 60 L230 60"/>
+        <rect class="svg-box-warn" x="230" y="30" width="180" height="60" rx="8"/>
+        <text class="svg-small" x="248" y="56">emit commitData(editor)</text>
+        <text class="svg-small" x="248" y="76">视图收到 → 调 setModelData</text>
+
+        <path class="svg-arrow svg-flow" d="M410 60 L460 60"/>
+        <rect class="svg-box-warn" x="460" y="30" width="190" height="60" rx="8"/>
+        <text class="svg-small" x="478" y="56">emit closeEditor(editor, hint)</text>
+        <text class="svg-small" x="478" y="76">hint 说明「为什么关」</text>
+
+        <path class="svg-arrow svg-flow" d="M650 60 L700 60"/>
+        <rect class="svg-box-good" x="700" y="30" width="40" height="60" rx="8"/>
+        <text class="svg-small" x="720" y="66" text-anchor="middle">销毁</text>
+
+        <rect class="svg-field" x="30" y="110" width="710" height="130" rx="10"/>
+        <text class="svg-small" x="50" y="138">EndEditHint 决定「关完之后去哪」（枚举真名）：</text>
+        <text class="svg-small" x="50" y="166">NoHint / EditNextItem / EditPreviousItem</text>
+        <text class="svg-small" x="50" y="192">SubmitModelCache / RevertModelCache</text>
+        <text class="svg-small" x="50" y="222">★ 用 Enter 提交时传 EditNextItem，用户按一次回车就往下走一格 —— 这决定「手感」。</text>
+
+        <rect class="svg-box" x="30" y="255" width="345" height="158" rx="10"/>
+        <text class="svg-small" x="50" y="282">另外三个钩子：</text>
+        <text class="svg-mono" x="50" y="310">editorEvent()</text>
+        <text class="svg-small" x="50" y="332">在格子上收到鼠标/键盘时先给你</text>
+        <text class="svg-mono" x="50" y="360">helpEvent()</text>
+        <text class="svg-small" x="50" y="382">tooltip / What's This</text>
+        <text class="svg-mono" x="50" y="402">destroyEditor()</text>
+
+        <rect class="svg-box-good" x="395" y="255" width="345" height="150" rx="10"/>
+        <text class="svg-small" x="415" y="282">什么时候值得动它们：</text>
+        <text class="svg-small" x="415" y="310">· editorEvent：格子里要放个可点的小按钮</text>
+        <text class="svg-small" x="415" y="338">· helpEvent：每格要给不同的悬浮说明</text>
+        <text class="svg-small" x="415" y="366">· destroyEditor：编辑器被共享/复用时</text>
+        <text class="svg-small" x="415" y="394">默认实现已经 deleteLater 掉编辑器，别重复删</text>
+      </svg>`,
+    caption: '关闭流程是 <strong><code>commitData</code>（视图去调 <code>setModelData</code>）→ <code>closeEditor(editor, hint)</code> → 销毁</strong>。<code>EndEditHint</code> 决定「关完之后去哪」：<code>EditNextItem</code> 让用户按一次回车就往下走一格，直接影响手感。剩下三个钩子按需动：<code>editorEvent</code>（格里有小按钮）、<code>helpEvent</code>（每格不同 tooltip）、<code>destroyEditor</code>（编辑器复用）。<strong>默认实现已经 <code>deleteLater</code> 掉编辑器，别重复删</strong>。',
+    code: `// 打开编辑器后，把「回车」接成「提交并去下一格」
+void TodoDelegate::setEditorData(QWidget *editor,
+                                 const QModelIndex &idx) const
+{
+    auto *edit = qobject_cast<QLineEdit *>(editor);
+    if (!edit) return;
+    edit->setText(idx.data(Qt::EditRole).toString());
+    QObject::connect(edit, &QLineEdit::returnPressed, edit, [this, edit] {
+        emit commitData(edit);
+        emit closeEditor(edit, QAbstractItemDelegate::EditNextItem);
+    });
+}`,
+    highlight: [9, 10]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

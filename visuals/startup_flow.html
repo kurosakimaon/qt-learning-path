@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 从 main() 到窗口出现 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../start/index.html">第壹阶段 · 起步</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">START · 启动流程</span>
+    <h1>一行 <code>w.show()</code> 背后，发生了七件事</h1>
+    <p>很多人以为「窗口对象 new 出来就出现在屏幕上了」。其实从进程启动到像素点亮，中间隔着平台插件、原生窗口、事件循环和一次布局绘制。这一页把它拆成七步，每一步都能在代码里对上号。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 7</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../start/01_hello_window.cpp">start/01_hello_window.cpp</a> ·
+    <a href="../start/03_application_object.cpp">start/03_application_object.cpp</a>
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '进程先跑起来：CRT 与静态初始化',
+    nav: '进程启动',
+    ms: 6000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="进程启动到 main 的流程">
+        <rect class="svg-box-ghost" x="40" y="60" width="150" height="70" rx="10"/>
+        <text class="svg-title" x="115" y="88" text-anchor="middle">操作系统</text>
+        <text class="svg-small" x="115" y="110" text-anchor="middle">双击 exe / 命令行</text>
+
+        <path class="svg-arrow" d="M190 95 L250 95"/>
+
+        <rect class="svg-box" x="250" y="60" width="170" height="70" rx="10"/>
+        <text class="svg-title" x="335" y="88" text-anchor="middle">CRT 启动代码</text>
+        <text class="svg-small" x="335" y="110" text-anchor="middle">分配栈、建堆、跑全局构造</text>
+
+        <path class="svg-arrow" d="M420 95 L480 95"/>
+
+        <rect class="svg-box-accent svg-pulse" x="480" y="55" width="220" height="80" rx="12"/>
+        <text class="svg-title" x="590" y="86" text-anchor="middle">你的 main()</text>
+        <text class="svg-small" x="590" y="110" text-anchor="middle">此刻还没有任何窗口</text>
+
+        <rect class="svg-field" x="250" y="180" width="450" height="180" rx="10"/>
+        <text class="svg-small" x="268" y="206">在这段里能做、但常常做错的三件事：</text>
+        <text class="svg-text" x="268" y="234">· 全局对象的构造函数会在这里跑 —— 它们早于 QApplication</text>
+        <text class="svg-text" x="268" y="260">· 所以全局变量里不许依赖「应用已就绪」的前提</text>
+        <text class="svg-text" x="268" y="286">· 这个时刻没有事件循环，谁也不会来派发你的信号</text>
+        <text class="svg-small" x="268" y="318">结论：静态初始化里只放「纯数据」，别放跟 Qt 运行时有关的东西。</text>
+      </svg>`,
+    caption: '在 <code>main()</code> 的第一行之前，CRT 已经把全局对象构造完了。这一步没有 Qt，也没有窗口——所以全局对象里拿不到「已就绪」的应用上下文。<strong>静态初始化只放纯数据</strong>，这是第一条纪律。',
+    code: `int main(int argc, char *argv[]) {
+    // 从这里开始，才属于你的程序
+    QApplication app(argc, argv);
+    QWidget w;
+    w.show();
+    return app.exec();
+}`,
+    highlight: [0]
+  },
+  {
+    title: 'QApplication 构造：加载平台插件',
+    nav: 'QApplication',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QApplication 构造时加载平台插件">
+        <rect class="svg-box-accent svg-pulse" x="30" y="150" width="170" height="110" rx="12"/>
+        <text class="svg-title" x="115" y="186" text-anchor="middle">QApplication</text>
+        <text class="svg-small" x="115" y="210" text-anchor="middle">构造 = 选后端</text>
+        <text class="svg-small" x="115" y="232" text-anchor="middle">+ 建事件分发器</text>
+
+        <path class="svg-arrow-accent" d="M200 205 L270 130"/>
+        <path class="svg-arrow-accent" d="M200 205 L270 205"/>
+        <path class="svg-arrow-accent" d="M200 205 L270 280"/>
+
+        <rect class="svg-box-good" x="270" y="95" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="370" y="122" text-anchor="middle">windows 插件</text>
+        <text class="svg-small" x="370" y="145" text-anchor="middle">platforms/qwindows.dll</text>
+
+        <rect class="svg-box" x="270" y="170" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="370" y="197" text-anchor="middle">offscreen 插件</text>
+        <text class="svg-small" x="370" y="220" text-anchor="middle">测试/CI 用，无真实窗口</text>
+
+        <rect class="svg-box-ghost" x="270" y="245" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="370" y="272" text-anchor="middle">minimal 插件</text>
+        <text class="svg-small" x="370" y="295" text-anchor="middle">只够跑通，不显示</text>
+
+        <rect class="svg-field" x="500" y="95" width="230" height="220" rx="10"/>
+        <text class="svg-small" x="518" y="122">选择顺序：</text>
+        <text class="svg-text" x="518" y="150">1. 命令行 -platform</text>
+        <text class="svg-text" x="518" y="176">2. 环境变量 QT_QPA_PLATFORM</text>
+        <text class="svg-text" x="518" y="202">3. 编译期默认（windows）</text>
+        <text class="svg-small" x="518" y="236">CTest 里就是靠第 2 条</text>
+        <text class="svg-small" x="518" y="258">把它设成 offscreen 的。</text>
+        <text class="svg-mono" x="518" y="292">QT_QPA_PLATFORM=offscreen</text>
+      </svg>`,
+    caption: '构造 <code>QApplication</code> 时会挑一个<strong>平台插件</strong>（platforms 目录下的 dll）：它才是真正跟操作系统窗口打交道的那一层。所以「同一份代码在 CI 上不崩、在本机崩」常常是插件不同。CTest 用 <code>QT_QPA_PLATFORM=offscreen</code> 换掉它。',
+    code: `QApplication app(argc, argv);
+// 平台插件在构造里就选好了
+qInfo() << QGuiApplication::platformName();
+// 本机通常打印 "windows"，CI 上打印 "offscreen"`,
+    highlight: [2]
+  },
+  {
+    title: '构造 QWidget：还没有原生窗口',
+    nav: '构造控件',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="QWidget 构造时只有 C++ 对象">
+        <rect class="svg-box-accent" x="40" y="70" width="250" height="150" rx="12"/>
+        <text class="svg-title" x="165" y="100" text-anchor="middle">QWidget 对象</text>
+        <rect class="svg-field" x="58" y="115" width="214" height="36" rx="6"/>
+        <text class="svg-small" x="68" y="138">d_ptr → QWidgetData</text>
+        <rect class="svg-field" x="58" y="158" width="214" height="36" rx="6"/>
+        <text class="svg-small" x="68" y="181">QObject 树、属性、信号表</text>
+
+        <rect class="svg-box-bad" x="470" y="70" width="250" height="150" rx="12"/>
+        <text class="svg-title" x="595" y="100" text-anchor="middle">原生窗口</text>
+        <text class="svg-bad-text" x="595" y="132" text-anchor="middle">此时还不存在</text>
+        <text class="svg-small" x="595" y="160" text-anchor="middle">HWND 要等 create()</text>
+        <text class="svg-small" x="595" y="184" text-anchor="middle">（show() 才会调它）</text>
+
+        <path class="svg-arrow-bad" d="M290 145 L470 145"/>
+        <text class="svg-small" x="380" y="135" text-anchor="middle">还没有连上</text>
+
+        <rect class="svg-field" x="40" y="255" width="680" height="130" rx="10"/>
+        <text class="svg-small" x="60" y="282">所以「构造」和「显示」是两件事，能观察到的证据是：</text>
+        <text class="svg-text" x="60" y="310">· 构造之后 isVisible() 仍是 false</text>
+        <text class="svg-text" x="60" y="336">· 构造之后 windowHandle() 还是空</text>
+        <text class="svg-text" x="60" y="362">· 构造之后不会触发任何 paintEvent</text>
+      </svg>`,
+    caption: '构造一个 <code>QWidget</code> 只创建了 C++ 侧的对象（d-pointer、父子关系、属性、信号表）。<strong>原生窗口是懒创建的</strong>：要等 <code>create()</code>，而 <code>show()</code> 才会去调它。这解释了很多「设了窗口属性不生效」的困惑——属性在原生窗口存在之前没法落到系统上。',
+    code: `QWidget w;
+qInfo() << w.isVisible();        // false
+qInfo() << w.windowHandle();     // nullptr
+w.show();                        // 这时才 create() + 要原生窗口`,
+    highlight: [1, 2]
+  },
+  {
+    title: 'show()：创建原生窗口、算几何',
+    nav: 'show()',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="show 触发创建原生窗口与布局">
+        <rect class="svg-box-accent" x="40" y="40" width="150" height="80" rx="10"/>
+        <text class="svg-title" x="115" y="72" text-anchor="middle">show()</text>
+        <text class="svg-small" x="115" y="96" text-anchor="middle">UI 线程调用</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M190 80 L250 80"/>
+        <path class="svg-arrow-accent svg-flow" d="M190 80 L250 170"/>
+        <path class="svg-arrow-accent svg-flow" d="M190 80 L250 260"/>
+
+        <rect class="svg-box-good" x="250" y="45" width="220" height="70" rx="10"/>
+        <text class="svg-title" x="360" y="72" text-anchor="middle">create()</text>
+        <text class="svg-small" x="360" y="95" text-anchor="middle">建 QWindow + 原生句柄</text>
+
+        <rect class="svg-box" x="250" y="135" width="220" height="70" rx="10"/>
+        <text class="svg-title" x="360" y="162" text-anchor="middle">setVisible(true)</text>
+        <text class="svg-small" x="360" y="185" text-anchor="middle">挂进父窗口 / 成为顶层</text>
+
+        <rect class="svg-box-warn" x="250" y="225" width="220" height="70" rx="10"/>
+        <text class="svg-title" x="360" y="252" text-anchor="middle">布局请求</text>
+        <text class="svg-small" x="360" y="275" text-anchor="middle">LayoutRequest 事件入队</text>
+
+        <rect class="svg-box-accent" x="520" y="110" width="210" height="120" rx="12"/>
+        <text class="svg-title" x="625" y="140" text-anchor="middle">Backing store</text>
+        <text class="svg-small" x="625" y="166" text-anchor="middle">一块离屏位图</text>
+        <text class="svg-small" x="625" y="190" text-anchor="middle">先在内存里画好</text>
+        <text class="svg-small" x="625" y="212" text-anchor="middle">再整体交给系统</text>
+
+        <path class="svg-arrow" d="M470 80 L520 140"/>
+        <path class="svg-arrow" d="M470 170 L520 170"/>
+
+        <text class="svg-small" x="40" y="350">注意 ③ 是「入队」不是「立刻做」：布局和绘制都走事件，</text>
+        <text class="svg-small" x="40" y="376">所以 show() 返回时窗口可能还没画出来 —— 要等事件循环转一圈。</text>
+      </svg>`,
+    caption: '<code>show()</code> 做三件事：建原生窗口、把自己标成可见、<strong>投递</strong>布局与绘制请求。注意第三件是「投递」——所以 <code>show()</code> 一返回就截图，可能抓到一张还没画的白窗。要做「首帧之后」的事，用 <code>QTimer::singleShot(0, ...)</code> 或等 <code>paintEvent</code>。',
+    code: `w.show();                 // 只是把事件排进去
+// 此刻窗口大概率还没画
+QTimer::singleShot(0, [&w]() {
+    // 这时候才比较接近「首帧已经画完」
+    qInfo() << w.isVisible() << w.size();
+});`,
+    highlight: [2, 3]
+  },
+  {
+    title: 'app.exec()：事件循环登场',
+    nav: '事件循环',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="事件循环的取事件-派发-再取">
+        <rect class="svg-box-accent svg-pulse" x="300" y="150" width="160" height="90" rx="14"/>
+        <text class="svg-title" x="380" y="190" text-anchor="middle">exec()</text>
+        <text class="svg-small" x="380" y="214" text-anchor="middle">一直转到 quit()</text>
+
+        <rect class="svg-box" x="60" y="60" width="190" height="70" rx="10"/>
+        <text class="svg-text" x="155" y="88" text-anchor="middle">系统消息</text>
+        <text class="svg-small" x="155" y="110" text-anchor="middle">鼠标、键盘、重绘</text>
+
+        <rect class="svg-box" x="60" y="165" width="190" height="70" rx="10"/>
+        <text class="svg-text" x="155" y="193" text-anchor="middle">posted 事件</text>
+        <text class="svg-small" x="155" y="215" text-anchor="middle">postEvent 排进来的</text>
+
+        <rect class="svg-box" x="60" y="270" width="190" height="70" rx="10"/>
+        <text class="svg-text" x="155" y="298" text-anchor="middle">定时器</text>
+        <text class="svg-small" x="155" y="320" text-anchor="middle">QTimer 到点</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M250 95 L295 165"/>
+        <path class="svg-arrow-accent svg-flow" d="M250 200 L295 200"/>
+        <path class="svg-arrow-accent svg-flow" d="M250 305 L295 235"/>
+
+        <rect class="svg-box-good" x="520" y="130" width="200" height="130" rx="12"/>
+        <text class="svg-title" x="620" y="160" text-anchor="middle">分发</text>
+        <text class="svg-small" x="620" y="186" text-anchor="middle">QApplication::notify</text>
+        <text class="svg-small" x="620" y="208" text-anchor="middle">→ 事件过滤器</text>
+        <text class="svg-small" x="620" y="230" text-anchor="middle">→ 目标对象的 event()</text>
+
+        <path class="svg-arrow" d="M460 195 L520 195"/>
+
+        <text class="svg-small" x="60" y="380">一个事件处理完，回到 exec() 接着取下一个 —— 这就是「循环」。</text>
+      </svg>`,
+    caption: '<code>exec()</code> 是一个<strong>不会自己结束</strong>的循环：取事件 → 分发 → 再取。三个来源（系统消息、<code>postEvent</code> 排队的事件、定时器）都汇到同一个队列里，按到达顺序处理。这也是为什么「在槽里 sleep」会把整个界面冻住——你占住的是这个循环唯一的那条线程。',
+    code: `int rc = app.exec();   // 阻塞在这里，直到 quit()
+// 循环里每一圈大致是：
+//   取一个事件 → notify() → 过滤器 → 目标 event() → 回槽
+return rc;`,
+    highlight: [0]
+  },
+  {
+    title: '布局与绘制：先排版，再画像素',
+    nav: '布局 + 绘制',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="布局请求到像素的流程">
+        <rect class="svg-box-warn" x="30" y="40" width="180" height="70" rx="10"/>
+        <text class="svg-title" x="120" y="68" text-anchor="middle">LayoutRequest</text>
+        <text class="svg-small" x="120" y="92" text-anchor="middle">「几何要重算了」</text>
+
+        <path class="svg-arrow svg-flow" d="M210 75 L270 75"/>
+        <rect class="svg-box" x="270" y="40" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="370" y="68" text-anchor="middle">QLayout::activate()</text>
+        <text class="svg-small" x="370" y="92" text-anchor="middle">问 sizeHint，分配矩形</text>
+
+        <path class="svg-arrow svg-flow" d="M470 75 L530 75"/>
+        <rect class="svg-box" x="530" y="40" width="200" height="70" rx="10"/>
+        <text class="svg-title" x="630" y="68" text-anchor="middle">setGeometry()</text>
+        <text class="svg-small" x="630" y="92" text-anchor="middle">子控件各自拿到位置</text>
+
+        <path class="svg-arrow svg-flow" d="M630 110 L630 165"/>
+        <rect class="svg-box-warn" x="510" y="165" width="240" height="70" rx="10"/>
+        <text class="svg-title" x="630" y="193" text-anchor="middle">update() / 重绘请求</text>
+        <text class="svg-small" x="630" y="216" text-anchor="middle">合并后统一投递</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M510 200 L450 200"/>
+        <rect class="svg-box-accent svg-pulse" x="230" y="165" width="220" height="90" rx="12"/>
+        <text class="svg-title" x="340" y="198" text-anchor="middle">paintEvent</text>
+        <text class="svg-small" x="340" y="222" text-anchor="middle">QPainter 画到 backing store</text>
+
+        <path class="svg-arrow-accent svg-flow" d="M230 210 L150 210"/>
+        <rect class="svg-box-good" x="30" y="165" width="120" height="90" rx="10"/>
+        <text class="svg-title" x="90" y="196" text-anchor="middle">屏幕</text>
+        <text class="svg-small" x="90" y="220" text-anchor="middle">一次 blit</text>
+
+        <rect class="svg-field" x="30" y="290" width="700" height="100" rx="10"/>
+        <text class="svg-small" x="50" y="318">两道关键事实：</text>
+        <text class="svg-text" x="50" y="346">① 布局是「问 sizeHint 再分配」，所以 sizeHint 里做重活 = 每次排布都重算一次。</text>
+        <text class="svg-text" x="50" y="372">② 重绘请求会合并：连调十次 update() 通常只画一次 —— 所以别在 update 后面等结果。</text>
+      </svg>`,
+    caption: '布局走的是「<strong>问 sizeHint → 分配矩形 → setGeometry</strong>」，绘制是「<code>paintEvent</code> 里用 <code>QPainter</code> 画到离屏位图 → 一次 blit 上屏」。<code>update()</code> 的请求会被<strong>合并</strong>：连调十次一般只画一次，所以不要指望「调完 update 就已经画好了」。',
+    code: `void MyWidget::paintEvent(QPaintEvent *e) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.drawText(rect(), Qt::AlignCenter, QStringLiteral("你好"));
+}
+// sizeHint 会被布局反复问 —— 别在这里做 I/O`,
+    highlight: [0, 1]
+  },
+  {
+    title: '退出：关闭最后一个窗口之后',
+    nav: '退出',
+    ms: 6000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="退出流程与析构顺序">
+        <rect class="svg-box" x="30" y="50" width="170" height="70" rx="10"/>
+        <text class="svg-text" x="115" y="78" text-anchor="middle">关掉最后一个窗口</text>
+        <text class="svg-small" x="115" y="100" text-anchor="middle">lastWindowClosed</text>
+
+        <path class="svg-arrow svg-flow" d="M200 85 L260 85"/>
+        <rect class="svg-box-warn" x="260" y="50" width="190" height="70" rx="10"/>
+        <text class="svg-text" x="355" y="78" text-anchor="middle">quitOnLastWindowClosed</text>
+        <text class="svg-small" x="355" y="100" text-anchor="middle">默认 true → quit()</text>
+
+        <path class="svg-arrow svg-flow" d="M450 85 L510 85"/>
+        <rect class="svg-box-accent" x="510" y="50" width="200" height="70" rx="10"/>
+        <text class="svg-text" x="610" y="78" text-anchor="middle">exec() 返回</text>
+        <text class="svg-small" x="610" y="100" text-anchor="middle">事件循环结束</text>
+
+        <rect class="svg-field" x="30" y="160" width="680" height="200" rx="10"/>
+        <text class="svg-small" x="50" y="188">接下来是纯 C++ 的析构，要注意顺序（后声明的先销毁）：</text>
+
+        <rect class="svg-box-accent" x="60" y="205" width="180" height="60" rx="8"/>
+        <text class="svg-small" x="150" y="230" text-anchor="middle">1. 局部 QWidget</text>
+        <text class="svg-small" x="150" y="250" text-anchor="middle">（连带所有子控件）</text>
+
+        <path class="svg-arrow" d="M240 235 L290 235"/>
+
+        <rect class="svg-box" x="290" y="205" width="180" height="60" rx="8"/>
+        <text class="svg-small" x="380" y="230" text-anchor="middle">2. QApplication</text>
+        <text class="svg-small" x="380" y="250" text-anchor="middle">（拆平台插件）</text>
+
+        <path class="svg-arrow" d="M470 235 L520 235"/>
+
+        <rect class="svg-box-bad" x="520" y="205" width="170" height="60" rx="8"/>
+        <text class="svg-bad-text" x="605" y="230" text-anchor="middle">窗口对象不许晚于 app</text>
+        <text class="svg-small" x="605" y="250" text-anchor="middle">否则析构时 app 已没了</text>
+
+        <text class="svg-small" x="60" y="330">如果你把 QWidget 加成 new 出来的堆对象且忘了删，就是内存泄漏；</text>
+        <text class="svg-small" x="60" y="352">但在「进程要退出」这件事上，它通常不致命 —— 别把清理逻辑寄望于此。</text>
+      </svg>`,
+    caption: '关掉最后一个窗口，默认会触发 <code>quit()</code>，<code>exec()</code> 返回。之后的析构是<strong>纯 C++</strong>：后声明的先销毁。<strong>控件对象不能晚于 QApplication 存在</strong>——否则它析构时还要访问已经拆掉的平台层。所以 <code>QApplication</code> 写在 <code>main</code> 的最前面、控件写在它后面。',
+    code: `QApplication app(argc, argv);   // 先建
+QWidget w;                      // 后建
+w.show();
+return app.exec();              // w 先析构，app 后析构`,
+    highlight: [0, 1, 3]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>

@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图解 · 事件过滤器：装在事件路上的关卡 - Qt 从入门到资深</title>
+<link rel="stylesheet" href="visual.css">
+</head>
+<body>
+<div class="container">
+  <div class="top-links">
+    <a class="back-btn" href="../学习路线图.html">← 总路线图</a>
+    <a class="top-link" href="index.html">🎬 全部图解</a>
+    <a class="top-link" href="../events/index.html">第叁阶段 · 事件</a>
+  </div>
+
+  <header class="page-head">
+    <span class="kicker">EVENTS · 事件过滤器</span>
+    <h1>不改别人的类，也能拦住它的事件</h1>
+    <p>想给一个 <code>QLineEdit</code> 加上「回车就提交」，你不用继承它；想给整个程序加个全局快捷键，你也不用改每个控件。<code>installEventFilter</code> 就是 Qt 给的这个后门。但它有三个必须记准的细节：<strong>装在谁身上、按什么顺序跑、返回 true 意味着什么</strong>。</p>
+  </header>
+
+  <div class="viz-shell">
+    <div class="stage" id="stage"></div>
+    <aside class="side">
+      <div class="step-index" id="counter">1 / 6</div>
+      <h2 id="stepTitle"></h2>
+      <p class="caption" id="caption"></p>
+      <div class="code-wrap">
+        <div class="code-label">对应代码</div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button class="btn btn-primary" id="prevBtn" type="button">← 上一步</button>
+    <button class="btn btn-primary" id="nextBtn" type="button">下一步 →</button>
+    <button class="btn btn-ghost" id="resetBtn" type="button">重来</button>
+    <div class="progress"><i id="progressBar"></i></div>
+  </div>
+
+  <div class="step-nav" id="steps"></div>
+
+  <footer class="page-foot">
+    对应讲义：<a href="../events/03_event_filter.cpp">events/03_event_filter.cpp</a> ·
+    <a href="../events/02_event_dispatch.cpp">events/02_event_dispatch.cpp</a> ·
+    头文件：<code>QtCore/qobject.h</code>（<code>installEventFilter</code> / <code>eventFilter</code>）
+  </footer>
+</div>
+
+<script>
+window.STEPS = [
+  {
+    title: '装在哪：三种安装位置，三种影响面',
+    nav: '三处安装',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="事件过滤器的三种安装位置">
+        <rect class="svg-box-accent" x="270" y="20" width="220" height="60" rx="10"/>
+        <text class="svg-title" x="380" y="48" text-anchor="middle">qApp（应用对象）</text>
+        <text class="svg-small" x="380" y="70" text-anchor="middle">影响整个程序</text>
+
+        <path class="svg-arrow svg-flow" d="M340 80 L180 110"/>
+        <path class="svg-arrow svg-flow" d="M420 80 L580 110"/>
+
+        <rect class="svg-box-warn" x="60" y="110" width="240" height="70" rx="10"/>
+        <text class="svg-small" x="180" y="138" text-anchor="middle">装在 qApp 上</text>
+        <text class="svg-small" x="180" y="160" text-anchor="middle">所有对象的所有事件都过你手</text>
+
+        <rect class="svg-box-good" x="460" y="110" width="240" height="70" rx="10"/>
+        <text class="svg-small" x="580" y="138" text-anchor="middle">装在目标对象上</text>
+        <text class="svg-small" x="580" y="160" text-anchor="middle">只有它的事件过你手</text>
+
+        <path class="svg-arrow" d="M580 180 L580 210"/>
+        <rect class="svg-box" x="460" y="210" width="240" height="70" rx="10"/>
+        <text class="svg-small" x="580" y="238" text-anchor="middle">装在自己身上（this）</text>
+        <text class="svg-small" x="580" y="260" text-anchor="middle">只为了看「自己被谁碰了」</text>
+
+        <rect class="svg-field" x="60" y="310" width="640" height="85" rx="10"/>
+        <text class="svg-small" x="80" y="338">写法是一样的，差别只在第一个参数：</text>
+        <text class="svg-mono" x="80" y="364">target-&gt;installEventFilter(this);</text>
+        <text class="svg-mono" x="80" y="386">qApp-&gt;installEventFilter(this);</text>
+      </svg>`,
+    caption: '<code>installEventFilter(filter)</code> 是<strong>装在「被监视对象」身上</strong>的方法，参数才是过滤器自己。装在 <code>qApp</code> 上 = 看全程序；装在某个控件上 = 只看它；装在自己身上 = 看「自己被谁碰了」。影响面越大越要有分寸——全程序过滤器里做重活，等于给每个事件加税。',
+    code: `// 只看这个输入框
+m_edit->installEventFilter(this);
+
+// 看整个程序（谨慎）
+qApp->installEventFilter(this);
+
+// 同一个过滤器可以装多处，eventFilter 里用 watched 区分
+bool MyFilter::eventFilter(QObject *watched, QEvent *event) { /* … */ }`,
+    highlight: [1, 4, 7]
+  },
+  {
+    title: '顺序：后装的先跑，应用级在对象级之前',
+    nav: '调用顺序',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="过滤器的执行顺序">
+        <rect class="svg-box" x="30" y="25" width="700" height="140" rx="10"/>
+        <text class="svg-small" x="50" y="52">事件到达接收者之后，先过这几道关（从上到下）：</text>
+        <rect class="svg-box-accent" x="50" y="64" width="200" height="42" rx="6"/>
+        <text class="svg-small" x="68" y="91">① 应用级过滤器（最后装的先跑）</text>
+        <path class="svg-arrow" d="M250 85 L290 85"/>
+        <rect class="svg-box-warn" x="290" y="64" width="200" height="42" rx="6"/>
+        <text class="svg-small" x="308" y="91">② 对象级过滤器（后装的先跑）</text>
+        <path class="svg-arrow" d="M490 85 L530 85"/>
+        <rect class="svg-box-good" x="530" y="64" width="180" height="42" rx="6"/>
+        <text class="svg-small" x="548" y="91">③ receiver-&gt;event(e)</text>
+        <text class="svg-small" x="50" y="130">④ 才是控件自己的 mousePressEvent / keyPressEvent 等具体处理器</text>
+        <text class="svg-small" x="50" y="152">「后装的先跑」是文档明确写出的规则 —— 后装的通常更具体，应该有机会先看。</text>
+
+        <rect class="svg-box" x="30" y="180" width="340" height="150" rx="10"/>
+        <text class="svg-title" x="200" y="208" text-anchor="middle">为什么是这个顺序</text>
+        <text class="svg-small" x="50" y="238">应用级在前，是因为它装的是「全局策略」</text>
+        <text class="svg-small" x="50" y="262">（比如全局快捷键、调试日志）</text>
+        <text class="svg-small" x="50" y="288">对象级在后，装的是「这个控件的特殊规矩」</text>
+        <text class="svg-small" x="50" y="314">★ 应用级与对象级的先后属于实现顺序，</text>
+
+        <rect class="svg-box-bad" x="390" y="180" width="340" height="150" rx="10"/>
+        <text class="svg-title" x="560" y="208" text-anchor="middle">别踩的坑</text>
+        <text class="svg-small" x="408" y="238">· 两个过滤器都处理同一个事件 → 混乱</text>
+        <text class="svg-small" x="408" y="262">· 依赖「谁先跑」来保证业务顺序</text>
+        <text class="svg-small" x="408" y="288">· 用过滤器实现本该由控件自己做的逻辑</text>
+        <text class="svg-small" x="408" y="314">→ 半个月后没人说得清事件走的哪条路</text>
+
+        <rect class="svg-box-warn" x="30" y="345" width="700" height="55" rx="10"/>
+        <text class="svg-small" x="50" y="370">写过滤器时的自检问题：这个事件我处理了，用户还可能想让它继续往下走吗？</text>
+        <text class="svg-small" x="50" y="390">想清楚这一条，顺序问题就基本不用管了。</text>
+      </svg>`,
+    caption: '顺序是：<strong>应用级过滤器 → 对象级过滤器 → <code>receiver-&gt;event()</code> → 具体处理器</strong>；同一层里<strong>后装的先跑</strong>（文档明确写了这一条，因为后装的通常更具体）。应用级与对象级的先后细节属于实现顺序，<strong>不要靠它保证业务逻辑</strong>——写过滤器时只问一句：这个事件我拦下之后，还该不该往下走。',
+    code: `// 装三个过滤器在同一个控件上
+edit->installEventFilter(filterA);   // 先装 → 最后被调用
+edit->installEventFilter(filterB);
+edit->installEventFilter(filterC);   // 后装 → 最先被调用
+
+// 调试时打印谁先跑，比背规则可靠
+qInfo() << watched->objectName() << event->type();`,
+    highlight: [1, 3, 6]
+  },
+  {
+    title: 'return true 之后，事件就死在你手里',
+    nav: '返回值',
+    ms: 7000,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="eventFilter 返回值的两种后果">
+        <rect class="svg-box-good" x="30" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="195" y="58" text-anchor="middle">return true</text>
+        <text class="svg-small" x="50" y="88">· 事件被「已处理」</text>
+        <text class="svg-small" x="50" y="112">· 后面的过滤器不再跑</text>
+        <text class="svg-small" x="50" y="136">· 控件自己的 event() 也不再跑</text>
+        <text class="svg-bad-text" x="50" y="164">★ 连 mousePressEvent 都不会被调用</text>
+
+        <rect class="svg-box" x="400" y="30" width="330" height="150" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">return false</text>
+        <text class="svg-small" x="420" y="88">· 「我看过了，不归我管」</text>
+        <text class="svg-small" x="420" y="112">· 继续往下传</text>
+        <text class="svg-small" x="420" y="136">· 控件行为完全不变</text>
+        <text class="svg-good-text" x="420" y="164">★ 只想「观察」时，永远返回 false</text>
+
+        <rect class="svg-field" x="30" y="200" width="700" height="195" rx="10"/>
+        <text class="svg-small" x="50" y="228">两个真实例子，正好一真一假：</text>
+
+        <rect class="svg-box-good" x="50" y="244" width="320" height="70" rx="8"/>
+        <text class="svg-small" x="68" y="268">回车提交：拦下 KeyPress，返回 true</text>
+        <text class="svg-small" x="68" y="290">否则 QLineEdit 可能会吃掉它 / 响铃</text>
+        <text class="svg-small" x="68" y="310">（也可以就返回 false 让编辑框继续处理）</text>
+
+        <rect class="svg-box-warn" x="390" y="244" width="320" height="70" rx="8"/>
+        <text class="svg-small" x="408" y="268">日志/埋点：返回 false</text>
+        <text class="svg-small" x="408" y="290">你只是想知道「发生过」</text>
+        <text class="svg-small" x="408" y="310">拦下来 = 界面直接失灵（最经典的过滤器 bug）</text>
+
+        <text class="svg-small" x="50" y="345">判断标准很朴素：</text>
+        <text class="svg-text" x="50" y="372">返回 true 意味着「这个事件到此为止，我负责」—— 如果你没有真正处理它，就是吞掉了一次用户操作。</text>
+      </svg>`,
+    caption: '<code>return true</code> = <strong>事件死在你手里</strong>：后面的过滤器、<code>receiver-&gt;event()</code>、连控件自己的 <code>mousePressEvent</code> 都不会跑。<code>return false</code> = 看一眼就放行。所以「只想观察（日志、埋点）」时<strong>永远返回 false</strong>；返回 true 之前必须确认自己真的把这件事办完了，否则就是<strong>吞掉用户操作</strong>。',
+    code: `bool Page::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_edit && event->type() == QEvent::KeyPress) {
+        auto *ke = static_cast<QKeyEvent *>(event);
+        if (ke->key() == Qt::Key_Return) {
+            submit();          // 我处理了
+            return true;       // → 到此为止
+        }
+    }
+    return QObject::eventFilter(watched, event);   // 放行
+}`,
+    highlight: [6, 7, 9]
+  },
+  {
+    title: '典型用途：四个值得用的场合',
+    nav: '四个用途',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="事件过滤器的典型用途">
+        <rect class="svg-box-good" x="25" y="25" width="345" height="95" rx="10"/>
+        <text class="svg-title" x="45" y="52">① 给第三方控件补行为</text>
+        <text class="svg-small" x="45" y="78">QLineEdit 回车提交、QComboBox 上下键换页</text>
+        <text class="svg-small" x="45" y="100">不用继承、不用改源码 —— 最正当的用途</text>
+
+        <rect class="svg-box-good" x="390" y="25" width="345" height="95" rx="10"/>
+        <text class="svg-title" x="410" y="52">② 全局快捷键 / 全局策略</text>
+        <text class="svg-small" x="410" y="78">装在 qApp 上，抢在控件之前看到按键</text>
+        <text class="svg-small" x="410" y="100">比 QShortcut 更灵活（可做条件判断）</text>
+
+        <rect class="svg-box-warn" x="25" y="135" width="345" height="95" rx="10"/>
+        <text class="svg-title" x="45" y="162">③ 调试：看事件到底怎么走</text>
+        <text class="svg-small" x="45" y="188">打印 type / watched / accepted</text>
+        <text class="svg-small" x="45" y="210">找不到「谁吃掉了我的点击」时必用</text>
+
+        <rect class="svg-box-bad" x="390" y="135" width="345" height="95" rx="10"/>
+        <text class="svg-title" x="410" y="162">④ 反模式：替代控件自己的逻辑</text>
+        <text class="svg-small" x="410" y="188">「业务逻辑写在 eventFilter 里」</text>
+        <text class="svg-small" x="410" y="210">一旦有两三个过滤器，行为就没人说得清</text>
+
+        <rect class="svg-field" x="25" y="245" width="710" height="150" rx="10"/>
+        <text class="svg-small" x="45" y="273">一个能救命的调试过滤器（临时用，别留在产品里）：</text>
+        <text class="svg-mono" x="45" y="301">if (event-&gt;type() == QEvent::MouseButtonPress) {</text>
+        <text class="svg-mono" x="45" y="325">    qInfo() &lt;&lt; "press on" &lt;&lt; watched-&gt;metaObject()-&gt;className();</text>
+        <text class="svg-mono" x="45" y="349">}</text>
+        <text class="svg-small" x="45" y="377">装上它，点一下，你就知道事件究竟先到了谁 —— 比读文档快。</text>
+      </svg>`,
+    caption: '四个场合里只有前三个值得长期留着：<strong>给第三方控件补行为</strong>、<strong>全局快捷键/策略</strong>、<strong>调试事件走向</strong>。第四个——把业务逻辑写进 <code>eventFilter</code>——一旦有两个以上过滤器，行为就没人说得清。最后一个调试片段装上去点一下，比读半小时文档更快定位「谁吃掉了我的点击」。',
+    code: `// 调试用：临时装到 qApp，点一下就知道事件先到谁
+class PressSpy : public QObject {
+public:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if (event->type() == QEvent::MouseButtonPress)
+            qInfo() << "press on" << watched->metaObject()->className();
+        return false;          // 只观察，绝不放血
+    }
+};
+qApp->installEventFilter(spy);   // 装在应用对象上，才看得到全程序`,
+    highlight: [5, 6]
+  },
+  {
+    title: '生命周期：过滤器先死 / 被监视对象先死',
+    nav: '生命周期',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="过滤器与被监视对象的生命周期">
+        <rect class="svg-box" x="30" y="30" width="330" height="170" rx="10"/>
+        <text class="svg-title" x="195" y="58" text-anchor="middle">被监视对象先析构</text>
+        <text class="svg-small" x="50" y="88">它自己的过滤器列表跟着消失</text>
+        <text class="svg-small" x="50" y="112">对过滤器来说：以后再也没有事件来</text>
+        <text class="svg-good-text" x="50" y="142">安全 —— 不需要你做什么</text>
+        <text class="svg-small" x="50" y="172">前提：过滤器本身还活着</text>
+
+        <rect class="svg-box" x="400" y="30" width="330" height="170" rx="10"/>
+        <text class="svg-title" x="565" y="58" text-anchor="middle">过滤器对象先析构</text>
+        <text class="svg-small" x="420" y="88">Qt 会把它从被监视对象上摘掉</text>
+        <text class="svg-small" x="420" y="112">这是运行时清理，别当成契约来用</text>
+        <text class="svg-text" fill="#b45309" x="420" y="142">风险在别处：过滤器里存了别人的指针</text>
+        <text class="svg-small" x="420" y="172">那个「别人」死了，你的过滤器就悬垂</text>
+
+        <rect class="svg-field" x="30" y="220" width="700" height="110" rx="10"/>
+        <text class="svg-small" x="50" y="248">最稳的写法：让过滤器有明确的宿主，并且和宿主同寿命。</text>
+        <text class="svg-mono" x="50" y="276">Spy *spy = new Spy(this);            // 宿主是 this</text>
+        <text class="svg-mono" x="50" y="300">edit-&gt;installEventFilter(spy);        // 两者随 this 一起死</text>
+        <text class="svg-small" x="50" y="322">这样就不存在「谁先死」的问题了 —— 明确的所有权比任何清理技巧都可靠。</text>
+
+        <rect class="svg-box-bad" x="30" y="345" width="700" height="55" rx="10"/>
+        <text class="svg-bad-text" x="50" y="370">反例：把过滤器对象 new 出来却没人管，或存在栈上却装在长寿命控件上。</text>
+        <text class="svg-small" x="50" y="390">后者表现为：栈帧一退，控件下一个事件就崩在野指针上。</text>
+      </svg>`,
+    caption: '被监视对象先死：过滤器列表跟着消失，安全。过滤器先死：Qt 会把它从被监视对象上摘掉（运行时清理，别当契约）。<strong>真正的风险是过滤器里缓存了别的对象指针</strong>。最稳的写法是<strong>让过滤器有明确宿主、与被监视控件同寿命</strong>——把 <code>new Spy(this)</code> 装上去，就不存在「谁先死」的问题。',
+    code: `// 好：宿主明确，同生共死
+auto *spy = new PressSpy(this);       // parent = this
+m_edit->installEventFilter(spy);
+
+// 坏：栈上对象装到长寿命控件上
+PressSpy local;
+m_edit->installEventFilter(&local);   // 函数一返回就是野指针`,
+    highlight: [1, 2, 5, 6]
+  },
+  {
+    title: '和 event() / 信号槽 的分工',
+    nav: '三者分工',
+    ms: 6500,
+    stage: `
+      <svg viewBox="0 0 760 420" role="img" aria-label="event filter、event 重写、信号槽的分工">
+        <rect class="svg-box" x="25" y="25" width="230" height="180" rx="10"/>
+        <text class="svg-title" x="140" y="52" text-anchor="middle">eventFilter</text>
+        <text class="svg-small" x="45" y="80">别人的类，我不改</text>
+        <text class="svg-small" x="45" y="104">要看「所有事件」</text>
+        <text class="svg-small" x="45" y="128">要抢在控件之前</text>
+        <text class="svg-small" x="45" y="152">临时调试</text>
+        <text class="svg-small" x="45" y="182">代价：隐式控制流</text>
+
+        <rect class="svg-box-accent" x="265" y="25" width="230" height="180" rx="10"/>
+        <text class="svg-title" x="380" y="52" text-anchor="middle">重写 event()</text>
+        <text class="svg-small" x="285" y="80">自己的类，要统一拦截</text>
+        <text class="svg-small" x="285" y="104">要处理自定义事件</text>
+        <text class="svg-small" x="285" y="128">要在分发处做开关</text>
+        <text class="svg-small" x="285" y="152">（必须在类内部）</text>
+        <text class="svg-small" x="285" y="182">代价：得继承</text>
+
+        <rect class="svg-box-good" x="505" y="25" width="230" height="180" rx="10"/>
+        <text class="svg-title" x="620" y="52" text-anchor="middle">信号槽</text>
+        <text class="svg-small" x="525" y="80">「发生了什么」的通知</text>
+        <text class="svg-small" x="525" y="104">按钮点了、值变了</text>
+        <text class="svg-small" x="525" y="128">跨对象、跨线程</text>
+        <text class="svg-small" x="525" y="152">业务层最该用这个</text>
+        <text class="svg-small" x="525" y="182">代价：信号不一定有</text>
+
+        <rect class="svg-field" x="25" y="225" width="710" height="170" rx="10"/>
+        <text class="svg-small" x="45" y="253">选择顺序（从上往下试，第一个能用的就用它）：</text>
+        <text class="svg-text" x="45" y="283">① 有现成信号 → 用信号槽（最清晰，可跨线程）</text>
+        <text class="svg-text" x="45" y="309">② 自己的类、要拦一类事件 → 重写 event() 或具体处理器</text>
+        <text class="svg-text" x="45" y="335">③ 别人的类、又不方便继承 → eventFilter</text>
+        <text class="svg-small" x="45" y="366">★ 这三者是「从清晰到隐晦」的梯度。能往上走，就别往下走 —— 因为代码是写给人看的。</text>
+      </svg>`,
+    caption: '分工很清楚：<strong>有现成信号就用信号槽</strong>（最清晰、可跨线程）；<strong>自己的类要拦一类事件</strong>就重写 <code>event()</code> 或具体处理器；<strong>别人的类又不方便继承</strong>才用 <code>eventFilter</code>。这三者是「从清晰到隐晦」的梯度，能往上走就别往下走——因为代码是写给人看的，隐式控制流会在半年后咬人。',
+    code: `// ① 有信号：最清晰
+connect(btn, &QPushButton::clicked, this, &Page::onClicked);
+
+// ② 自己的类：重写具体处理器
+void Canvas::mousePressEvent(QMouseEvent *e) {
+    if (e->button() == Qt::LeftButton) startDrag(e->position());
+    QWidget::mousePressEvent(e);      // 不处理就还给基类
+}
+
+// ③ 别人的类：过滤器
+m_edit->installEventFilter(this);`,
+    highlight: [1, 4, 9]
+  }
+];
+</script>
+<script src="visual.js"></script>
+</body>
+</html>
