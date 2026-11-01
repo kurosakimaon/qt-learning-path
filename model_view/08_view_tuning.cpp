@@ -44,9 +44,10 @@
 //     data() 次数依赖视口大小与样式，我承诺的关系是：「调优前后差在表头/尺寸遍历上，
 //     不在可见格子的 data() 上」。
 //   · 图解页面：../visuals/model_view.html（视图拉取式那一张）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；每处「预期」后面是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_08_view_tuning，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_08_view_tuning.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -81,7 +82,7 @@
 #include <vector>
 
 // ============================================================================
-// 一、核对过的签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、核对过的签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtWidgets/qabstractitemview.h
 //   第 55~61 行  enum SelectionMode { NoSelection, SingleSelection, MultiSelection,
@@ -111,8 +112,11 @@
 //   第 194 行   void setIndexWidget(const QModelIndex &, QWidget *);   ← 大量用它 = 回到「控件堆表格」的老路
 //   第 199/201 行 setItemDelegateForRow / setItemDelegateForColumn（第 4 讲那条路的视图侧入口）
 //   第 215 行   public Q_SLOTS: virtual void reset();
-//   第 217~223 行 setRootIndex / doItemsLayout / selectAll / edit(const QModelIndex&) /
+//   第 216~223 行 setRootIndex / doItemsLayout / selectAll / edit(const QModelIndex&) /
 //                clearSelection / setCurrentIndex / scrollToTop / scrollToBottom
+//   ★ 勘误：旧稿写 217 起，整体偏 +1。本机 6.12.0：214 行是 `public Q_SLOTS:`、215 行 reset()、
+//     **216** 才是 setRootIndex；这一段止于 223 scrollToBottom（224 还有 update(QModelIndex)，
+//     旧稿的 8 项清单把它漏了）。这一组是 slot，不是普通方法——记成「虚函数表」会错。
 //   第 273 行   protected: virtual bool edit(const QModelIndex &, EditTrigger, QEvent *);
 //
 // QtWidgets/qabstractscrollarea.h
@@ -410,7 +414,7 @@ int main(int argc, char *argv[])
                                             "量级就是 行数×列数（本机 %1×%2 = %3 那个数量级），"
                                             "和「可见区只有几十格」形成鲜明对比")
                                  .arg(kRows).arg(ProbedModel::ColCount).arg(qint64(kRows) * ProbedModel::ColCount);
-        qInfo().noquote() << QStringLiteral("  ⚠ 所以：把它放进循环、放进 paint、或者每次数据变更都调一次，"
+        qInfo().noquote() << QStringLiteral("  【注意】 所以：把它放进循环、放进 paint、或者每次数据变更都调一次，"
                                             "等于自愿把 O(可见格) 改成 O(全表)。");
     });
 
@@ -506,7 +510,7 @@ int main(int argc, char *argv[])
         view.resetHorizontalScrollMode();
         qInfo().noquote() << QStringLiteral("  resetVerticalScrollMode() 之后回到 %1（视图会按样式/滚动条策略选默认值）")
                                  .arg(int(view.verticalScrollMode()));
-        qInfo().noquote() << QStringLiteral("  ⚠ 再钉一遍：写 QAbstractScrollArea::ScrollPerPixel 编不过 —— "
+        qInfo().noquote() << QStringLiteral("  【注意】 再钉一遍：写 QAbstractScrollArea::ScrollPerPixel 编不过 —— "
                                             "本机 qabstractscrollarea.h 里没有 ScrollMode 这个枚举。");
         qInfo().noquote() << QStringLiteral("  updateThreshold=%1（滚动时「挪多少像素才重画」的阈值，第 184/185 行；"
                                             "这是纯性能旋钮，改之前先确认你真的需要）").arg(view.updateThreshold());
@@ -529,7 +533,7 @@ int main(int argc, char *argv[])
                                  .arg(int(QAbstractItemView::DoubleClicked)).arg(int(QAbstractItemView::SelectedClicked))
                                  .arg(int(QAbstractItemView::DoubleClicked) | int(QAbstractItemView::SelectedClicked))
                                  .arg(int(view.editTriggers()), 2, 16, QLatin1Char('0'));
-        qInfo().noquote() << QStringLiteral("  ⚠ AnyKeyPressed(=16) 慎用：用户在表格里按一下字母就弹出编辑器盖住格子，"
+        qInfo().noquote() << QStringLiteral("  【注意】 AnyKeyPressed(=16) 慎用：用户在表格里按一下字母就弹出编辑器盖住格子，"
                                             "这是新手最常见的「一打字就跳编辑框」来源。");
 
         const bool wrapDefault = view.wordWrap();
@@ -537,7 +541,7 @@ int main(int argc, char *argv[])
         const bool wrapOn = view.wordWrap();
         view.setWordWrap(false);
         qInfo().noquote() << QStringLiteral("  wordWrap（属于 QTableView，第 69 行）默认=%1，设 true 后读到=%2，"
-                                            "关回 %3；⚠ 它和 ResizeToContents / resizeRowsToContents 组合起来就是"
+                                            "关回 %3；【注意】 它和 ResizeToContents / resizeRowsToContents 组合起来就是"
                                             "「每格都要量文字折几行」，10 万行时非常疼")
                                  .arg(wrapDefault ? "true" : "false")
                                  .arg(wrapOn ? "true" : "false")
@@ -683,7 +687,7 @@ int main(int argc, char *argv[])
     });
 
     QTimer::singleShot(470, [&view, &model, &harness]() {
-        qInfo().noquote() << QStringLiteral("⑪ 收尾自检");
+        qInfo().noquote() << QStringLiteral("(11) 收尾自检");
         qInfo().noquote() << QStringLiteral("  模型仍是 %1 行 × %2 列；视图 model()==&model ? %3")
                                  .arg(model.rowCount()).arg(model.columnCount())
                                  .arg(view.model() == &model ? "true" : "false");

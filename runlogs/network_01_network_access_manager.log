@@ -1,0 +1,126 @@
+================================================================
+network 第 1 讲 · QNetworkAccessManager 的正确姿势（Qt = 6.12.0 ）
+================================================================
+  回环服务器已就位：127.0.0.1: 5077 ｜serverAddress = "127.0.0.1" （端口是 listen(QHostAddress::LocalHost, 0) 现分配的，**没有硬编码**）
+【证据①】QUrl：手写字符串 vs 正规构造
+  QUrl("C:/data/a.json") → scheme = "c" path = "/data/a.json" ← **「C:」被当成 scheme 了**，这就是手撸字符串的下场（第 229 行了才救得回来）
+  QUrl::fromLocalFile(...) → "file:///C:/data/a.json" ｜toLocalFile() 回来 = "C:/data/a.json" ｜isValid = true ← 本地文件**只有** fromLocalFile 这一条路（NAM 也能 GET file://，第 83 行那个 get）
+  QUrlQuery 拼出来的 toEncoded() = "http://127.0.0.1:80/api/device?name=%E7%BD%91%E5%85%B3%20A3&tag=a%26b"
+     对比手工拼接 QUrl("...?name=网关 A3&tag=a&b") 会被拆成 "name=网关 A3&tag=a&b" ← 多出来的那个空 queryItem 就是「手撸 &」的债
+  拆回来：path = "/api/device" queryItem(name) = "网关 A3"
+  用户输入的口子：QUrl::fromUserInput("127.0.0.1:80/x") → "http://127.0.0.1:80/x" （第 180 行；只有「用户输入的地址栏文本」才用它，代码里构造 URL 别用）
+      ［对］ ① 手写 "C:/data/a.json" 的 scheme 被误认成 c → 期望 1，实测 1
+      ［对］ ① fromLocalFile 得到的 URL 合法 → 期望 1，实测 1
+      ［对］ ① toLocalFile 能原样还原 Windows 路径 → 期望 1，实测 1
+      ［对］ ① QUrlQuery 拼出的 queryItem 数 → 期望 2，实测 2
+      ［对］ ① 同一个 query 拆回来 name 仍是「网关 A3」 → 期望 1，实测 1
+      ［对］ ① 值里的 & 被编码成 %26 → 期望 1，实测 1
+      ［对］ ① 中文按 UTF-8 百分号编码（%E7%BD%91 = 网） → 期望 1，实测 1
+      ［对］ ① 手撸 & 的那个 URL 被拆成 3 个 queryItem（多出一个空值项） → 期望 3，实测 3
+      ［对］ ① fromUserInput 给裸地址补上 http scheme → 期望 1，实测 1
+【证据②】GET 一次：信号分工与读取时机
+  发出去立刻看：isRunning = true isFinished = false ｜此刻读 attribute(HttpStatusCode) = 0 ← **0**：头还没到，状态码此时读不到，这就是「读取时机」四个字的含义
+      ［对］ ② 刚发出去 isRunning() 还是 true → 期望 1，实测 1
+      ［对］ ② 刚发出去 isFinished() 还是 false → 期望 0，实测 0
+      ［对］ ② 刚发出去读状态码只能是 0（头还没到） → 期望 0，实测 0
+      ［对］ ② 刚发出去 rawHeader("Server") 是空的 → 期望 1，实测 1
+    readyRead 第 1 次：这次读到 48 字节（有正文可读了，流式写法就在这里落盘/喂解析器）
+"  【GET /api/device】operation=2｜error()=0(NoError)｜errorString()=\"Unknown error\""
+"  【GET /api/device】状态码 attribute(HttpStatusCode)=200｜reason=\"OK\""
+"  【GET /api/device】正文 48 字节｜Server 头=\"qteach-loopback/1.0\"｜头字段共 4 个"
+"  【GET /api/device】JSON 字段：id=42 name=巡检网关-A3 online=1"
+  finished 时：readyRead 共触发 1 次｜downloadProgress 1 次（末次字节 48 ）｜errorOccurred 0 次
+  → 分工记一句：**readyRead = 能读了（可能很多次）；finished = 结束了（一次，必发）**。正文小，finished 后 readAll 就够；要边下边处理，才在 readyRead 里读。
+      ［对］ ② finished 后状态码 200 → 期望 200，实测 200
+      ［对］ ② finished 后 error() = NoError → 期望 0，实测 0
+      ［对］ ② finished 后 isFinished() = true → 期望 1，实测 1
+      ［对］ ② 正文解析出的 id → 期望 42，实测 42
+      ［对］ ② 正文解析出的 name 是中文且没被转坏 → 期望 1，实测 1
+      ［对］ ② online 字段是 true → 期望 1，实测 1
+      ［对］ ② Server 头来自回环服务器 → 期望 1，实测 1
+      ［对］ ② readyRead 至少触发过 1 次（小正文通常就 1 次） → 期望 1，实测 1
+      ［对］ ② downloadProgress 报出的末次字节 = 正文大小 → 期望 1，实测 1
+【证据③】head / get / post / put / deleteResource / sendCustomRequest
+"  head                第 82 行 只要头不要正文（探测存在性/大小） → 状态 200｜operation()=1｜正文 0 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 200，实测 200
+      ［对］ ③ operation() 的编号 → 期望 1，实测 1
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ HEAD / 204 的正文必须是 0 字节 → 期望 0，实测 0
+"  get                 第 83 行 取资源，不带请求体 → 状态 200｜operation()=2｜正文 48 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 200，实测 200
+      ［对］ ③ operation() 的编号 → 期望 2，实测 2
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ 带正文的动词确实收到了正文 → 期望 1，实测 1
+"  deleteResource      第 100 行 删资源；**Qt6 没有 delete() 这个方法名** → 状态 204｜operation()=5｜正文 0 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 204，实测 204
+      ［对］ ③ operation() 的编号 → 期望 5，实测 5
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ HEAD / 204 的正文必须是 0 字节 → 期望 0，实测 0
+"  post(QByteArray)    第 87 行 新建/提交，正文进 body（非幂等） → 状态 200｜operation()=4｜正文 48 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 200，实测 200
+      ［对］ ③ operation() 的编号 → 期望 4，实测 4
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ 带正文的动词确实收到了正文 → 期望 1，实测 1
+"  put(QByteArray)     第 94 行 整体替换，**幂等**：同一份内容发两次结果一样 → 状态 200｜operation()=3｜正文 48 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 200，实测 200
+      ［对］ ③ operation() 的编号 → 期望 3，实测 3
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ 带正文的动词确实收到了正文 → 期望 1，实测 1
+"  sendCustomRequest   第 101 行 PATCH 这类自定义动词（verb 是 QByteArray） → 状态 200｜operation()=6｜正文 48 字节｜error()=0"
+      ［对］ ③ 状态码 → 期望 200，实测 200
+      ［对］ ③ operation() 的编号 → 期望 6，实测 6
+      ［对］ ③ error() = NoError → 期望 0，实测 0
+      ［对］ ③ 带正文的动词确实收到了正文 → 期望 1，实测 1
+  六个动词全部收口：本轮服务器收到 6 个请求（累计 7 ）｜最后一个被看到的动词/路径 = "PATCH" "/api/device"
+  → operation() 的值来自第 42 行那个 Operation 枚举（Head=1 Get=2 Put=3 Post=4 Delete=5 Custom=6，Unknown=0）；它是 **从 1 起编号**的，别拿它做位运算。
+      ［对］ ③ 六个动词让服务器各收到 1 个请求 → 期望 6，实测 6
+【证据④】302：自动跟随（Qt6 默认）与 ManualRedirectPolicy
+  A 组：/moved（服务器回 302 Location: /api/device），默认策略 → 自己跟到底
+  B 组：同样的 /moved，但 setAttribute(RedirectPolicyAttribute, Manual) → 停在 302
+    A 组 redirected(const QUrl&) → "http://127.0.0.1:5077/api/device" （Qt6 这个信号**只有一个参数**，Qt5 的第二参数 RedirectionType 本机头文件里搜不到）
+"  【B 组（停在 302）】operation=2｜error()=0(NoError)｜errorString()=\"Unknown error\""
+"  【B 组（停在 302）】状态码 attribute(HttpStatusCode)=302｜reason=\"Found\""
+"  【B 组（停在 302）】正文 0 字节｜Server 头=\"qteach-loopback/1.0\"｜头字段共 5 个"
+  B 组 RedirectionTargetAttribute = "/api/device" ｜isValid = true ← 手动策略下框架把「该跳哪儿」交给你：跳不跳、要不要补 scheme、要不要问用户，全是你的代码（UserVerifiedRedirectPolicy 就是给第三种用的）
+      ［对］ ④ B 组停在 302 → 期望 302，实测 302
+      ［对］ ④ B 组 RedirectionTargetAttribute 是有效 QUrl → 期望 1，实测 1
+      ［对］ ④ B 组拿到的跳转目标是 /api/device → 期望 1，实测 1
+      ［对］ ④ B 组 url() 没有被改写，仍是 /moved → 期望 1，实测 1
+"  【A 组（自动跟随）】operation=2｜error()=0(NoError)｜errorString()=\"Unknown error\""
+"  【A 组（自动跟随）】状态码 attribute(HttpStatusCode)=200｜reason=\"OK\""
+"  【A 组（自动跟随）】正文 48 字节｜Server 头=\"qteach-loopback/1.0\"｜头字段共 4 个"
+"  【A 组（自动跟随）】JSON 字段：id=42 name=巡检网关-A3 online=1"
+  A 组最终 url() = "http://127.0.0.1:5077/api/device" ｜request().url() = "http://127.0.0.1:5077/moved" （跟完之后 url() 已是 Location 那条——判断「我到底拿到了谁的响应」看这里）
+      ［对］ ④ A 组自动跟随后拿到的是 200 → 期望 200，实测 200
+      ［对］ ④ A 组 reply->url() 已变成跳转目标 /api/device → 期望 1，实测 1
+      ［对］ ④ A 组 request().url() 仍是当初请求的 /moved → 期望 1，实测 1
+      ［对］ ④ A 组 error() = NoError（跟随成功不算错） → 期望 0，实测 0
+【证据⑤】等待期间事件循环一直在转（本讲零阻塞）
+  这一个请求耗时 20 ms｜期间 1ms 心跳定时器跳了 20 次
+  → 数值大小不重要（取决于机器），重要的是**它不是 0**：线程没被钉死。
+      ［对］ ⑤ 等待这一个请求期间，1ms 心跳至少跳了 1 次（线程没被钉死） → 期望 1，实测 1
+      ［对］ ⑤ 被等的这个请求本身是成功的 → 期望 200，实测 200
+【证据⑥】/stall：接了连接但不写任何字节 → 看 transferTimeout
+  本请求超时 800ms｜NAM 全局超时 5000 ms｜没设过时的默认常量 DefaultTransferTimeoutConstant = 30000（第 110 行）
+  卡住的请求 errorOccurred → 4 "= TimeoutError(4)"
+  读正文前先看门的开关：isOpen() = false ｜bytesAvailable() = 0 （isOpen=false => 下面这口 readAll() 会带一条 device not open 的警告，属预期）
+QIODevice::read (QNetworkReplyHttpImpl): device not open
+"  【GET /stall（超时收尾）】operation=2｜error()=4(非 0)｜errorString()=\"Operation timed out\""
+"  【GET /stall（超时收尾）】状态码 attribute(HttpStatusCode)=0｜reason=\"\""
+"  【GET /stall（超时收尾）】正文 0 字节｜Server 头=\"\"｜头字段共 0 个"
+  → 超时也一定走 finished：**收尾代码只写在 finished 里**永远是对的。只 connect(errorOccurred) 做清理的人，正常路径漏 deleteLater；反过来只 connect(finished) 的人，把 error 当成功处理。两个都要读：error() 判性质，finished 做收口。
+      ［对］ ⑥ 卡住的请求以 TimeoutError 收尾 → 期望 4，实测 4
+      ［对］ ⑥ 超时至少等够了设定的 800ms（不许提前报错） → 期望 1，实测 1
+      ［对］ ⑥ 超时请求没有拿到状态码 → 期望 0，实测 0
+【收尾】统计：readyRead 1 finished 11 errorOccurred 1 redirected 1 ｜事件循环轮数 941 ｜服务器累计收到 12 个请求
+【收尾】这一讲的规矩记一句话：**NAM 一个就够，reply 必须 deleteLater，状态只在 finished 之后读，超时必须显式设，端口必须现拿。**
+      ［对］ 收尾 finished 总次数（GET 1 + 六动词 6 + 重定向 2 + 取证 1 + 超时 1） → 期望 11，实测 11
+      ［对］ 收尾 errorOccurred 总次数（只有超时那一次） → 期望 1，实测 1
+      ［对］ 收尾 redirected 信号次数（只有 A 组真的跟了） → 期望 1，实测 1
+      ［对］ 收尾服务器收到的请求数（1 + 6 + 2 + 1 + 1 + 1） → 期望 12，实测 12
+      ［对］ 收尾服务器最后处理的是 /stall → 期望 1，实测 1
+      ［对］ 收尾服务器绑的确实是回环地址 → 期望 1，实测 1
+      ［对］ 收尾端口不是硬编码的（内核分配，非 0） → 期望 1，实测 1
+
+【硬账】67/67 项核对通过 → 退出码 0
+事件循环已退出，返回码 0 ｜NAM / 服务器 / 心跳定时器的 parent 都是 app，随 app 析构回收

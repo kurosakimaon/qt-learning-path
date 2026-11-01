@@ -1,0 +1,5 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+[B] 按钮被按下：lambda（无 context）响应
+[C] 按钮被按下：带 context 的 lambda（title 析构则此连接自动断开）
+交互闭环演示结束，退出

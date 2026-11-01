@@ -1,0 +1,24 @@
+事实① 内建类型的边界：QEvent::User = 1000 （1000）、MaxUser = 65535 （65535）
+事实① ProgressEvent 注册到的 type = QEvent::MaxUser （registerEventType() 无 hint）；HeartbeatEvent = QEvent::Type(1001) （hint = User+1）。两者相等吗？ false
+事实② postEvent 之后立刻读：sink.progressSeen = 0 （0：事件还在队列里）
+    顺序探针 收到 ProgressEvent：percent=92 stage=B-高 payload=0 字节
+    顺序探针 收到 ProgressEvent：percent=94 stage=D-高（更晚入队） payload=0 字节
+    顺序探针 收到 ProgressEvent：percent=93 stage=C-普通 payload=0 字节
+事实② 优先级实验：顺序探针收到 4 条，percent 序列应为「高→高→普通→低」 （同优先级按入队先后）。若你读到 92,94,93,91 就完全符合预期。
+    接收器 收到 ProgressEvent：percent=22 stage=高优先 payload=0 字节
+    接收器 收到 ProgressEvent：percent=10 stage=下载 payload=0 字节
+    接收器 收到 ProgressEvent：percent=23 stage=普通 payload=0 字节
+    接收器 收到 ProgressEvent：percent=100 stage=刷进度 payload=0 字节
+事实③ 同一接收者、同一类型连投 500 条 → 实际收到 504 条；抽干耗时 0 ms → **自造事件不会自动合并**：投 500 条就跑 500 次，还 500 次 new/delete。
+事实③ 500 次 gate->start() 排好了；闸门跑起来后，接收器只会收到 1 条快照事件。
+事实④ 投 2 条、removePostedEvents 按类型撤掉 2 条（Qt6 返回 void，条数自己统计）； 旁观者随后收到 heartbeat 0 条（预期 0）。 接收者销毁时 Qt 会自动清掉发给它的队列事件，但**你要提前撤的**是那种 「重算代价很大、结果已经作废」的活儿。
+     "旁观者"  收到 HeartbeatEvent tickNo = 10
+     "旁观者"  收到 HeartbeatEvent tickNo = 20
+    信号路径 progressed() 收到 percent = 42 （同线程：就在 Q_EMIT 那一行里同步跑完，见第贰阶段第 1 讲）
+    接收器 收到 ProgressEvent：percent=100 stage=第 10 步 payload=100 字节
+
+=== 结论 ===
+① 自定义事件的 type 必须来自 registerEventType()（qcoreevent.h 320 行）： ProgressEvent = 65535 HeartbeatEvent = 1001 ——两个都是 Qt 分配的，不重叠；**别把自己的事件绑在整数值上存到文件/跨进程**。
+② 接收端计数：sink progress 515 条 / heartbeat 0 条 / 不认识的 user 段 0 条 / 其他 0 条；最后一条进度 =  100 %  "第 10 步"
+③ 合并：自造事件 500 条 → 500 次（事实③ 上半）； QTimer(0) 闸门 500 次请求 → 闸门触发 1 次 → 只投 1 条快照事件。**想要合并就用定时器当闸门，别自造合并。**
+④ 事件 vs 信号：本次 signal 路径跑了 1 次（同步、参数类型化、有连接表与生命周期）； 事件路径跑了 515 次（异步入队、拥有权交给 Qt、只有原始 type 码）。

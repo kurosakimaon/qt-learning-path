@@ -15,9 +15,9 @@
 
 一句话概括这个模块的心智模型：**控件只报自己的尺寸，布局才是分钱的人，样式和翻译只是最后刷的那层漆。**
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，本模块示例**未在本机实测编译**；每个类/函数/重载/枚举都对着 `C:\msys64\ucrt64\include\qt6` 下的真实头文件核对过，行号写在用到的地方。第 10 讲还实测了工具链现状：`lupdate.exe / lrelease.exe / linguist.exe` **在** `C:\msys64\ucrt64\bin`（不在 `share\qt6\bin`），但 `C:\msys64\ucrt64\translations` **目录不存在、全盘搜不到一个 .qm**——所以 i18n 示例不依赖外部翻译文件，`load()` 失败就老实打印 `false`。
+> 实测口径：**本模块 10 个示例都已在本机真实编译、链接、运行**（`QT_QPA_PLATFORM=offscreen` 无头跑完并自己打印证据），包含在顶层 `ctest` 的 75/75 绿里（73 个编号示例 + 实战项目 2 个）；每个 .cpp 也过 `moc` + `g++ -std=c++17 -Wall -Wextra`（零 error、零 warning），行号写在用到的地方。第 10 讲的工具链与翻译现状是**本机现查**的：`lupdate.exe / lrelease.exe / linguist.exe` 在 `D:\Qt\6.12.0\mingw_64\bin`；翻译目录由 `QLibraryInfo::path(QLibraryInfo::TranslationsPath)` 给出，本机这一轮指到 `D:/Qt/6.12.0/mingw_64/translations`，里面有 **314 个 .qm**（含 `qtbase_zh_CN.qm`），所以示例装载成功后当场打印「装前 `OK` → 装后 `确定`」这样的对照。**这一类环境事实换机器就会反过来**，第 10 讲因此不把 `load()` 的返回值当断言，只把 true/false 两条分支都解释清楚（旧版在这里写过一句「本机一个 .qm 都没有、目录不存在」——那是运行时还没装全时的老实话，后来环境变了它就成假结论，所以现在的口径是**目录现查、结果打印**，别把某台机器的安装路径写死进代码）。完整输出存档在 `runlogs/widgets_10_*.log` 等（重跑：`bash _tools/run_all.sh '^widgets'`）。
 
 ## 二、学习目标
 
@@ -101,9 +101,15 @@
           （staticMetaObject.className()），手工指定上下文只有 QCoreApplication::translate(
           context, key, disambiguation, n) 这条路（qcoreapplication.h 190~193 行）；
           复数 tr("1 file", "%n files", n) 与 tr("%n file(s) found", "", n)，
-          **%n 由 tr 自己填，QString::arg() 填不了**；QTranslator::load 的三个重载与
-          catalog 命名规则（qtbase_zh_CN.qm 那一套）、installTranslator/removeTranslator
-          （removeInstalledTranslator 本机头文件里不存在）；QGuiApplication::layoutDirection/
+          **%n 由 tr 自己填，QString::arg() 填不了**；QTranslator::load 的三个重载——
+          **第一个重载不看 locale**（qtranslator.cpp 466~512 行只会把「你给的文件名」按
+          `search_delimiters` 从右往左切，切无可切就 false；文档 434~458 行那个 fr_CA 例子传的
+          是 `load("foo.fr_ca", …)`，语言是**调用者写进文件名**的），要按界面语言找得用带
+          `QLocale` 的那个（738~752 行，取 `uiLanguages(TagSeparator::Underscore)`），
+          第三个重载 `load(const uchar*, int len, …)` **不复制数据**（文档 758~759 行明说
+          "The data is not copied"，指针的生命周期归你）；catalog 命名规则（qtbase_zh_CN.qm 那一套）、
+          installTranslator/removeTranslator（removeInstalledTranslator 本机头文件里不存在）、
+          「对 translator 对象直接调 translate() 不需要 install」；QGuiApplication::layoutDirection/
           setLayoutDirection/isRightToLeft（RTL 是整套镜像）；QLocale 的数字分组与
           日期 LongFormat/ShortFormat/NarrowFormat、toDate 把 "01/03/2026" 解成不同日子。
           文件末尾 #include "10_internationalization.moc"
@@ -211,7 +217,13 @@ QGroupBox > QPushButton{ }   /* 子；写成空格是「后代」，会连孙子
 ### 6. i18n 层：整句进 tr，数字日期交给 QLocale
 
 ```cpp
-// 逐字签名核对过：tr 的三参形状见 QtCore/qobject.h 121 行与 QMetaObject::tr(qobjectdefs.h 246 行)
+// 逐字签名核对过。**别只翻 qobject.h**：那里的 tr（121 行）整段被
+// `#if defined(QT_NO_TRANSLATION) || defined(Q_QDOC)` 包着，你正常构建时它根本不参与编译，
+// 而且三个参数全是匿名（`const char *, const char *, int`），当签名抄等于抄了个残骸。
+// 真身有两处，都带名字、都能编进去：
+//   qtmetamacros.h 92~94 行 QT_TR_FUNCTIONS —— `static inline QString tr(const char *s, const char *c = nullptr, int n = -1)`，
+//     函数体就一句 `return staticMetaObject.tr(s, c, n);`（Q_OBJECT 展开时把它塞进你的类）
+//   qobjectdefs.h 246 行 QMetaObject::tr(const char *s, const char *c, int n = -1) const —— 干活的那个
 tr("Open");                              // 上下文 = 当前类的类名
 tr("Open", "菜单动作，不是开源");        // 第二个参数是**给译者的注释**，不是上下文
 tr("1 file", "%n files", n);             // 复数：%n 由 tr 自己填
@@ -329,6 +341,14 @@ QSS 的爽在于一行代码换全套皮；雷在于它**静默失败**（不认
 
 ### 6. 诚实对待「核不核得到」
 
-本机编不动 Qt，第 10 讲里 `removeInstalledTranslator` 我在 `qcoreapplication.h` grep 不到、`QWidget::changeEvent` 这次没逐字核、`QWidget::setLayoutDirection` 也没核——那就**一律不写进代码**，只在注释里点名「为什么不用」。核不到的东西写进去，就是给徒弟埋雷。写 Qt 和做人一样：不确定就别乱说。
+这一模块最能说明「核得到」和「跑得出」是两件事。第 10 讲原来写着三句「本机编不动 Qt，所以这三样我没核、不写进代码」：`QCoreApplication::removeInstalledTranslator`、`QWidget::changeEvent`、`QWidget::setLayoutDirection`。现在三句都各自有了结果，而且**结果不一样**：
+
+- `removeInstalledTranslator` —— 今天再 grep 一遍 `qcoreapplication.h`，**确实没有**，只有 `installTranslator`（186 行）/ `removeTranslator`（187 行）。原来那句「不采信网上同名说法」站住了，保持不用。
+- `QWidget::changeEvent` —— `qwidget.h` 701 行 `virtual void changeEvent(QEvent *);`，**在**。所以它从「注释里提一句」升级成了代码：第 10 讲新增 `GaugePanel` 覆写它，把「切语言后界面会不会自己变」跑成看得见的两行数。
+- `QWidget::setLayoutDirection` —— `qwidget.h` 414/415/416 行（外加 171 行的 `Q_PROPERTY` 和 422/423 的两个 inline 判读），**在**，签名已抄在讲义里；但本讲代码仍然不用它——写进去就是 RTL 布局一整讲，会淹掉主线。「核到了」不等于「该展开」。
+
+顺带一条 Qt5 肌肉记忆的坑，是这轮才撞出来的：`QEvent::LanguageChange` 在 Qt6 位于 **`qcoreevent.h` 128 行**（`= 89`），`qnamespace.h` 里 grep 它**零命中**。按老习惯去 `qnamespace.h` 找 QEvent 枚举，你会以为它被删了。
+
+规矩没变：**核不到的东西不写进代码**，写进去的每行都要有文件与行号。变的是——编得动之后，「没核」就不该再拿「编不动」当借口了。
 
 > 控件与布局就到这儿。这 10 个文件让你能从「放了几个控件」升级到「搭出一套站得住的界面」。下一站去看事件怎么派发与被截走（[图解 · 事件过滤器](../visuals/event_filter.html)），以及数据量大起来之后该怎么摆（`../model_view/`）。加油，徒弟！

@@ -1,0 +1,64 @@
+① centralWidget() 指回同一个对象吗 = true
+① 换过中心控件之后：centralWidget() 就是 alt 吗 = true ；被摘下的 center 还活着 = true ，它的 parentWidget 还在 = true →「换中心控件不删旧的」：不接管就是泄漏，请自己 deleteLater
+① takeCentralWidget() 之后 centralWidget() 为空 = true ；取回的正是 alt 吗 = true → 所有权现在彻底在你手上
+① menuBar() 懒创建后非空 = true ；menuBar()->objectName() = "" （空串是正常的：objectName 不是必需的，但第 9 讲 QSS 要用 ID 选择器时就得设）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① statusBar() 懒创建后非空 = true （不调它就一直不存在）
+② win->layout() 现在被谁占着 = "QMainWindowLayout" → 这就是「不许 setLayout」的实证：槽位已经不是空的，而 QMainWindow 的中央区域只认 setCentralWidget()。
+③ actQuit->data() 读回 = "builtin" （配合 sender() 或 QActionGroup::triggered(QAction*) 就能认出是哪一项）
+④ 标准键 count = 1 PortableText = "Ctrl+N" NativeText = "Ctrl+N" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+O" NativeText = "Ctrl+O" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+S" NativeText = "Ctrl+S" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+C" NativeText = "Ctrl+C" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+V" NativeText = "Ctrl+V" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+Z" NativeText = "Ctrl+Z" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+F" NativeText = "Ctrl+F" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+Shift+S" NativeText = "Ctrl+Shift+S" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 1 PortableText = "Ctrl+P" NativeText = "Ctrl+P" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ 标准键 count = 0 PortableText = "" NativeText = "" （NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）
+④ keyBindings(Save) 返回的备选键有几个 = 2 → 所以 setShortcuts(StandardKey) 比 setShortcut 更稳（它把一组都装上）
+④ matches(): Copy 对 Copy = 2 （0=NoMatch / 1=PartialMatch / 2=ExactMatch，见 135~139 行）
+③ 三条 action 的 shortcut 文本：New = "Ctrl+N"  Open = "Ctrl+O"  Quit = ""
+⑤ actSave 上下文 = 1 (1=WindowShortcut)；actDockKey 上下文 = 3 (3=WidgetWithChildrenShortcut)；枚举顺序见 qnamespace.h 1323~1326 行。【坑】同一个窗口里两个 action 抢同一个键 → 只有**一个**会触发，而且触发哪个取决于它们被加入的顺序；查这类 bug 先打 shortcutContext()。
+⑥ tb->actions().size() = 5 ；addWidget 返回的 QAction 的 menu() = QWidget(0x0)  text = true （空是正常的：它是包装用的）
+⑥ tb2 落在哪个区 = 4 (4=Qt::TopToolBarArea，见 qnamespace.h 1243~1252 行)
+⑥ tbtn->defaultAction()->text() = "新建(&N)" ；**setDefaultAction 之后按钮自己就有快捷键了**，别再给按钮单设一遍
+⑥ QToolButton 上 addAction(QAction*) 之后：tbtn->actions().size() = 2 ；返回类型是 void（562 行），所以加进去的还是我们自己那个 actQuit 指针，**不是新建的**；而 QToolBar::addAction(QString)（qtoolbar.h 59 行）返回的是新建的 QAction*
+⑦ holder->actions().size() = 1  holder 上**画不出任何东西**——普通 QWidget 只把它存进动作列表（供快捷键与CustomContextMenu 使用）；actions() 是 qwidget.h 563~566 行那组接口的读取端
+⑦ QMenu::addAction(字符串) 两次拿到的是**不同对象**吗 = true （每次调用都 new 一个 QAction，parent 是菜单）→ 别在这种返回值上存业务指针
+⑨ leftDock->features() 位值 = 7 （Closable 0x01 | Movable 0x02 | Floatable 0x04 = 0x07，见 41~44 行） ；rightDock->widget() 的实际类名 = "QLabel"
+⑨ toggleViewAction 的文字 = "文档列表" ；checkable = true → 千万别自己写 QAction 去 setVisible()，那是重复造轮子还容易和状态栏打架
+⑨ tabify 之后 tabifiedDockWidgets(leftDock).size() = 1 ；dockOptions 位值 = 7
+⑩ insertPermanentWidget(1, 新标签, 0) 返回的索引 = 1 （30 行返回 int 索引；addWidget(27 行)/addPermanentWidget(29 行)只返回 void）
+(11) 第一次 saveState(1) 字节数 = 267 → 这段 QByteArray 是 Qt 的**流格式**二进制（工具栏/dock 顺序、区域、尺寸），人类读不懂也别试图解析，交给 QSettings 存原始字节即可
+(11) 写入 ini = "C:/Users/Kuros/AppData/Local/Temp/widgets06_session.ini" status() = 0
+This plugin does not support propagateSizeHints()
+(11) show() 已调用——**恢复一定放在这里之后**；此刻 win->layout() 仍是 = "QMainWindowLayout"
+This plugin does not support propagateSizeHints()
+—— 事件循环已跑过一轮布局，读到的几何才是谈判结果 ——
+① win->size() = QSize(1000, 620)  菜单条高度 = 17  工具栏几何 = QRect(0,17 1000x30)  状态栏几何 = QRect(0,595 1000x25)  leftDock 几何 = QRect(-600,-586 100x86)
+⑩ messageChanged： "triggered：新建。checked = 0"
+⑩ messageChanged： "triggered：打开（本演示**不弹**文件对话框，避免阻塞）"
+③ trigger() 三个动作之后状态栏临时消息 = "triggered：打开（本演示**不弹**文件对话框，避免阻塞）" （36 行；此刻它还活着，timeout 是 2500ms）
+⑩ messageChanged： "(空串 → 临时消息已消失)"
+⑩ 3.4s：showMessage 的 timeout 到点后 currentMessage() = "(空)√ 超时语义生效"
+⑩ messageChanged： "timeout 传 0 = 常驻，直到 clearMessage() 或被下一条消息顶掉"
+⑩ messageChanged： "这条会盖住上一条：状态栏永远只显示最近一条临时消息"
+⑩ 立刻读回 currentMessage() = "这条会盖住上一条：状态栏永远只显示最近一条临时消息"
+⑩ 进度条几何 = QRect(816,3 160x20) 宽度 = 160 （addPermanentWidget：在**右边**，maxWidth 160 说话算数）；hint 几何 = QRect(2,3 312x20) （addWidget：在左边）
+⑩ messageChanged： "(空串 → 临时消息已消失)"
+⑩ clearMessage() 之后 currentMessage() 是否为空 = true
+⑨ 关掉左侧 dock：toggle->text() = "文档列表" checked = true
+⑨ trigger 之后 leftDock->isVisible() = false rightDock->isVisible() = true ；View 菜单项数 = 6
+⑧ QActionGroup::triggered → "只文字" ；此刻 checkedAction()->text() = "只文字" ；工具栏 toolButtonStyle 已切成 1 （**组只给你一个信号**，不用给三个 action 各连一遍——这就是它的价值）
+⑧ 选「只文字」之后 checkedAction()->text() = "只文字" ；组内动作数 = 3 ；工具栏 toolButtonStyle = 0
+⑧ setExclusive(false) 后能否同时勾两个 = true / true ；Qt6 更推荐 setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional)（qactiongroup.h 27~33 行 enum class，语义比 bool 三档更准：允许「全不选」）
+(11) 从 ini 读回的 state 字节数 = 267
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+(11) restoreState(saved, 1) 返回 = true （version 不匹配 / 找不到同名 dock 都会返回 false 而**不报错**，这是全讲最隐蔽的坑：界面静悄悄回到默认布局）
+(11) restoreState(saved, 99) 返回 = false ← 换个 version 立刻失败，实测见分晓
+⑦ 即将 win->close()：只有 close() 才走 closeEvent，quit() 不走！
+⑦ closeEvent：已 saveState(version=1) 字节数 = 267 写入 = "C:/Users/Kuros/AppData/Local/Temp/widgets06_session.ini" status() = 0

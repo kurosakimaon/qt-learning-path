@@ -1,0 +1,160 @@
+============================================================
+storage 第 2 讲 · 文件与 IO 设备（Qt = 6.12.0 ）
+系统临时目录 writableLocation(TempLocation) =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp" ]
+QDir::tempPath() =[ "C:/Users/Kuros/AppData/Local/Temp" ]（第 236 行；两个来源通常一致）
+本次工作目录 =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ] ｜mkpath 后 exists = true
+============================================================
+
+【步骤①】建自己的目录
+  目标 = "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02\\notes.txt"
+  openMode 的位（本机 qiodevicebase.h 第 17~28 行，十六进制自己看）：
+"     ReadOnly=0x0001 WriteOnly=0x0002 ReadWrite=0x0003 Append=0x0004"
+"     Truncate=0x0008 Text=0x0010 Unbuffered=0x0020 NewOnly=0x0040 ExistingOnly=0x0080"
+  ★ ReadWrite 是 0x0003 = ReadOnly|WriteOnly，**不是独立的位**；所以 `QIODevice::ReadOnly | QIODevice::Append` 是「只读 + 追加」这种自相矛盾的组合，行为由具体设备决定（QFile 上 append 只在可写时生效）。别把矛盾的组合写进代码。
+
+【步骤②】QFile 的写 → 读 → 定位 全套
+  open(WriteOnly|Truncate) = true ｜isOpen = true ｜isWritable = true ｜isReadable = false ｜isSequential = false ← QFile 不是顺序设备，所以能 seek（第 118 行的 isSequential）
+  write(QByteArray) 返回实际写入字节 = 65 （第 102 行）｜bytesToWrite = 65 ← 返回值**必须比对**，短写了就是磁盘满/权限问题
+  写入后 pos = 65 ｜size = 65 ｜atEnd = true
+  再 write 一段 = 33  字节｜现在 size = 98 ｜pos = 98
+  flush() 之后 close()
+  close 之后 isOpen = false ｜error = "NoError"
+  磁盘上（QFileInfo::size，不用开文件）= "98 B (0.1 KiB)"
+  只读打开：openMode 数值 = 1 ｜size = 98 ｜pos = 0 ｜atEnd = false
+  read(12) → 实际拿到 12 字节，内容是（**按 UTF-8 解**）：[ "第一行内" ] ｜pos 现在 = 12 ← 注意 read(12) 给你 12 个**字节**，不是 12 个字符；一个中文字在 UTF-8 里占 3 字节，所以这里被切断了（下一条就证明）
+  接着 readAll() 拿到 86 字节｜pos = 98 ｜atEnd = true （pos 已到 size，所以 atEnd 为真）
+  两段拼回来 == 原文字节数 = true （ 98  vs  98 ）
+  seek(0) = true ｜pos = 0 ｜bytesAvailable = 98 （第 77 行）
+  readLine() → 16 字节 [ "第一行内容" ] ｜canReadLine = true ｜pos = 16
+  skip(6) 返回实际跳过 = 6 ｜pos = 22
+  seek 到 size 之后 = true ｜error = "NoError" （QFile 允许 seek 越过文件尾，读出来是空；**这不是错误**，但 QIODevice 里位置类失败会置 PositionError=11）
+  unsetError() 之后 error = "NoError"
+
+【步骤③】Text 位改的是换行翻译，**不是编码**
+  二进制读：磁盘 13 字节，readAll 拿到 13 字节｜\n 个数 = 3 ｜\r 个数 = 1 ｜isTextModeEnabled = false
+  Text 模式读：拿到 12 字节｜\r 个数 = 0 ｜isTextModeEnabled = true
+  Text 模式下 seek(0) 后 pos = 0 ｜readLine 长度 = 4 ｜pos = 4
+  → 结论（★ 进度条的坑就在这）：Text 模式下 Qt 会做换行翻译，**pos() 与磁盘真实偏移不再一一对应**。要做「读到百分之几」，请用二进制模式打开 + 自己处理换行，或者拿 QFileInfo::size() 做分母、readLine 的行数做分子，别拿 pos() 当精确进度。
+
+【步骤④】QTextStream 的编解码：setCodec 在 Qt6 已经不存在
+  新建 QTextStream 的默认 encoding 枚举值 = 0 （0=Utf8, 1=Utf16, 2=Utf16LE, 3=Utf16BE, 4=Utf32, 5=Utf32LE, 6=Utf32BE, 7=Latin1, 8=System —— 见 qstringconverter_base.h 102~115 行）
+  generateByteOrderMark = false ｜autoDetectUnicode = true
+  写完成后 status = 0 （0=Ok）｜if(!ts) 判到 = true
+  磁盘上： "53 B (0.1 KiB)" ｜首 3 字节 = "e9858d" （**没有 EF BB BF 就说明没写 BOM**）
+  原串 24 个 QChar → 文件 53 字节｜用 QString::fromUtf8 读回来 == true
+  setEncoding(Latin1) 之后 encoding() = 7
+  Latin1 那份磁盘字节数 = 25 （UTF-8 那份是  53 ）｜前 40 字节 hex = "3f 3f 3f 3f 3f 3f 3f 3f 3f 20 38 35 2e 35 20 3f 3f 3f 3f 20 36 30 25 3f 0a"
+  它按 UTF-8 解释回来 =[ "????????? 85.5 ???? 60%?" ] ← **中文已经变成 ? 或丢失**：Latin1 装不下汉字，这一步是**不可逆的**，写坏就救不回来。
+  → 编码三条纪律：① 自己写的文本一律显式 setEncoding(QStringConverter::Utf8)，别赌默认值；② 想兼容 GBK 之类的老文件，QStringConverter 里**没有对应枚举**，只能自己在 QByteArray 层面转，或者要求上游换成 UTF-8；③ 写 UTF-16 才考虑 BOM，UTF-8 加 BOM 会把下游解析器（含 JSON）顶死。
+
+【步骤⑤】setLocale：数字格式跟着 locale 走
+  第一次 locale().name() =[ "C" ] ｜改过之后 ts2.locale().name() =[ "de_DE" ] （若本机没有德语数据，Qt 会退回 C，打印出来的名字会一样——那也是证据）
+  第 1 行 [ "C  locale: 0.85" ]
+  第 2 行 [ "de_DE locale: 0,85" ]
+  行数 = 2 ｜读末尾 status = 0 （2=ReadPastEnd，readLineInto 读到结尾返回 false，正常）
+  以 C locale 解析德语那份数字：读到词 [ "C" ] ｜再 >> double 得到 0 ← 如果上一行真写出「0,85」，这里就读成 0 或半个数：**写用德语、读用 C 就是这种后果**（本机若德语数据缺失则两行相同，说明 locale 没生效）。
+
+  【对照】绕开 QTextStream，用 QByteArray 自己转
+  同一批字节 fromUtf8 → 25 个 QChar ｜fromLatin1 → 53 个 QChar ｜两者相等 = false
+  → **字节数 ≠ 字符数**：UTF-8 下一个汉字占 3 字节。fromLatin1 把每个字节都当成一个字符，所以更长但内容全错。这就是「pos() 当字数、size() 当字节数」混用会出鬼的原因。
+
+【步骤⑥】大文件不要用 readAll()
+  分块写 4194304 字节（ "4194304 B (4096.0 KiB)" ）， 64  次 write，耗时 1 ms ｜close 后 QFileInfo::size = 4194304
+"  分块读：累计 4194304 字节（4194304 B (4096.0 KiB)），循环 64 次，耗时 0 ms；峰值内存 ≈ 一块 65536 字节"
+"  readAll()：4194304 字节一次性进内存，耗时 0 ms｜字节数与分块读一致 = true"
+  → 4 MiB 无所谓；**400 MiB 就是一次 OOM**。分块的代价只是几行循环，换来的是内存上限可控 + 能报真进度。只读的超大文件还可以走 QFileDevice::map()（第 140 行）内存映射。
+
+【步骤⑦】QSaveFile：先写临时件，再改名换上
+  保存前目标文件： "22 B (0.0 KiB)" 内容 =[ "\xE6\x97\xA7\xE7\x89\x88\xE6\x9C\xAC\xEF\xBC\x9Aversion=1" ]
+  QSaveFile 已打开，此时 fileName() 指向的目标 = "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02\\state.cfg"
+  commit() = true ｜写过的字节还在缓冲里的部分由 commit 刷完 （★ 记住：**不能调 close()**，它在第 71 行的 private 段）
+  commit 之后目标文件： "39 B (0.0 KiB)" 内容 =[ "\xE6\x96\xB0\xE7\x89\x88\xE6\x9C\xAC\xEF\xBC\x9Aversion=2\n\xE4\xBD\x9C\xE8\x80\x85=\xE8\x80\x81\xE5\xB8\x88\xE5\x82\x85" ]
+  内容真的换掉了 = true ｜行数（按 \n 数）从 1 变成 2
+  写了半截然后 cancelWriting()（第 48 行）
+  撤销之后目标文件字节数 = 39 ｜内容与撤销前一致 = true ｜内容 =[ "\xE6\x96\xB0\xE7\x89\x88\xE6\x9C\xAC\xEF\xBC\x9Aversion=2\n\xE4\xBD\x9C\xE8\x80\x85=\xE8\x80\x81\xE5\xB8\x88\xE5\x82\x85" ]
+   "QSaveFile 演示后目录（临时件不该留下）" ： "C:/Users/Kuros/AppData/Local/Temp/qt_storage_02"  共 7 项
+"     chunk.bin                     4194304 B  可读=1 可写=1 是文件=1 是目录=0"
+"     crlf.txt                           13 B  可读=1 可写=1 是文件=1 是目录=0"
+"     locale_num.txt                     35 B  可读=1 可写=1 是文件=1 是目录=0"
+"     notes.txt                          98 B  可读=1 可写=1 是文件=1 是目录=0"
+"     state.cfg                          39 B  可读=1 可写=1 是文件=1 是目录=0"
+"     ts_latin1.txt                      25 B  可读=1 可写=1 是文件=1 是目录=0"
+"     ts_utf8.txt                        53 B  可读=1 可写=1 是文件=1 是目录=0"
+  → 原理：QSaveFile 把数据写进同目录下一个临时文件，commit 成功后才 rename 覆盖目标。于是「掉电/崩溃/磁盘满」发生的时候，目标要么还是完整的旧版、要么是完整的新版，**不会出现半截文件**。这就是 QSettings::isAtomicSyncRequired()（第 118 行）背后同一个思路，也是「保存」按钮该用的类。
+     三条边界：① 只支持 WriteOnly；② 跨分区/网络盘 rename 会失败，要么 setDirectWriteFallback(true)（第 50 行）退回直写，要么接受失败；③ 它保的是**单个文件的一致性**，多个文件之间的原子性它管不了。
+     待复核：析构时到底算 commit 还是 cancel，本机头文件里看不出来（close() 在 private，第 71 行）。所以纪律是：**一定要显式 commit() 或 cancelWriting()**，别把数据交给一个你没读过语义的析构函数。
+
+【步骤⑧】QTemporaryFile 与 QLockFile
+   "临时件演示前后目录对照" ： "C:/Users/Kuros/AppData/Local/Temp/qt_storage_02"  共 7 项
+"     chunk.bin                     4194304 B  可读=1 可写=1 是文件=1 是目录=0"
+"     crlf.txt                           13 B  可读=1 可写=1 是文件=1 是目录=0"
+"     locale_num.txt                     35 B  可读=1 可写=1 是文件=1 是目录=0"
+"     notes.txt                          98 B  可读=1 可写=1 是文件=1 是目录=0"
+"     state.cfg                          39 B  可读=1 可写=1 是文件=1 是目录=0"
+"     ts_latin1.txt                      25 B  可读=1 可写=1 是文件=1 是目录=0"
+"     ts_utf8.txt                        53 B  可读=1 可写=1 是文件=1 是目录=0"
+  fileTemplate() =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02\\cfg_XXXXXX.ini" ]
+  无参 open() 成功，自动生成的 fileName =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02\\cfg_QBFvRl.ini" ] （XXXXXX 已被换成随机串）｜openMode = 3 （无参 open 固定用 ReadWrite，见第 52 行）
+  autoRemove()（第 48 行）默认 = true
+  写入 23 字节，QFileInfo 核对 = 23 ｜exists = true
+  想留下请用 rename()（第 66 行）/ renameOverwrite()（第 67 行）或先 setAutoRemove(false)（第 49 行）；本讲走 removeRecursively 清理。
+  出了作用域（对象已析构）：写入 23 字节的那个临时文件 "C:/Users/Kuros/AppData/Local/Temp/qt_storage_02/cfg_QBFvRl.ini"  还在吗 = false ← autoRemove=true 的行为，临时件自己走人
+  第一个实例 tryLock(0ms) = true ｜isLocked = true ｜error = "NoError" ｜锁文件本身在不在 = true
+  getLockInfo：读到 = true ｜pid = 24328 ｜host =[ "DESKTOP-O8401LG" ]｜app =[ "storage_02_file_io" ]
+  staleLockTime（第 34 行，int 版）= 30000 ms ｜chrono 版 = 30000 ms ← 超过这个年龄、且持有进程已经不在了，锁才算过期、可被抢（第 43 行 removeStaleLockFile）
+  同进程第二个实例 tryLock(50ms) = false ｜error = "LockFailedError" ｜isLocked = false
+  → 语义说明（保守）：**防多开要在两个进程之间测**才说明问题。同一进程里第二个实例的结果取决于 Qt 对「pid 是自己」的判定，本讲只把两个布尔打出来，不替它承诺结论。真做防多开请照下面三条：
+     ① 用 tryLock(timeout)，**不要用阻塞的 lock()（第 24 行）**——无人值守程序一阻塞就成了假死；
+     ② 拿到锁之后立刻 setStaleLockTime() 定一个比你最长运行时间短的值，让崩过的进程能被抢回来；
+     ③ 锁文件放在**用户可写的**目录（本讲是临时目录；真实产品放 QStandardPaths::RuntimeLocation 或 TempLocation，别放安装目录）。
+  显式 unlock() 之后 isLocked = false
+  unlock 之后第二个实例再 tryLock = true （预期 true：锁真的放掉了）
+  对象全部出作用域后再看锁文件是否存在 = false （unlock 会把它删掉；崩过的进程才会留下孤儿锁，那是 staleLockTime 的活）
+
+【步骤⑨】QFileInfo 的拆名与 QDir 的遍历
+  文件名 [ "report.tar.gz" ]：fileName =[ "report.tar.gz" ] baseName =[ "report" ] completeBaseName =[ "report.tar" ]
+     suffix =[ "gz" ] completeSuffix =[ "tar.gz" ] "← **拆「去掉扩展名」请用 completeBaseName()**，baseName() 只砍最后一个点，report.tar.gz 会得到 report.tar"
+     size = 22 ｜isFile = true ｜isDir = false ｜isSymLink = false ｜exists = true
+     path =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ]｜absolutePath =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ]｜canonicalFilePath =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02\\report.tar.gz" ]
+     lastModified = "2026-11-01T18:50:35" ｜birthTime 有效性 = true （第 168 行；不是所有文件系统都有创建时间，ext4 上可能是无效 QDateTime）
+     permissions 逐位：ReadOwner = true  WriteOwner = true  ReadOther = true （第 97~102 行的位；Windows 上 User/Group 那几位常常和 Owner 重复）
+  QDir(path)：path =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ] absolutePath =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ] canonicalPath =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_02" ] （三者对相对路径才不同；本讲全程用绝对路径，所以三者一致）
+  dirName() =[ "qt_storage_02" ]｜exists = true ｜isReadable = true ｜isEmpty(默认过滤 . 与 ..) = false
+  separator() =' '\' '（Windows 给 \\，POSIX 给 /） ｜cleanPath("a/./b//c") =[ "a/b/c" ]
+  count() 的类型：本机 qdir.h 第 153~156 行，Qt6.12 返回 **qsizetype**； 现在 dir.count()（含 . 与 ..，用 AllEntries）= 10
+  entryInfoList(AllEntries|NoDotAndDotDot, Name) → 8 项：
+"     chunk.bin                       4194304 B  FILE"
+"     crlf.txt                             13 B  FILE"
+"     locale_num.txt                       35 B  FILE"
+"     notes.txt                            98 B  FILE"
+"     report.tar.gz                        22 B  FILE"
+"     state.cfg                            39 B  FILE"
+"     ts_latin1.txt                        25 B  FILE"
+"     ts_utf8.txt                          53 B  FILE"
+  带 nameFilters 的那份（"*.txt"）→ 5 项： QList("crlf.txt", "locale_num.txt", "notes.txt", "ts_latin1.txt", "ts_utf8.txt")
+  按 Size|Reversed 排的前三项： QList("crlf.txt(13B)", "report.tar.gz(22B)", "ts_latin1.txt(25B)")
+  → ★ entryInfoList 每项都要 stat 一次，目录大就是几十万次系统调用。只要名字的用 **entryList()**（第 166 行）；只关心大小的用 SortFlags=Size；别在 UI 线程遍历大目录（第 35~37 行的 QDir::Modified 已弃用，想按时间筛请用 SortFlags=Time 或自己比 QFileInfo::lastModified）。
+
+【步骤⑩】错误处理：开一个不存在的路径
+  open(不存在的只读路径) 返回 = false ｜error() = "OpenError" （数值 5 ，第 77 行 OpenError = 5） ｜errorString() =[ "系统找不到指定的路径。" ]
+  exists()（成员版，第 150 行）= false ｜exists(静态版) = false ｜QFileInfo(ghost).exists() = false
+  unsetError() 之后 error() = "NoError" （第 114 行；错误码是**粘性的**，不清就一直留着，别拿它当「当前状态」判断）
+  第一次 open(WriteOnly|NewOnly) = true （文件不存在 → 允许创建）
+  第二次同样 NewOnly = false ｜error = "OpenError" ← **已存在就拒绝打开**，这一位就是防你手滑覆盖用户文件（第 26 行）
+  ExistingOnly 开一个确实存在的文件 = true ← 这一位防的是「你以为它在」：路径打错时它拒绝新建空文件让你白写一轮（第 27 行）
+  → 错误处理三条纪律：① **先看 open 的返回值**（Qt6 还 [[nodiscard]]，忽略返回值直接编不过/报警）；② 失败后立刻读 error() + errorString()，前者用来分支、后者用来给用户看；③ 写完必须比对 write 的返回值 == 期望字节数，**短写不报错**，只有 error() 才知道磁盘满了。
+
+【清理】
+  待删清单（ 9 项）： QList("chunk.bin", "crlf.txt", "gate.txt", "locale_num.txt", "notes.txt", "report.tar.gz", "state.cfg", "ts_latin1.txt", "ts_utf8.txt")
+  removeRecursively() = true ｜目录还在吗 = false ｜目录条目数 = 0
+
+【本讲可核对的证据】
+  ① 文本文件写入字节数 vs QFileInfo::size()、read(12) 的字节数与字符数之差
+  ② Text 模式与二进制模式的字节数/\r 个数、seek 与 pos 的错位
+  ③ QTextStream 默认 encoding 数值、UTF-8 与 Latin1 两份的磁盘字节数、BOM 有无
+  ④ locale 两份写出的文本、C locale 读回的结果
+  ⑤ 4 MiB 分块读的累计字节/循环次数 vs readAll 的字节数与耗时
+  ⑥ QSaveFile commit 前后目标文件字节数与内容、cancelWriting 后内容不变
+  ⑦ QTemporaryFile 生成的名字与析构后是否消失、QLockFile 两次 tryLock 与 getLockInfo 的 pid
+  ⑧ 不存在的文件的 error()= 5 （OpenError）与 errorString 原文
+  ⑨ 清理结果与残留条目数（应为 0）

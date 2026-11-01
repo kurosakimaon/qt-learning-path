@@ -25,8 +25,10 @@
 //
 // 运行前须知：
 //   · 依赖 Qt6::Widgets。Windows 上要能找到 platforms/qwindows.dll 或 qoffscreen.dll。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；每个类/函数/重载/
-//     枚举都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对过（行号见下）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_07_layout_basics，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_07_layout_basics.log）。
 //   · 无人值守：QTimer::singleShot 驱动 resize/setSpacing/takeAt/删布局等动作，
 //     每一步都用 qInfo() 打印几何或计数当证据，最后 QCoreApplication::quit()。
 //     **没有任何阻塞调用**（不 exec 对话框、不弹 QMessageBox）。
@@ -70,7 +72,7 @@
 #include <QStringList>
 
 // ============================================================================
-// 一、核对签名（本讲全部依据，路径相对 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本讲全部依据，路径相对 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // QtWidgets/qlayout.h
 //   第 26 行   class Q_WIDGETS_EXPORT QLayout : public QObject, public QLayoutItem
@@ -88,19 +90,30 @@
 //   第 89 行   virtual void addItem(QLayoutItem *) = 0;
 //   第 91/92 行 void removeWidget(QWidget *w); void removeItem(QLayoutItem *);
 //   第 98/99 行 virtual QLayoutItem *itemAt(int) const; virtual QLayoutItem *takeAt(int);
-//   第 101 行  virtual QLayoutItem *replaceWidget... / 第 106 行 indexOf(const QLayoutItem*)
+//   第 101 行  virtual int indexOf(const QLayoutItem *) const; / 第 106~107 行 replaceWidget(from,to,options)
+//              ★ 勘误：旧稿把这两个号**对调**了（101 写成 replaceWidget、106 写成 indexOf）。
+//                本机 6.12.0：100 = indexOf(const QWidget*)、101 = indexOf(const QLayoutItem*)、
+//                106~107 = replaceWidget（它跨两行声明，默认实参 Qt::FindChildrenRecursively 在 107）。
+//                抄错的代价很实在：replaceWidget 是有返回值的（拿旧 QLayoutItem*，所有权归你），
+//                indexOf 只是查下标——把行号记反，两个函数的形状就跟着记反了。
 //   第 111/113 行 QSize totalMinimumSize() const; QSize totalSizeHint() const;
 //   第 126 行  void addChildWidget(QWidget *w);   ← 只当子控件、不进布局表（很冷门，别乱用）
 //   ※ 本文件里**没有** margin()/setMargin()：见顶部 Qt5→Qt6 说明
 // QtWidgets/qboxlayout.h
-//   第 24 行   enum Direction { LeftToRight, RightToLeft, TopToBottom, BottomToTop, Down, Up };
-//   第 26 行   explicit QBoxLayout(Direction, QWidget *parent = nullptr);
-//   第 35~41 行 void addSpacing(int size);            ← 塞一个**固定**间隔
+//   第 26~27 行 enum Direction { LeftToRight, RightToLeft, TopToBottom, BottomToTop,
+//                      Down = TopToBottom, Up = BottomToTop };
+//   第 29 行   explicit QBoxLayout(Direction, QWidget *parent = nullptr);
+//   第 36~40 行 void addSpacing(int size);            ← 塞一个**固定**间隔
 //                void addStretch(int stretch = 0);     ← 塞一个**可伸缩**间隔（默认因子 0！）
 //                void addSpacerItem(QSpacerItem*);     ← 自己造间隔项（要带 QSizePolicy）
 //                void addWidget(QWidget*, int stretch = 0, Qt::Alignment = Qt::Alignment());
 //                void addLayout(QLayout*, int stretch = 0);   ← 嵌套：子布局**不能有 parent widget**
-//   第 42 行   void addStrut(int);                   ← 限制该方向上的最小厚度，冷门但有用
+//   第 41 行   void addStrut(int);                   ← 限制该方向上的最小厚度，冷门但有用
+//              ★ 勘误：上面这一段旧稿整体偏 −2（写成 24 / 26 / 35~41 / 42）。
+//                差在哪：qboxlayout.h 第 24 行是 Q_DECLARE_PRIVATE(QBoxLayout)、25 行是 public:，
+//                枚举从 26 才开始而且**折成两行**（27 行是 Down = TopToBottom, Up = BottomToTop），
+//                构造在 29（30 空行、31 析构）。旧稿数到 24 就停，是把 Q_DECLARE_PRIVATE 当成了枚举行。
+//                42 行也不是 addStrut——那是 void addItem(QLayoutItem *) override;。
 //   第 44~49 行 insertSpacing / insertStretch / insertSpacerItem / insertWidget /
 //                insertLayout / insertItem          ← 下标都是「插到 index 之前」
 //   第 54/55/56/57 行 setStretchFactor(QWidget*, int) → bool / setStretchFactor(QLayout*, int) → bool

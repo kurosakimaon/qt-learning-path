@@ -18,7 +18,7 @@
 #     src/main.cpp                    ← 界面层的入口
 #
 # 怎么构建：
-#   cmake -G Ninja -B build -S .
+#   cmake -G "MinGW Makefiles" -B build -S .
 #   cmake --build build
 #   ./build/greeting_app
 #

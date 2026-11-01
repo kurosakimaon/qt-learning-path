@@ -103,7 +103,7 @@ public:
 private:
     QNetworkAccessManager *m_nam;          // 长寿命
 };`,
-    highlight: [9, 10, 13]
+    highlight: [4, 8, 9, 12]
   },
   {
     title: 'finished 之前，body 是空的',
@@ -151,7 +151,7 @@ private:
         reply->deleteLater();                       // 收工就删
     });
 }`,
-    highlight: [5, 6, 7]
+    highlight: [3, 4, 6]
   },
   {
     title: '错误与状态码：两张不同的考卷',
@@ -248,7 +248,7 @@ connect(reply, &QNetworkReply::finished, this, [this, reply] {
         qWarning() << "放弃这次请求";
     reply->deleteLater();
 });`,
-    highlight: [2, 6, 9, 10]
+    highlight: [1, 5, 8, 10]
   },
   {
     title: '进度与取消：让用户看得见也停得下',
@@ -262,35 +262,40 @@ connect(reply, &QNetworkReply::finished, this, [this, reply] {
         <text class="svg-mono" x="50" y="114">uploadProgress(qint64 sent, qint64 total)</text>
 
         <rect class="svg-field" x="30" y="145" width="340" height="150" rx="10"/>
-        <text class="svg-small" x="50" y="173">进度值的两个坑：</text>
-        <text class="svg-small" x="70" y="201">· total 可能是 -1（服务端没给长度）</text>
-        <text class="svg-small" x="70" y="225">  → 只能显示「已下载 X」</text>
-        <text class="svg-small" x="70" y="249">· 进度回调可能很密集</text>
-        <text class="svg-small" x="70" y="273">  → 别每次 setValue 都触发重布局</text>
+        <text class="svg-small" x="50" y="173">进度值的两个坑（本机实测）：</text>
+        <text class="svg-small" x="70" y="201">· total 可能是 -1（没发 Content-Length）</text>
+        <text class="svg-small" x="70" y="225">  → 忙碌态；但**最后一帧 Qt 改口成 received**</text>
+        <text class="svg-small" x="70" y="249">· 进度**最快每 100ms 才一次**（Qt 节流）</text>
+        <text class="svg-small" x="70" y="273">  → 快网络短下载没有中途帧，别按帧算速度</text>
 
         <rect class="svg-box-warn" x="390" y="145" width="340" height="150" rx="10"/>
         <text class="svg-small" x="410" y="173">取消要用 abort()，别用 deleteLater()：</text>
-        <text class="svg-small" x="430" y="201">abort → 会发 finished + OperationCanceledError</text>
+        <text class="svg-small" x="430" y="201">abort → 发 errorOccurred(=5) + finished</text>
         <text class="svg-small" x="430" y="225">deleteLater → 直接删对象，finished 不会来</text>
-        <text class="svg-bad-text" x="430" y="255">取消后仍读 readAll() → 拿到半截数据</text>
+        <text class="svg-bad-text" x="430" y="255">abort() 是同步的：槽在它返回前就跑完了</text>
 
         <rect class="svg-box-good" x="30" y="315" width="700" height="95" rx="10"/>
         <text class="svg-small" x="50" y="342">推荐的下载写法（本仓库 network/04 的做法）：</text>
-        <text class="svg-small" x="50" y="368">① 打开 QFile 先写到临时文件 ② 进度更新 UI ③ finished 里检查 error 后改名提交</text>
-        <text class="svg-small" x="50" y="392">★ 直接往最终文件写，一半失败就留下一个「看起来完整但其实是坏的」文件。</text>
+        <text class="svg-small" x="50" y="368">① QSaveFile 写临时文件 ② readyRead 里 while 排空落盘 ③ finished 里 commit()</text>
+        <text class="svg-small" x="50" y="392">★ 一次 readyRead 只 read 一片会把下载**截断**；不 commit 就没有半截坏文件。</text>
       </svg>`,
-    caption: '进度用 <code>downloadProgress(received, total)</code>，注意 <strong><code>total</code> 可能是 -1</strong>（服务端没给长度）。取消必须用 <code>abort()</code>——它会发 <code>finished</code> + <code>OperationCanceledError</code>，让收尾逻辑统一；<code>deleteLater()</code> 则直接删对象，<code>finished</code> 永远不来。下载落盘要先写临时文件，<code>finished</code> 检查无错后再改名提交。',
+    caption: '进度用 <code>downloadProgress(received, total)</code>。三条本机实测的限定：<strong>①</strong> 该信号被 Qt 节流到最快每 100ms 一次（<code>qnetworkreply.cpp:15</code>），回环上的 1 MiB 下载连一帧中途进度都发不出来；<strong>②</strong> <code>total</code> 可能是 -1（服务端没给长度），但<strong>收尾那一帧 Qt 会改口</strong>成 <code>downloadProgress(received, received)</code>（<code>qnetworkreplyhttpimpl.cpp:2240</code>），所以 UI 不能死等 -1；<strong>③</strong> <code>total == 0</code> 是空文件，当 100% 而不是除零。取消必须用 <code>abort()</code>——它<strong>同步</strong>发出 <code>errorOccurred(OperationCanceledError = 5，不是 41)</code> 和 <code>finished</code>，让收尾逻辑只有一套；reply 已经不 running 时 <code>abort()</code> 是空操作（取消点了个寂寞，不报错）。<code>deleteLater()</code> 则直接删对象，<code>finished</code> 永远不来。落盘用 <code>QSaveFile</code>：readyRead 里 <strong>while 排空</strong>（只读一片会把下载截断），finished 里再兜底读一次，成功才 <code>commit()</code>。',
     code: `auto *reply = m_nam->get(QNetworkRequest(url));
 connect(reply, &QNetworkReply::downloadProgress, this,
         [this](qint64 got, qint64 total) {
-    m_bar->setMaximum(total > 0 ? int(total) : 0);   // ≤0 → 忙碌模式
-    m_bar->setValue(int(got));
+    if (total < 0) { m_bar->setRange(0, 0); return; }        // 长度未知 → 忙碌态，别做除法
+    m_bar->setRange(0, 100);
+    m_bar->setValue(total > 0 ? int(got * 100 / total) : 100);  // total==0 是空文件=100%
+});
+connect(reply, &QIODevice::readyRead, this, [this, reply] {
+    while (reply->bytesAvailable() > 0)                       // ★一次只读一片会截断
+        m_file.write(reply->read(64 * 1024));
 });
 
+// 取消：abort() 同步走完 errorOccurred(5) → finished，收尾只有一套逻辑
 m_cancelButton->disconnect();
-connect(m_cancelButton, &QPushButton::clicked,
-        reply, &QNetworkReply::abort);`,
-    highlight: [3, 4, 9]
+connect(m_cancelButton, &QPushButton::clicked, reply, &QNetworkReply::abort);`,
+    highlight: [3, 5, 8, 14]
   },
   {
     title: '重定向、缓存与线程归属',
@@ -300,11 +305,11 @@ connect(m_cancelButton, &QPushButton::clicked,
       <svg viewBox="0 0 760 420" role="img" aria-label="重定向、磁盘缓存与线程归属">
         <rect class="svg-box" x="25" y="30" width="230" height="160" rx="10"/>
         <text class="svg-title" x="140" y="58" text-anchor="middle">重定向</text>
-        <text class="svg-small" x="45" y="86">默认不自动跟随</text>
-        <text class="svg-small" x="45" y="110">开法：</text>
-        <text class="svg-mono" x="45" y="136">req.setAttribute(</text>
-        <text class="svg-mono" x="45" y="158">  RedirectPolicyAttribute,</text>
-        <text class="svg-mono" x="45" y="180">  NoLessSafeRedirectPolicy);</text>
+        <text class="svg-small" x="45" y="86">Qt6 默认就自动跟随</text>
+        <text class="svg-small" x="45" y="110">默认策略（不用设）：</text>
+        <text class="svg-mono" x="45" y="132">NoLessSafeRedirectPolicy</text>
+        <text class="svg-small" x="45" y="158">要停在 3xx 自己处理：</text>
+        <text class="svg-mono" x="45" y="182">ManualRedirectPolicy</text>
 
         <rect class="svg-box" x="265" y="30" width="230" height="160" rx="10"/>
         <text class="svg-title" x="380" y="58" text-anchor="middle">磁盘缓存</text>
@@ -329,16 +334,18 @@ connect(m_cancelButton, &QPushButton::clicked,
         <text class="svg-small" x="45" y="331">★ 结论：别把 manager 当全局单例到处用。按线程各管一个，代码会干净很多。</text>
         <text class="svg-small" x="45" y="359">★ 同理：不要在一个线程里 get()，然后在另一个线程 readAll() —— 这是未定义行为。</text>
       </svg>`,
-    caption: '三个常被忽略的细节：<strong>重定向默认不跟随</strong>，要显式设 <code>RedirectPolicyAttribute</code>；<strong>磁盘缓存</strong>装在 manager 上（<code>setCache</code>），适合静态资源、不适合实时数据；<strong>线程归属</strong>——manager 与 reply 都属于创建它们的线程，<code>finished</code> 也在那个线程发。<strong>别跨线程共用一个 manager，更别在一个线程 <code>get()</code>、另一个线程 <code>readAll()</code></strong>。',
+    caption: '三个常被忽略的细节：<strong>重定向</strong>——Qt6 的默认策略就是 <code>NoLessSafeRedirectPolicy</code>（跟随时只允许「不比原请求更安全」的跳转），3xx 会自己跟到底；判据在 <code>qnetworkrequest.cpp</code> 第 279~283 行的 attribute 文档和 <code>qnetworkaccessmanager.cpp</code> 第 1110 行，本机实测见 <code>runlogs/network_01_network_access_manager.log</code> 第 77~95 行：服务器回 302，A 组不设策略 → 状态码 200、<code>url()</code> 已改写成跳转目标，B 组显式设 <code>ManualRedirectPolicy</code> → 停在 302 并自己读 <code>RedirectionTargetAttribute</code>；<strong>磁盘缓存</strong>装在 manager 上（<code>setCache</code>），适合静态资源、不适合实时数据；<strong>线程归属</strong>——manager 与 reply 都属于创建它们的线程，<code>finished</code> 也在那个线程发。<strong>别跨线程共用一个 manager，更别在一个线程 <code>get()</code>、另一个线程 <code>readAll()</code></strong>。',
     code: `QNetworkRequest req(url);
+// Qt6 不设也是 NoLessSafeRedirectPolicy：3xx 自动跟，只允许「不比原请求更安全」的跳转
+// 想让程序停在 3xx、自己决定跳不跳，才需要显式改成 Manual：
 req.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                 QNetworkRequest::NoLessSafeRedirectPolicy);
+                 int(QNetworkRequest::ManualRedirectPolicy));  // RedirectPolicy 没有 Q_ENUM，只有 KnownHeaders 有
 
 auto *cache = new QNetworkDiskCache(this);
 cache->setCacheDirectory(QStandardPaths::writableLocation(
     QStandardPaths::CacheLocation) + "/http");
 m_nam->setCache(cache);      // 挂在 manager 上，不是 request 上`,
-    highlight: [2, 3, 9]
+    highlight: [3, 4, 9]
   },
   {
     title: '一页收尾：七条自检',

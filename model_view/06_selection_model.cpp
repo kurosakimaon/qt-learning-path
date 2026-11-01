@@ -47,9 +47,10 @@
 //   · 打印的**范围个数**依赖 Qt 怎么归并矩形（不同版本可能不同），
 //     我只承诺「格子数」这类可手算的量。
 //   · 图解页面：../visuals/model_view.html（Selection 那一格 + 索引映射）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；每处「预期」后面是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_06_selection_model，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_06_selection_model.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -78,7 +79,7 @@
 #include <vector>
 
 // ============================================================================
-// 一、核对过的签名（本机 C:\msys64\ucrt64\include\qt6，QtCore 6.12.0）
+// 一、核对过的签名（本机 D:\Qt\6.12.0\mingw_64\include，QtCore 6.12.0）
 // ============================================================================
 // QtCore/qitemselectionmodel.h
 //   第 18 行    class Q_CORE_EXPORT QItemSelectionRange
@@ -374,9 +375,9 @@ int main(int argc, char *argv[])
                                           QItemSelectionModel::Clear | QItemSelectionModel::Select) ? "true" : "false")
                                  .arg(QItemSelectionModel::SelectCurrent == QItemSelectionModel::SelectionFlags(
                                           QItemSelectionModel::Select | QItemSelectionModel::Current) ? "true" : "false");
-        qInfo().noquote() << QStringLiteral("  ⚠ 本机 6.12 的头文件里**没有 CommandMask**（Qt5 有，值 0x00FF）。"
+        qInfo().noquote() << QStringLiteral("  【注意】 本机 6.12 的头文件里**没有 CommandMask**（Qt5 有，值 0x00FF）。"
                                             "要「命令语义」就显式写 Select/Deselect/Toggle，别去抄老代码。");
-        qInfo().noquote() << QStringLiteral("  ⚠ Rows/Columns 是「方式位」，Select/Toggle/Clear 是「命令位」，"
+        qInfo().noquote() << QStringLiteral("  【注意】 Rows/Columns 是「方式位」，Select/Toggle/Clear 是「命令位」，"
                                             "它们用 | 拼成一个 SelectionFlags 传进 select()。");
     });
 

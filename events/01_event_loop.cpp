@@ -22,8 +22,11 @@
 //   · 依赖 Qt6::Widgets（QApplication + 一个 QWidget 当演示舞台）。
 //   · 无鼠标键盘参与：所有事件都是代码**手工构造**后用
 //     QCoreApplication::sendEvent() / postEvent() 投递的——这是本模块的核心技巧。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     文中每一个类、函数、枚举都对着 C:\msys64\ucrt64\include\qt6 里的真实头文件核对过。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 events_01_event_loop）。本机这一轮：【硬账】19/19 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 //   · 本示例无人值守跑完：约 3.4 秒自动演示 → qInfo() 打印关键结论 → exit(硬账退出码)。
 //     到达次数、重入深度、flag 过滤这些「本该如此」的数字都登记进 Ledger，
 //     全过才是进程退出码 0；有一条对不上就返回 1，ctest 直接判红。
@@ -309,10 +312,24 @@ int main(int argc, char *argv[])
         qInfo() << "证据⑦ 键盘事件：初始" << before
                 << "| ExcludeUserInputEvents 之后" << afterExclude
                 << "| AllEvents 之后" << afterAll
-                << "→ 预期中段不涨、末段 +1；以你打印的数字为准。";
+                << "→ 实测中段【也涨了】：ExcludeUserInputEvents 挡不住 postEvent 投的按键。";
         check("⑦ 初始收到 0 个", before, 0);
-        check("⑦ 排除用户输入时不派发（仍为 0）", afterExclude, 0);
-        check("⑦ AllEvents 之后 +1", afterAll, 1);
+        check("⑦ ExcludeUserInputEvents 之后仍收到了这条 postEvent 的按键（=1，不是 0）", afterExclude, 1);
+        check("⑦ AllEvents 之后再抽一次，没有第二条（总数仍 =1）", afterAll, 1);
+        qInfo().noquote() << QStringLiteral(
+            "  ★★ 这一条本讲第一版猜错了（以为中段不涨），实测 +1。原因对着源码看：\n"
+            "     processEvents(flags) 一进来就无条件调一次 sendPostedEvents()\n"
+            "     （Windows 分发器 qeventdispatcher_win.cpp 第 484 行「To prevent livelocks,\n"
+            "     send posted events once per iteration」），而 QCoreApplicationPrivate::\n"
+            "     sendPostedEvents 根本不看 ExcludeUserInputEvents 这个 flag。\n"
+            "     flag 只在处理**原生队列输入**时生效：PeekMessage 拿到的键盘/鼠标消息会被\n"
+            "     挪进 queuedUserInputEvents 压后处理（同文件 497、504~508 行）。\n"
+            "     我们这条 QKeyEvent 是 postEvent 进 Qt 自己的 postEventList 的，走的是\n"
+            "     sendPostedEvents 那条路，所以它绕过了 flag、照常送达。\n"
+            "     → 一句话记住：**ExcludeUserInputEvents 过滤的是「操作系统送进来的输入」，\n"
+            "        不是「你用 postEvent 手工投递的合成事件」**；后者归 postEventList 管，永远照发。\n"
+            "     本机没有真键盘输入可造，所以这里能证到的正是「合成按键不受该 flag 约束」；\n"
+            "     想演示 flag 真的过滤，得让系统往窗口投原生按键（offscreen 环境做不到）。");
         // Qt5 老代码里 QEventLoop::exec 的参数类型叫 ExecFlags（ExecOption 枚举），
         // Qt6 这里统一是 QEventLoop::ProcessEventsFlags（qeventloop.h 36 行）。
         // 本机只有 Qt6 头，Qt5 那份枚举的数值我核不到，所以不复述——迁移时这里是常见编译错误点。

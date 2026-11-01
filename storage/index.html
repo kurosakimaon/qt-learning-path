@@ -36,17 +36,24 @@
       临时文件用完就删。跑完自己吐结论，不需要你动手点。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
       目标名 <code>storage_01_qsettings</code> … <code>storage_06_sql_model_view</code>，已在顶层 <code>CMakeLists.txt</code> 的
       「第捌阶段 · 数据与持久化（storage/）」一节登记；本组额外链 <code>Qt6::Sql</code> 与 <code>Qt6::Xml</code>，
       第 4 讲的 <code>resource_demo.qrc</code> 由 <code>AUTORCC</code> 处理。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>；每个 .cpp 都过了
-      <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
-      文中每一个类、函数、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
-      凡是策略写在 Qt 的 .cpp 里、头文件里读不到的行为（例如重新查询会不会丢掉未提交的改动），文中一律标成 <strong>Soft</strong>：
-      只承诺「显式提交之后一定不丢」这类能立住的部分。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 6 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 73/73 里；
+      硬账条数各讲自己报：第 1 讲 <strong>56/56</strong>、第 3 讲 <strong>对不上 0 行 → exit(0)</strong>、
+      第 5 讲 <strong>77/77</strong>（含「QSQLITE 驱动插件可用」这一发）、第 6 讲 <strong>退出码 0</strong>。
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      类、函数、枚举值都对着 <code>D:\Qt\6.12.0\mingw_64\include</code> 逐字核对过。
+      ★ 原来标成 <strong>Soft</strong> 的那几条，凡是运行期能问出答案的都已经问出来了：
+      「重新查询丢不丢未提交的改动」实测是<strong>丢</strong>——<code>setFilter</code> 之后
+      <code>isDirty</code> 直接清零、那一行回到库里的旧值；<code>setEditStrategy()</code> 进门先
+      <code>revertAll()</code> 也是同一记闷棍。所以规矩照旧要写死：任何触发重新查询的动作前面
+      都得先 <code>submitAll()</code> 或给一个明确的「放弃修改」确认框。
+      原始输出存档在 <code>runlogs/&lt;目标名&gt;.log</code>（重跑：<code>bash _tools/run_all.sh '^storage'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">

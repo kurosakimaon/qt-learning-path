@@ -25,7 +25,7 @@
 //        让对端把看到的头原样打回来对账（证据①a 和证据⑥）。
 //     4) POST 的 JSON 体：QJsonDocument(o).toJson(QJsonDocument::Compact) 出来的**已经是
 //        UTF-8 字节**（QByteArray，第 75 行那个 toJson 的返回类型），别再用 QString::toUtf8()
-//        绕一遍，也别手工加 BOM。注意这个 enum 叫 **JsonFormat**（第 58 行），不叫 QJsonFormat；
+//        绕一遍，也别手工加 BOM。注意这个 enum 叫 **JsonFormat**（第 58 行），不叫 QJsonFormat；  name-ok:QJsonFormat 本行正在说「不叫 QJsonFormat」
 //        而且 toJson 的**默认参数是 Indented**，不传就是带缩进的那版。
 //        Content-Length 交给框架算，你自己算就会和 Qt 的 chunked 判断打架。
 //     5) 回调的**析构安全**：connect 的 context 参数 —— functor 重载是第 3 个
@@ -62,24 +62,11 @@
 //     用 quit() 的话进程永远 0，这张表打印得再认真，CI 也看不见失败 —— 把话说到屏幕里
 //     只算说了一半。
 //   · 可以无头跑：`network_02_rest_client -platform offscreen`。
-//   · 未实测声明：**本文件未在本机实测编译运行**，只做了 moc + g++ -fsyntax-only
-//     （-std=c++17 -Wall -Wextra）编译期核对，0 error 0 warning；未链接、未运行。
-//     文中「预期」后面是推理，不是实测。
-//
-// 七节证据（main 里按时间轴一条条放，合账在 3400ms）：
-//   ①a GET /v1/device 成功 → 状态码、解析出的字段、对端回显的三个请求头
-//   ①b POST /v1/device      → 「框架算的 Content-Length」等于「对端真收到的字节数」
-//   ②  GET /v1/missing      → 404 归 HttpError，且 4xx 的正文**不丢**（服务端的原因还在）
-//   ③a/③b 200 + 半截 JSON / 200 + 合法 JSON 数组 → 两类都归 ParseError
-//   ④a GET /v1/flaky        → 对端前两次必 500，第三次成：attempts == 3，重试真的跑得通
-//   ④b baseUrl 注入到刚关掉的端口 → 连不上；④c /v1/silent + 400ms → 超时
-//   ⑤  GET /v1/lag，120ms 时我方 abort() → 归 Cancelled，和第④类分开
-//   ⑥  getOldStyle()：只用 setRawHeader 的那条路 → 对端看到的头应当和①a 只差一个标记
-//   ⑦  同一发请求，一个挂活对象、一个挂 130ms 后被 delete 的对象 → 后者回调 0 次，
-//      但请求照发、pending 照挂着（这就是 context 的**代价**，不写出来就是藏着）
-//   ★ ④b/④c 的**具体错种**（哪个 NetworkError 枚举值）不进硬账，只打印：超时映射到哪一值
-//     随 Qt 小版本/HTTP2 栈变化，借来的端口理论上也可能被别人抢走。硬结论只写
-//     「绝不能被当成成功」—— 分层建模的界面本来只看类别，不看那一串枚举号。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 network_02_rest_client）。本机这一轮：合账结果：29/29 项对上。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>                 // QtWidgets/qapplication.h
@@ -116,7 +103,7 @@
 #include <chrono>
 
 // ============================================================================
-// 一、对着本机头文件核过的签名（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、对着本机头文件核过的签名（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtNetwork/qnetworkrequest.h
 //   第 33~48 行 enum KnownHeaders { ContentTypeHeader, ContentLengthHeader, LocationHeader,
@@ -156,13 +143,17 @@
 // QtNetwork/qnetworkreply.h
 //   第 94 行 NetworkError error() const / 第 135 行 errorOccurred / 第 134 行 finished
 //   第 118 行 QVariant attribute(QNetworkRequest::Attribute) const
-//   第 33~77 行 NetworkError 分类：1~99 网络层（ConnectionRefusedError=1 第 37 行、
-//              RemoteHostClosedError=2（38）、HostNotFoundError=3（39）、TimeoutError=4（40）、
-//              OperationCanceledError=5（41）、SslHandshakeFailedError=6（42）、
-//              UnknownNetworkError=99（48））/
-//              101~199 代理（ProxyConnectionRefusedError=101 第 51 行）/
-//              201~299 内容（ContentAccessDenied=201（59）、ContentNotFoundError=203（61)）/
-//              301~399 协议（ProtocolUnknownError=301（68））/ 401~499 服务端（InternalServerError=401 第 74 行）
+//   第 33~78 行 NetworkError 分类（★ 下面「=N」是**枚举值**，「第 X 行」是**声明行号**，
+//              本机逐个数过；写死数字之前先数枚举 —— 第 4 讲就是背了个「41」被实测打脸的）：
+//              1~99 网络层：ConnectionRefusedError=1（第 37 行）、RemoteHostClosedError=2（38）、
+//              HostNotFoundError=3（39）、TimeoutError=4（40）、OperationCanceledError=5（41）、
+//              SslHandshakeFailedError=6（42）、UnknownNetworkError=99（48）/
+//              101~199 代理：ProxyConnectionRefusedError=101（第 51 行）/
+//              201~299 内容：ContentAccessDenied=201（59）、ContentNotFoundError=203（61）/
+//              301~399 协议：ProtocolUnknownError=301（第 69 行）/
+//              401~499 服务端：InternalServerError=401（第 74 行）
+//              ← 特别记一下 **OperationCanceledError = 5**：Qt 6.12 里 41 这个号根本不存在，
+//                abort() 之后 errorOccurred 带的就是 5。
 //              ← **这就是「网络错」和「HTTP 语义错」在源头就是两拨的证据**，
 //                我们建模时也不该把它们塞进同一个字段
 // QtCore/qjsondocument.h
@@ -512,7 +503,13 @@ private:
         r.elapsedMs = m_clock.elapsed() - t0;
         r.attempts = attempt;
         r.requestTag = tag;
-        r.rawBody = reply->readAll();
+        // ★ 这一行原来写的是无条件 `reply->readAll()`。本机跑出来 ④c（超时）和 ⑤（abort）
+        //   两处各冒一条警告：「QIODevice::read (QNetworkReplyHttpImpl): device not open」
+        //   —— 请求以错误收场时设备已经关了，readAll() 撞上 QIODevice 的守卫，
+        //   警告照打、正文给你空的。也就是说老写法**结果碰巧对，过程在喊疼**。
+        //   读之前先问 isOpen()，这才是能放进生产代码的形状（判完 error() 再决定读不读也对，
+        //   但本讲把取正文集中在 toResult 这一个函数里，守卫放这里最省事）。
+        r.rawBody = reply->isOpen() ? reply->readAll() : QByteArray();
         r.netError = reply->error();
         r.netErrorText = reply->errorString();
         r.httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -520,26 +517,39 @@ private:
         Q_UNUSED(op)
         Q_UNUSED(req)
 
-        if (reply->error() != QNetworkReply::NoError) {
-            if (reply->error() == QNetworkReply::OperationCanceledError) {
-                r.kind = ApiResult::Kind::Cancelled;
-                r.message = QStringLiteral("请求已取消");
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            r.kind = ApiResult::Kind::Cancelled;
+            r.message = QStringLiteral("请求已取消");
+            return r;
+        }
+        // ★ 判性质的正确尺子（本讲最反直觉、也最容易写歪的一处，实测踩过）：
+        //   **不能**用「reply->error() 是否非 0」来分「网络错 vs HTTP 错」。
+        //   因为 Qt 把 HTTP 协议层的错误编进了 NetworkError 这**同一个 enum** 里，作为独立值：
+        //     ContentNotFoundError = 203、InternalServerError = 401 …（见 qnetworkreply.h 第 36~73 行）。
+        //   这些值是「协议错误码」，**跟 HTTP 状态码不是一个数**：一次 404，error() 给的是 203，
+        //   而 attribute(HttpStatusCodeAttribute) 给的才是 404。于是老写法「error()≠0 就归 NetworkError」
+        //   会把 404/500 误判成「连不上」，还会连锁两桩错：
+        //     · 提前 return，跳过了下面 maybeAttachJson → 4xx 正文里服务端给的原因被丢成空；
+        //     · retryWorthy() 把 HttpError 的 5xx 当网络错一样重试，404 也被拖进重试（本讲实测 404 跑了 3 发）。
+        //   真正的判据是**有没有拿到 HTTP 状态码**：HttpStatusCodeAttribute 非 0 说明对端**答了**
+        //   （哪怕答的是 4xx/5xx）→ 归 HttpError；为 0 才是传输层压根没应答（连不上/超时/DNS/SSL）→ NetworkError。
+        const bool gotHttpResponse = (r.httpStatus != 0);
+        if (gotHttpResponse) {
+            if (r.httpStatus < 200 || r.httpStatus >= 300) {
+                r.kind = ApiResult::Kind::HttpError;
+                r.message = QStringLiteral("服务返回 %1 %2").arg(r.httpStatus).arg(r.httpReason);
+                // 4xx 的正文里通常有服务端给的原因，**别丢**：解析成功就当 data 带着走
+                maybeAttachJson(&r);
                 return r;
             }
-            r.kind = ApiResult::Kind::NetworkError;
-            r.message = QStringLiteral("连不上服务（%1）").arg(r.netErrorText);
-            return r;
-        }
-        if (r.httpStatus != 0 && (r.httpStatus < 200 || r.httpStatus >= 300)) {
-            r.kind = ApiResult::Kind::HttpError;
-            r.message = QStringLiteral("服务返回 %1 %2").arg(r.httpStatus).arg(r.httpReason);
-            // 4xx 的正文里通常有服务端给的原因，**别丢**：解析成功就当 data 带着走
             maybeAttachJson(&r);
+            if (r.kind != ApiResult::Kind::ParseError)
+                r.message = QStringLiteral("成功（%1）").arg(r.httpStatus);
             return r;
         }
-        maybeAttachJson(&r);
-        if (r.kind != ApiResult::Kind::ParseError)
-            r.message = QStringLiteral("成功（%1）").arg(r.httpStatus);
+        // 没有 HTTP 状态码 = 对端压根没应答：连接被拒 / 超时 / DNS / SSL 等传输层错误
+        r.kind = ApiResult::Kind::NetworkError;
+        r.message = QStringLiteral("连不上服务（%1）").arg(r.netErrorText);
         return r;
     }
 

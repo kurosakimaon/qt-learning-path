@@ -9,9 +9,20 @@
 //        「空文档」的对象，细节在出参 QJsonParseError；QSqlQuery::exec() +
 //        lastError() 同理。**它们一个异常都不抛**。
 //     2) 抛异常型：来自 C++ 标准库和 Qt 的容器边界——std::vector::at() 越界抛
-//        std::out_of_range、 operator new 失败抛 std::bad_alloc、QVariant::to<T>()
-//        转换失败在某些配置下抛 QtException 家族（QVariant::InvalidTypeException）。
-//        **文件打不开、JSON 写歪了，不在这个集合里**。
+//        std::out_of_range、operator new 失败抛 std::bad_alloc。
+//        ★ 勘误（旧稿在这里还列了「QVariant::to<T>() 转换失败抛 QtException 家族
+//          （QVariant::InvalidTypeException）」——三个名字全查无此文）：
+//          · Qt 6.12 的 QVariant **没有** `to<T>()`；取值的模板写法是 `value<T>()`
+//            （qvariant.h:755），另外还有 toInt()/toString() 这类定型访问器；
+//          · 本机实测（MinGW 13.1 + Qt 6.12.0，异常这一路是开着的）：
+//            QVariant("abc").value<int>() → 0，**不抛**；toInt(&ok) → 0 且 ok=false；
+//            QVariant(QByteArray("junk")).toList() → 4 个元素，**不抛**；
+//            整个探针的 catch 计数 = 0。
+//          · qtbase 全树 grep：`InvalidTypeException` 0 处；`QtException` 只在
+//            qexceptionhandling.h:13 的 `#pragma qt_class(QtExceptionHandling)` 出现，
+//            那是给文件起的归类名，不是类。「Qt 有个 QtException 异常家族」是旧版资料里的
+//            口头禅，本机 6.12 的头文件里一个都找不到。
+//        **文件打不开、JSON 写歪了、QVariant 转换失败，都不在这个集合里**。
 //   所以本讲的三条主线：
 //     · 边界要认清：try/catch 抓不到 file.open() 的失败（本讲把 catch 计数摆成 0，
 //       同一函数里越界的 at() 抓到 1 次，两种风格一次对齐）；
@@ -44,9 +55,11 @@
 //   · 「磁盘写入失败」是**造出来的**：先把文件设成只读（QFile::setPermissions），
 //     再拿 WriteOnly 去 open()。不同文件系统失败原因措辞可能不同，所以本讲只承诺
 //     open() 返回 false 且 error() != NoError，不承诺 errorString 的具体文字。
-//   · 未实测声明：本机当前无法链接 Qt 运行时，本示例**未链接、未运行**，
-//     仅通过 moc + g++ -fsyntax-only（-std=c++17 -Wall -Wextra）做编译期核对；
-//     文中所有「预期」后面是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 quality_05_error_handling）。本机这一轮：【硬账】32/32 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -63,7 +76,7 @@
 #include <QFileDevice>               // QtCore/qfiledevice.h：FileError 枚举（第 72~88 行）
 #include <QJsonDocument>             // QtCore/qjsondocument.h：fromJson（第 73 行）
 #include <QJsonObject>
-#include <QJsonValue>                // QtCore/qjsonvalue.h：ValueType（第 32~39 行）
+#include <QJsonValue>                // QtCore/qjsonvalue.h：enum Type（第 32~39 行）
 #include <QJsonParseError>           // QtCore/qjsonparseerror.h：struct（第 16 行起）
 #include <QStandardPaths>            // QtCore/qstandardpaths.h：TempLocation（第 29 行）
 #include <QMetaType>                 // qRegisterMetaType
@@ -112,7 +125,7 @@ void checkBool(const char *what, bool got, bool want = true)
 } // namespace
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // QFile / QIODevice（返回值型）：
 //   qfiledevice.h 第 72~88 行  enum FileError { NoError=0, ReadError=1, WriteError=2,
@@ -126,7 +139,9 @@ void checkBool(const char *what, bool got, bool want = true)
 //   qfile.h        第 281~284 行 permissions()/setPermissions() 各有成员版与静态版
 //   ⚠ QIODevice::open() / QFile::open() 是 **bool 返回值**，失败时**不抛异常**；
 //     老资料里「Qt 不抛异常」这句话要精确成「Qt 的 C 风格 API 不抛异常」，
-//     因为 std 容器、QtException 家族、QVariant::to<T>() 是真的会抛（本讲证据①摆出来）。
+//     因为 std 容器（at()/front()/back() 越界、operator new）是真的会抛（本讲证据①摆出来）。
+//     至于旧稿在这里并列的「QtException 家族、QVariant::to<T>()」——本机 6.12 两个都查无此名，
+//     QVariant 转换失败实测不抛（详见文件头第 2 条勘误）。
 // QJsonParseError（**struct，不是 class，异常家族里没它**）：
 //   qjsonparseerror.h 第 16 行起 struct QJsonParseError {
 //       enum ParseError { NoError=0, UnterminatedObject, MissingNameSeparator,
@@ -139,10 +154,17 @@ void checkBool(const char *what, bool got, bool want = true)
 //   qjsondocument.h 第 73 行 static QJsonDocument fromJson(const QByteArray &,
 //                                                          QJsonParseError *error = nullptr);
 //                    ← **细节靠出参**，返回值本身只是个可能为空的文档；判错只看 parseError.error
-// QJsonValue：第 32~39 行 enum ValueType { Null=0x0, Bool=0x1, Double=0x2, String=0x3,
+// QJsonValue：第 32~39 行 enum Type { Null=0x0, Bool=0x1, Double=0x2, String=0x3,
 //                    Array=0x4, Object=0x5, Undefined=0x80 }
-//          ⚠ **JSON 没有 Integer 类型**，整数存成 Double；所以「字段类型不符」最常见的
-//            真相是「人把 7000 写成了 "7000"」，用 toInt(默认值) 一把梭就等于**把错误咽下去**。
+//          ⚠ 枚举叫 **Type**（Qt 6 的 QJsonValue 里没有 ValueType 这个名字，别和
+//            QCborValue / QJsonValueRef 的说法串台）。
+//          ⚠ **枚举里没有 Integer** —— 但「整数存成 Double」这半句要打个折：Qt 6 的
+//            QJsonValue 底层是一个 QCborValue，整数走 int64 存、**不经过 double**，
+//            所以 2^53+1 解析再序列化能原样回来（storage/03 本机实测：字节完全相同）。
+//            塌的是**门面**：type() 只有 Double，toInt() 走的是 double 转换，
+//            超过约 9e15 的整数在 toDouble()/toInt() 这一手会丢精度。
+//            所以「字段类型不符」最常见的真相仍是「人把 7000 写成了 "7000"」，
+//            用 toInt(默认值) 一把梭等于**把错误咽下去**。
 // 日志（开发者可见那一层）：
 //   qlogging.h 第 169~173 行 宏 qDebug/qInfo/qWarning/qCritical/qFatal =
 //       QMessageLogger(__FILE__,__LINE__,__func__).debug/info/warning/critical/fatal
@@ -150,9 +172,15 @@ void checkBool(const char *what, bool got, bool want = true)
 //       fatal 标了 QT_MESSAGE_LOGGER_NORETURN + noexcept —— **它就是会 abort，不返回**
 //   第 198 行 QtMessageHandler qInstallMessageHandler(QtMessageHandler);   ← 本讲用它取证
 //   第 200 行 void qSetMessagePattern(const QString &);
-//   qloggingcategory.h 第 19/21/28 行 isEnabled/setEnabled/categoryName，
-//       第 40 行 installFilter、第 42 行 static setFilterRules(const QString &)
+//   qloggingcategory.h 第 20/21/28 行 isEnabled/setEnabled/categoryName，
+//       第 36 行 `typedef void (*CategoryFilter)(QLoggingCategory *);`、
+//       第 37 行 static CategoryFilter installFilter(CategoryFilter)、
+//       第 39 行 static void setFilterRules(const QString &rules)
 //       ← 这就是 QT_LOGGING_RULES 在代码里的对偶；**别把「调试期开日志」写成 if(type==xxx)**
+//       ★ 勘误：旧稿写 19/40/42，本机 6.12.0 重数：19 行是**空行**（isEnabled 在 20），
+//         installFilter 在 **37**（36 行是它需要的函数指针 typedef，抄签名时这两行要一起抄），
+//         setFilterRules 在 **39**。注意 installFilter 的返回类型是 `CategoryFilter` 而不是 void：
+//         它把**上一个**过滤器还给你，所以装完自己的要留着，否则没法在测试结束时摘干净。
 // QSql（本讲**不写进代码**，因为 quality 这组只链 Qt6::Widgets/Test/Concurrent）：
 //   qsqlerror.h 第 20 行起 enum ErrorType { NoError, ConnectionError, StatementError,
 //       DatabaseError, DriverError, UnknownError }；text()/nativeErrorCode()/number()
@@ -769,7 +797,17 @@ static void evidenceRedaction(const QString &dir)
     check("③ 反面写法（target 原样进日志）新增日志行数", linesMid - linesBefore, 1);
     check("③ 反面写法泄漏原始路径的行数", leaked, 1);
     check("③ 正面写法（describeLog 打码）泄漏行数", clean, 0);
-    check("③ 全流程累计泄漏次数", LogProbe::leakHits, 1);
+    // 全流程累计 = 2，不是 1（这是实测纠正过来的一条，也是本取证最想教的东西）：
+    //   第 1 次：上面那行**故意写错**的反面日志（target 原样进日志）；
+    //   第 2 次：就在此处第 761~762 行，取证自己用 qInfo 把「原始路径特征串 = <dir>」
+    //           原样打印进了日志 —— 而 LogProbe 的判据就是「这一行含不含 dir」。
+    //   探针（LogProbe::handle）对每一条日志一视同仁：它不区分「故意演示的泄漏」和
+    //   「讲解时顺手打印的特征串」，只要消息里出现 dir 就 +1。所以计数是 2。
+    //   这不是探针算错，恰恰是它的价值：**连自己的取证 header 都会漏路径** —— 现实里
+    //   太多「debug 打印把用户目录/密钥原样 log 出去」就是这么发生的。要打印这个 token
+    //   又不想被计数，就得像 maskPath() 那样先打码；这里刻意保留原样，让它成为第 2 条证据。
+    check("③ 全流程累计泄漏次数（故意写错的 1 行 + 取证 header 打印特征串的 1 行）",
+          LogProbe::leakHits, 2);
     checkBool("③ 打码后的 target 不含原始目录", !maskPath(raw.target).contains(dir));
     checkBool("③ 打码结果仍点得出文件名（<secret-name.json>）",
               maskPath(raw.target).contains(QStringLiteral("secret-name")));
@@ -873,7 +911,8 @@ int main(int argc, char *argv[])
             checkBool("【总账】不可恢复的错至少 2 条 qCritical", LogProbe::nCritical >= 2);
             checkBool("【总账】可恢复/降级/反面写法加起来至少 3 条 qWarning",
                       LogProbe::nWarning >= 3);
-            check("【总账】原始路径泄漏总数（只有那一条故意写错的行）", LogProbe::leakHits, 1);
+            check("【总账】原始路径泄漏总数（反面写错的 1 行 + 取证 header 打特征串的 1 行）",
+                  LogProbe::leakHits, 2);
             checkBool("【总账】临时目录清理干净", rmdirOk);
 
             qInfo().noquote() << QStringLiteral("\n【硬账】%1/%2 项核对通过 → 退出码 %3")
@@ -901,9 +940,15 @@ int main(int argc, char *argv[])
  *   ② C++ 标准库异常（容器越界、new 失败、string 转换）
  *      at()/front()/back() 越界、bad_alloc、regex_error…… → 这些**必须** catch，
  *      而且要**在层的边界**接住、翻成 Result 再往上（证据①第三步）。
- *   ③ QtException 家族（QtConfig 允许异常时）
- *      QVariant::to<T>() 转换失败可抛 QVariant::InvalidTypeException。
- *      → 别把它当常规路径；常规路径永远用 canConvert<T>() + toInt(默认值) 之类。
+ *   ③ QVariant 的转换失败（本机 6.12 实测：**不抛**）
+ *      取值写 `value<T>()`（Qt 6 没有 `to<T>()`），失败给你 0；`toInt(&ok)` 把 ok 置 false。
+ *      旧稿在这里写的「QtException 家族 / QVariant::InvalidTypeException」在 qtbase 全树
+ *      grep 是 0 处，别照着它去 catch。
+ *      ⚠ 真正的坑是另一件事：`canConvert<int>()` 对字符串 "abc" 返回 **true**——
+ *      它只说「有这条转换路径」，不说「这一次会转成功」。实测：
+ *      QVariant("abc").canConvert<int>() = 1，而 value<int>() = 0、toInt(&ok) 的 ok = 0。
+ *      → 所以判「转得动吗」要拿结果说话：`toInt(&ok)` / `convert(QMetaType::fromType<T>())`
+ *      的返回值，而不是 canConvert。
  *
  * 二、Result<T> 该带什么（少一样，半夜就定位不了）
  *   code（可枚举的错，**给分支用**）+ domain（哪一层）+ message（给人读的技术描述）

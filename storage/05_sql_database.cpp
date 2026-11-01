@@ -30,6 +30,9 @@
 //        绑定那条命中 0 行（正常语义）。
 //        另外一条硬知识：**表名/列名不能当绑定值**（占位符只能替换「值」的位置），
 //        要防注入得走 QSqlDriver::escapeIdentifier（qsqldriver.h 第 74 行）+ 白名单。
+//        ★ 但 escapeIdentifier **不是安全栏**：证据②实测 QSQLITE 只做「首尾各加一个双引号」，
+//          标识符内部原有的双引号**不翻倍**（qsql_sqlite.cpp 第 994~1011 行），基类更是原样返回
+//          （qsqldriver.cpp 第 377~380 行）。所以白名单是必选项，不是可选项。
 //     4) **错误与行数要逐条读**。exec() 返回 false 才说明语句失败；返回 true 不代表影响了几行，
 //        所以 INSERT/UPDATE/DELETE 之后要读 numRowsAffected()（第 65 行），
 //        插入自增主键之后读 lastInsertId()（第 111 行，先看 LastInsertId 特性）。
@@ -70,7 +73,7 @@
 // 运行前须知：
 //   · **需要 QSQLITE 驱动插件**。程序第一步就 `QSqlDatabase::isDriverAvailable("QSQLITE")`
 //     并打印 `QSqlDatabase::drivers()`；本机核对到过插件文件
-//     C:\msys64\ucrt64\share\qt6\plugins\sqldrivers\qsqlite.dll。
+//     D:\Qt\6.12.0\mingw_64\plugins\sqldrivers\qsqlite.dll。
 //     不可用时**不崩、不硬跑**：打印原因（缺插件/缺 Qt6::Sql）后 quit() 退出——
 //     这就是「运行前须知」该由你自己核对的那一条，装了 Qt 但没装 sql 插件是常事。
 //   · 无人值守：QTimer::singleShot 串步骤 → qInfo() 打证据 → close/removeDatabase/删库文件
@@ -80,9 +83,11 @@
 //     第 6 讲要挂视图、要用 QSqlRelationalDelegate，那边才必须 QApplication）。
 //   · 落盘约定：库文件写在 QStandardPaths::TempLocation 下的 qtc_storage05 目录，
 //     结尾删库并顺带清 -journal/-wal，把结果打印出来。
-//   · 未实测声明：**本文件未在本机实测编译运行**；只过了 moc + g++ -fsyntax-only
-//     （-std=c++17 -fPIC -Wall -Wextra，0 error / 0 warning），未链接、未运行。
-//     下文「预期」是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_05_sql_database）。本机这一轮：【硬账】77/77 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QCoreApplication>          // QtCore/qcoreapplication.h（QSql 不需要 GUI）
@@ -109,7 +114,7 @@
 #include <QSqlIndex>                 // QtSql/qsqlindex.h（primaryIndex 的返回类型）
 
 // ============================================================================
-// 一、本机头文件核对（C:\msys64\ucrt64\include\qt6，Qt 6.12.0 / QT_VERSION_STR 见 qconfig.h:73）
+// 一、本机头文件核对（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0 / QT_VERSION_STR 见 qconfig.h:73）
 // ============================================================================
 // QtSql/qsqldatabase.h
 //   第 38~47 行 struct QSqlDatabaseDefaultConnectionName { static constexpr const char
@@ -176,7 +181,10 @@
 //              InsertStatement, DeleteStatement }
 //   第 44/45 行 enum IdentifierType { FieldName, TableName }
 //   第 48~59 行 enum DbmsType { ..., SQLite, ... }（判方言用 dbmsType()，第 101 行）
-//   第 74 行  virtual QString escapeIdentifier(const QString&, IdentifierType) const;  ← 标识符防注入
+//   第 74 行  virtual QString escapeIdentifier(const QString&, IdentifierType) const;  ← 标识符转义
+//              ⚠ 头文件只是 virtual 声明（**基类默认实现原样返回**，qsqldriver.cpp 第 377~380 行），
+//              到底转成什么样**完全看驱动**：QSQLITE 只加首尾双引号、内部引号不翻倍（证据②实测）。
+//              所以它是「配合白名单用的一道格式化」，不是防注入的保证书。
 //   第 75/76 行 virtual QString sqlStatement(StatementType, const QString &table,
 //              const QSqlRecord&, bool preparedStatement) const;                      ← 让驱动拼语句
 //   第 81 行  virtual bool hasFeature(DriverFeature f) const = 0;
@@ -282,7 +290,7 @@ static bool evidenceDriverAndConnection()
     qInfo() << "  isDriverAvailable(\"QSQLITE\") =" << hasSqlite;
     checkBool("QSQLITE 驱动插件可用（缺它这一讲无法核对）", hasSqlite);
     if (!hasSqlite) {
-        qInfo() << "  ⚠ 没有 QSQLITE 驱动插件：后面的 SQL 演示**全部跳过**（不崩、不硬跑）。"
+        qInfo() << "  【注意】 没有 QSQLITE 驱动插件：后面的 SQL 演示**全部跳过**（不崩、不硬跑）。"
                    "装法（MSYS2）：pacman -S mingw-w64-ucrt-x86_64-qt6-base 里的 sqldrivers 插件；"
                    "Qt 官方安装器勾「Qt 5.15+ → Database」也一样。"
                    "现场判据：把 plugins/sqldrivers 目录放进可执行文件旁的 sqldrivers/ 即可。";
@@ -322,7 +330,7 @@ static bool evidenceDriverAndConnection()
     check("① 拷贝之后连接数没变（没有新连接）", QSqlDatabase::connectionNames().size(), 1);
 
     if (!db.open()) {
-        qInfo() << "  ⚠ open 失败：" << describeError(db.lastError());
+        qInfo() << "  【注意】 open 失败：" << describeError(db.lastError());
         checkBool("① 库文件能 open", false);
         return false;
     }
@@ -405,10 +413,20 @@ static void evidenceCreateTable()
             << escaped
             << "｜再交给 record() 问它存在吗 =" << db.tables(QSql::Tables).contains(nastyIdent)
             << "→ 结论：**值用 bindValue，标识符用 escapeIdentifier + 白名单**，两条不能互换。";
+    qInfo() << "  ★ 但别把 escapeIdentifier 当成安全栏：本驱动（QSQLITE）的实现只是**首尾各加一个双引号**，"
+               "标识符**原有的双引号一个都没翻倍**（qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp "
+               "第 994~1011 行：`return u'\"' + identifier + u'\"';`，中间没有任何 replace）；"
+               "基类 QSqlDriver::escapeIdentifier 更是原样返回（sql/kernel/qsqldriver.cpp 第 377~380 行）。"
+               "所以这串东西转义完仍然是「提前闭合引号 + 尾巴挂在语句里」的形状——"
+               "**这正是 SQL 里 \\\"\\\" 才算转义、而它没做的那件事**。标识符只能来自白名单，没有第二条。";
     checkBool("② escapeIdentifier 用双引号把标识符整个包住",
               escaped.startsWith(QLatin1Char('"')) && escaped.endsWith(QLatin1Char('"')));
-    checkBool("② 标识符里原有的双引号被翻倍（\"\" 才是 SQL 的转义）",
-              escaped.contains(QStringLiteral("\"\"")));
+    // ★ 原预测「内部双引号会被翻倍成 \"\"」错的是**没查驱动实现**：SQLite 驱动只做首尾包裹。
+    //   两条硬账分开打：一条钉「它确实只做了首尾包裹」，一条钉「内部双引号没被转义」。
+    checkBool("② ★ 实测：转义 = 原样首尾加引号（内部一字未改）",
+              escaped == QLatin1Char('"') + nastyIdent + QLatin1Char('"'));
+    checkBool("② ★ 实测：原有的双引号**没有**被翻倍（\"\" 这种 SQL 转义它没做）",
+              escaped.contains(QStringLiteral("\"\"")), false);
     checkBool("② 脏标识符没有被当成一张真实存在的表",
               db.tables(QSql::Tables).contains(nastyIdent), false);
 }
@@ -518,8 +536,14 @@ static void evidenceFailure()
     const QSqlError err = q.lastError();
     qInfo() << "  exec() 返回 =" << ok << "（false 才是失败；**true 也别以为写进去了**，看下一条）";
     qInfo() << "  lastError：" << describeError(err);
-    qInfo() << "  ⚠ 本版本 QSqlError **没有 number()**（qsqlerror.h 第 42~47 行里没有它），"
+    qInfo() << "  【注意】 本版本 QSqlError **没有 number()**（qsqlerror.h 第 42~47 行里没有它），"
                "对应的是返回 QString 的 nativeErrorCode()。照抄 Qt5 代码里 `err.number()` 的一律编不过。";
+    qInfo() << "  【注意】 看仔细 type= 那一项：撞的是 UNIQUE（明明是一条**语句**的事），type 却是 "
+               "ConnectionError(1) 而不是 StatementError(2)。**这不是你用错了，是驱动写死的**："
+               "qsql_sqlite.cpp 第 334~341 行把 `SQLITE_CONSTRAINT` 和 `SQLITE_ERROR` 并进同一个 "
+               "case，然后 `qMakeError(..., \"Unable to fetch row\", QSqlError::ConnectionError, res)`。"
+               "所以纪律是：**type() 只能用来分「连接级还是别的」，判失败原因要看返回值 + "
+               "databaseText() + nativeErrorCode()，别拿 type() 当分类依据**。";
     qInfo() << "  失败之后 numRowsAffected() =" << q.numRowsAffected()
             << "｜isActive =" << q.isActive() << "｜isValid =" << q.isValid()
             << "｜lastInsertId() =" << q.lastInsertId().toString()
@@ -530,7 +554,15 @@ static void evidenceFailure()
                "只有驱动子类能用。多条语句（nextResult()）时也是逐条读 lastError()。";
     checkBool("④ 撞 UNIQUE 的 INSERT：exec() 返回 false", ok, false);
     checkBool("④ lastError().isValid() 为真（失败一定有错对象）", err.isValid());
-    check("④ 错误类型是 StatementError（语句级）", int(err.type()), int(QSqlError::StatementError));
+    // ★ 原预测是 StatementError(2)（按「撞约束=语句级错误」的常理推的）。
+    //   实测 ConnectionError(1)：SQLite 驱动在 sqlite3_step 返回 SQLITE_CONSTRAINT 时，
+    //   和 SQLITE_ERROR 走同一个分支、错误类型**硬编码**成 QSqlError::ConnectionError
+    //   （qsql_sqlite.cpp 第 334~341 行）。期望按实测改，真正的「语句级」证据在下面两条：
+    //   databaseText 是数据库自己说的（UNIQUE constraint failed），nativeErrorCode 是 sqlite 的错误码。
+    check("④ 错误类型实测是 ConnectionError（驱动把 CONSTRAINT 归到这里，别拿来分类）",
+          int(err.type()), int(QSqlError::ConnectionError));
+    checkBool("④ databaseText 里写着 UNIQUE（判失败原因靠它，不靠 type()）",
+              err.databaseText().contains(QStringLiteral("UNIQUE")));
     checkBool("④ nativeErrorCode 非空（Qt6 用它替代 Qt5 的 number()）",
               !err.nativeErrorCode().isEmpty());
     checkBool("④ databaseText 非空（数据库自己说的话）", !err.databaseText().isEmpty());
@@ -646,7 +678,7 @@ static void evidenceTransaction()
     qInfo() << "  第二段：transaction=" << began2 << "插一行=" << okInsert << "commit=" << committed
             << "｜现在全表行数 =" << countAllRows(db)
             << "（预期" << before + 1 << "）";
-    qInfo() << "  ⚠ SQLite 别嵌套 transaction()：第二个 BEGIN 会直接报错，Qt 这层没有 SAVEPOINT 封装。"
+    qInfo() << "  【注意】 SQLite 别嵌套 transaction()：第二个 BEGIN 会直接报错，Qt 这层没有 SAVEPOINT 封装。"
                "要做嵌套就在自己的代码里计数（只有最外层真开事务），或者一条事务走完。";
     checkBool("⑥ 第二段 transaction() 成功", began2);
     checkBool("⑥ 第二段 INSERT 成功", okInsert);
@@ -704,22 +736,34 @@ static void evidenceQueryRows()
                            .arg(rows).arg(id).arg(name).arg(qty).arg(noteNull);
         ++rows;
     }
+    // ★ 取证时刻：这条 bool 必须**紧跟在 while(q.next()) 之后**抓。
+    //   下面那句 q.first() 会把游标倒回第一行，isValid() 立刻又变成 true——
+    //   原代码就是在 first() 之后才去读 q.isValid()，于是硬账打在**已被后续动作改过的状态**上
+    //   （期望 0、实测 1）。错的是取证时刻，不是 Qt，所以这里改代码不改语义。
+    //   语义出处：QSqlResult::isValid() 判的是「d->idx 既不是 BeforeFirstRow 也不是 AfterLastRow」
+    //   （qsqlresult.cpp 第 269~273 行）；SQLite 走到末尾/出错时在 fetchNext() 里
+    //   `q->setAt(QSql::AfterLastRow)`（qsql_sqlite.cpp 第 340 行、第 349 行）。
+    const bool validAtEnd = q.isValid();
     qInfo() << "  逐行取完：命中行数 =" << rows << "｜其中 note 为 NULL 的 =" << nullNotes
-            << "｜q.isValid() 游标当前位置 =" << q.isValid()
+            << "｜q.isValid() 游标当前位置 =" << validAtEnd
             << "（next() 走完返回 false，此时 isValid=false，**值只能在 next() 为真时取**）";
-    qInfo() << "  游标可以倒回去：q.first() =" << q.first() << "｜再取 name ="
-            << q.value(QStringLiteral("name")).toString()
-            << "（前提不是 forwardOnly；证据⑤那条设了 setForwardOnly(true)，就退不回去了）";
+    const bool wentFirst = q.first();
+    const QString firstRowName = q.value(QStringLiteral("name")).toString();
+    const bool validAfterFirst = q.isValid();
+    qInfo() << "  游标可以倒回去：q.first() =" << wentFirst << "｜再取 name =" << firstRowName
+            << "｜此刻 q.isValid() =" << validAfterFirst
+            << "（同一个游标、同一个函数，**换个时刻问就是换个答案**——这就是取证要卡位置的理由；"
+               "前提不是 forwardOnly；证据⑤那条设了 setForwardOnly(true)，就退不回去了）";
     qInfo() << "  数值精度策略（第 95/96 行）当前 =" << int(db.numericalPrecisionPolicy())
             << "（HighPrecision=0 是默认；大整数溢出成 int 的那种坑就是这里调）";
     // 现场数据（证据③的 3 行种子 + 证据⑥提交的 1 行）：qty>4 的是 alice 7 / bob 42 / carol 13 / tx 5
     check("⑦ qty>4 命中 4 行", rows, 4);
     check("⑦ 其中 note 为 NULL 的 1 行（bob）", nullNotes, 1);
-    checkBool("⑦ next() 走完之后游标不再有效（不能再取值）", q.isValid(), false);
-    checkBool("⑦ q.first() 能把游标倒回第一行", q.first());
+    checkBool("⑦ next() 走完之后游标不再有效（不能再取值）", validAtEnd, false);
+    checkBool("⑦ q.first() 能把游标倒回第一行", wentFirst);
+    checkBool("⑦ ★ 倒回之后 isValid() 重新为 true（取证必须卡在对的时刻）", validAfterFirst);
     // ORDER BY qty DESC：第一行是 qty=42 的 bob
-    checkBool("⑦ 倒回第一行后取到的 name 是 bob",
-              q.value(QStringLiteral("name")).toString() == QStringLiteral("bob"));
+    checkBool("⑦ 倒回第一行后取到的 name 是 bob", firstRowName == QStringLiteral("bob"));
 }
 
 // ============================================================================

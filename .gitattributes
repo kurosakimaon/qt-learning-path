@@ -1,0 +1,35 @@
+# ============================================================================
+# 换行与二进制判定：不靠每个人各自的 git config
+# ----------------------------------------------------------------------------
+# 为什么要有这个文件：仓库里 README 与 _tools/ 都在教读者「跑 bash _tools/xxx.sh」，
+# 而 Git Bash 对 CRLF 脚本宽容，Linux / macOS 上的 bash 不宽容——同一份文件在
+# 那边会报 `bash\r: no such file or directory` 或在每行尾巴上冒出 `$'\r': command not found`。
+# 换行这种事不该由每个克隆者本机的 core.autocrlf 决定。
+#
+# 规则顺序：后面的覆盖前面的，所以先给「全局默认」，再列例外。
+# ============================================================================
+
+# 默认：**别猜、别改**。本仓库现有 blob 里 .cpp/.html/.md 大多是 CRLF（Windows 上写的），
+# 一条 `* text=auto` 会在下一次提交时把全仓库的换行重排一遍，制造一次几十万行的假 diff。
+# 学这一行的人不该在第一行 commit 里收到这种「我什么都没干」的改动。
+* -text
+
+# 唯一的强制例外：shell 脚本必须 LF（上面那段理由）。写完记得用
+#   perl -pi -e 's/\r\n/\n/' _tools/*.sh
+# 就地转一次，光有这条规则不改文件是不生效的。
+*.sh    text eol=lf
+
+# 真二进制：禁止任何换行处理与 diff 尝试
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.bmp   binary
+*.ico   binary
+*.pdf   binary
+*.qm    binary
+*.gz    binary
+
+# SVG / 资源清单当文本看（本来就是 XML），交给上面的 -text 原样保留
+*.svg   text
+*.qrc   text
+*.ts    text

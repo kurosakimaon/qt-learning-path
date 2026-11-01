@@ -1,0 +1,106 @@
+================ 第 5 讲 · QSortFilterProxyModel ================
+Qt 版本串：6.12.0（本机头文件 QtCore 版本同为 6.12.0）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① 代理的「默认长相」：判据字段当前值（没设过就该是文档默认）
+  filterKeyColumn()=0  (★ 默认就是 0；-1 要你自己显式设，设了才「所有列都参与匹配」)
+  filterRole()=0 (=Qt::DisplayRole, 静态匹配拿这个 role 的字符串比)
+  sortColumn()=-1  dynamicSortFilter()=true  (★ 默认**就是** true)  sortRole()=0  filterRole()=0
+  源 rowCount=10000，代理 rowCount=10000，代理 columnCount=4 —— 无判据时应当完全一致
+      ［对］ ① filterKeyColumn 默认是 0（不是 -1） → 期望 0，实测 0
+      ［对］ ① dynamicSortFilter 默认 true（自动跟源变是出厂行为） → 期望 1，实测 1
+      ［对］ ① sortRole 默认 = Qt::DisplayRole → 期望 0，实测 0
+      ［对］ ① filterRole 默认 = Qt::DisplayRole → 期望 0，实测 0
+      ［对］ ① 无判据时代理行数 = 源行数 → 期望 10000，实测 10000
+      ［对］ ① 代理列数 = 源列数 → 期望 4，实测 4
+② 静态匹配：setFilterFixedString(判据串) + filterKeyColumn(哪一列)
+  固定串 'BLOCKED' 只盯第 2 列 → 代理 rowCount=2500（源 10000 行的四分之一）
+      ［对］ ② BLOCKED 恰好 2500 行（1/4） → 期望 2500，实测 2500
+  换成固定串 '0' 且盯所有列 → 代理 rowCount=10000（整数/字符串不分，见下条警告）
+  清空判据 → 代理 rowCount=10000 又回到全量
+      ［对］ ② 清空判据后回到 10000 行 → 期望 10000，实测 10000
+  【注意】 静态匹配是「字符串包含」：'0' 会命中编号 10、100、状态串里的 0。想要「值∈集合」或「两列 OR」→ 必须重写（见⑤）。
+③ dynamicSortFilter 这个开关到底管什么
+  dynamicSortFilter=false：改完源，代理 rowCount 2500 → 2500（**没动**，判据变了源也变了但它不重筛；源第 0 行现在明明是 BLOCKED，代理里却还是没有它）
+  设成 true 之后再改源第 1 行：代理 rowCount=2501（这次自动重筛了）
+      ［对］ ③ dynamic=false 时改源不重筛 → 期望 2500，实测 2500
+      ［对］ ③ dynamic=true 时改源立刻多出一行 → 期望 2501，实测 2501
+  注：setDynamicSortFilter(true) 不会立刻重跑历史账，它管的是「之后源发 dataChanged 时」跟不跟。（源码理由：.cpp 第 3015~3016 行开启时只调 d->sort()，而 sort()（第 616~636 行）只是在**已有的映射**里重排行序，一个 source row 都没有新增/删除，所以第 0 行不会被追认进来。）
+  把同一个判据重设一遍 → 代理 rowCount=2502（源第 0 行这次被追认进来了：漏掉的账不会自己补上）
+      ［对］ ③ 重设判据会补上 dynamic=false 期间漏掉的那一行 → 期望 2502，实测 2502
+④ sort() 与视图 setSortingEnabled 的分工
+  直接 plain->sort(第3列, Descending) → sortColumn()=3 sortOrder()=Desc，代理第 0 行对应源第 4 行（优先级=5）
+      ［对］ ④a sortColumn 变成优先级列 → 期望 3，实测 3
+      ［对］ ④a sortOrder = Descending → 期望 1，实测 1
+      ［对］ ④a 降序后第一行优先级 = 5 → 期望 5，实测 5
+  view->setSortingEnabled(true) + sortByColumn(第2列, Asc) → 表头指示器 section=2 order=Asc，被 sort 的是 view->model()（=代理），不是源
+  源模型自己的第 0 行编号=0（**没被重排**：代理只改映射，绝不碰你的容器）
+      ［对］ ④b 表头指示器落在状态列 → 期望 2，实测 2
+      ［对］ ④b 源模型第 0 行编号仍是 0 → 期望 0，实测 0
+  plain 用基类默认 lessThan（字符串字典序）：状态列第一行=BLOCKED → 字典序 BLOCKED<DOING<DONE<OPEN；想要业务顺序得重写 lessThan（见⑤ 5b）
+      ［对］ ④b 默认 lessThan 让 BLOCKED 排在最前 → 期望 1，实测 1
+⑤ 组合筛选（重写 filterAcceptsRow/Column）：关键字 + 状态集合 + 藏一列
+  只留 {OPEN, DOING} → rowCount=4998（全量 10000），本次重筛跑了 filterAcceptsRow 10000 次、filterAcceptsColumn 4 次
+  （注：③ 把源第 0、1 行改成了 BLOCKED，所以 {OPEN,DOING} 是 4998 而不是 5000）
+      ［对］ ⑤ {OPEN,DOING} 共 4998 行 → 期望 4998，实测 4998
+  加关键字 '74'（走 begin/endFilterChange）→ rowCount 4998 → 110，filterAcceptsRow 跑了 10000 次
+      ［对］ ⑤ 关键字 '74' 把结果缩到 110 行 → 期望 110，实测 110
+      ［对］ ⑤ 过滤后每一行都真的含 '74' → 期望 1，实测 1
+  【注意】 setKeywordSilently('75') 不失效 → rowCount 仍是 110（和关键字 '74' 时 110 一样），证明「外部判据变了代理不知道」
+      ［对］ ⑤ 不失效时行数一动不动 → 期望 110，实测 110
+  改用 setKeyword('750') → rowCount 变成 6，filterChange 累计 3 次
+      ［对］ ⑤ 正规 setKeyword('750') 之后是 6 行 → 期望 6，实测 6
+  setShowPriorityColumn(false) → 代理 columnCount=3（源 4），整列消失
+      ［对］ ⑤ 藏掉优先级列后剩 3 列 → 期望 3，实测 3
+  5b 自定义 lessThan 按业务顺序排状态列：第一行状态=OPEN（默认字典序会是 BLOCKED）
+      ［对］ ⑤ 自定义 lessThan 让 OPEN 排最前 → 期望 1，实测 1
+⑥ 索引映射：为什么 mapToSource/mapFromSource 不是可选项
+  当前判据：只看状态=DONE → 代理 2500 行，源 10000 行
+      ［对］ ⑥ 只看 DONE → 2500 行 → 期望 2500，实测 2500
+  [代理第0行] 代理第 0 行 → mapToSource → 源第 2 行；代理格 data=2，源格 data=2
+  [代理第1行] 代理第 1 行 → mapToSource → 源第 6 行；代理格 data=6，源格 data=6
+  [末行] 代理第 2499 行 → mapToSource → 源第 9998 行；代理格 data=9998，源格 data=9998
+      ［对］ ⑥ 末行映射到合法源行 → 期望 1，实测 1
+  mapFromSource(源第3行, 状态=BLOCKED) → 无效索引 isValid=false（被筛掉的行**没有**代理坐标）
+      ［对］ ⑥ 被筛掉的源行 mapFromSource 得无效索引 → 期望 0，实测 0
+  【失败】 source->data(代理 index) → isValid=false 类型=0 值=<null>（不抛异常、不报错，就是空）
+      ［对］ ⑥ source->data(代理 index) 是无效 QVariant → 期望 0，实测 0
+      ［对］ ⑥ source->rowCount(代理 index) = 0 → 期望 0，实测 0
+  【失败】 source->rowCount(代理 index)=0，source->index(代理 row/col) 却**能**给出东西：行号 0 在源里合法，但它指的是源的第 0 行（状态=BLOCKED），不是你要的那条 → 删错行就这么来的
+  【通过】 mapToSource 之后：源第 2 行，编号=2，状态=DONE —— 与代理格显示值一致
+      ［对］ ⑥ mapToSource 后取到的值与代理格显示值一致 → 期望 1，实测 1
+  顺带：index 自带户口 → p0.model()=2a80b3d0f40，source=2a80b3d0860，同一个指针才是自家人
+      ［对］ ⑥ 代理 index 的 model() 就是代理自己 → 期望 1，实测 1
+  代理上选 1 格 → 选择集里的行=0；mapSelectionToSource 之后源行=2
+      ［对］ ⑥ 选择集换算到源模型后非空 → 期望 1，实测 1
+      ［对］ ⑥ 换算后的源行 = mapToSource(代理第0行) → 期望 2，实测 2
+⑦ 结构性信号 vs invalidate()：谁负责跟
+  源 insertRows(0,1)：源行数 10000 → 10001；代理行数 2500 → 2500（插的行不符合判据 → 代理只跟着挪映射，不多放行）
+      ［对］ ⑦ 源插一行后 = 10001 → 期望 10001，实测 10001
+      ［对］ ⑦ 插的 OPEN 行不符合 DONE 判据 → 代理行数不变 → 期望 2500，实测 2500
+  [插行之后] 代理第 0 行 → mapToSource → 源第 3 行；代理格 data=2，源格 data=2
+  源 removeRows(映射后的第 3 行)：源 10001 → 10000，代理 2500 → 2499；被删的是编号 2 那条
+      ［对］ ⑦ 删完后源 = 10000 → 期望 10000，实测 10000
+      ［对］ ⑦ 删的是 DONE 行 → 代理也少一行 → 期望 2499，实测 2499
+  【失败】 若按代理行号 0 直接删源：删掉的是编号 -1000；【通过】 映射后删的是编号 6 —— 两个数字不同，就是「删错行」事故现场
+      ［对］ ⑦ 「按代理行号直接删」会删错行（两个编号不同） → 期望 1，实测 1
+  结论：源发 rowsAboutToBeInserted/rowsInserted/… 时**代理自己会跟**（它内部连着这些信号）；你外部判据变了它**不会**跟 → 只能 invalidate()/begin+endFilterChange()。
+  判据没变的情况下调 invalidate()：代理 rowCount 2499 → 2499（重跑筛选，结果不变，代价是全表重筛——别把它当刷新按钮乱按）
+      ［对］ ⑦ 判据没变时 invalidate 不改变行数 → 期望 2499，实测 2499
+⑧ 挂上视图，顺手量一下代理的账
+  一次重绘的账（代理在中间转发）：data()=392 次, index()=448 次, rowCount()=0 次, 被问到的**不同源行**=14 个(区间 6..58)
+  代理侧 filterAcceptsRow 计 0 次、filterAcceptsColumn 计 0 次（重绘阶段是 0——筛选只在结构/判据变化时跑，不在画的时候跑）
+      ［对］ ⑧ 一次重绘期间 filterAcceptsRow 不被调用 → 期望 0，实测 0
+      ［对］ ⑧ 重绘确实向源模型要过数据 → 期望 1，实测 1
+  scrollTo 到代理末行（第 2498 行）再重绘：data()=392 次, index()=546 次, rowCount()=0 次, 被问到的**不同源行**=14 个(区间 9946..9998)
+  视图永远只问**可见区**那些格，只不过问的对象是代理，代理再挑源的行号去问。
+⑨ 收尾自检：判据/映射/视图三方一致
+  custom 仍挂着源：sourceModel()==source ? true；代理行数=2499；视图 model()==custom ? true
+  末行映射耗时 900 ns（代理第 2498 行 <-> 源第 9998 行）
+      ［对］ ⑨ custom 仍挂着源模型 → 期望 1，实测 1
+      ［对］ ⑨ 视图挂的是 custom → 期望 1，实测 1
+      ［对］ ⑨ 末行能映射回合法源行 → 期望 1，实测 1
+      ［对］ ⑨ 收尾时代理行数 = 2499 → 期望 2499，实测 2499
+
+【硬账】45/45 项核对通过 → 退出码 0
+（事件循环正常退出，rc=0）

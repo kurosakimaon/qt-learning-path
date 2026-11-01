@@ -1,0 +1,77 @@
+=== 1. 先认门：这是一张**沿继承链**的说明书 ===
+  className() = Radar  superClass() = QObject  再往上 = (nullptr，到顶了) （superClass() 到顶返回 nullptr，别无条件链两下）
+  methodCount() = 12  本类段起点 = 4 （前面那几十条是 QObject 的，不是你写的）
+  propertyCount() = 5  本类属性段起点 = 1
+  enumeratorCount() = 0  userProperty()（第一个 USER=true）= "mode"
+=== 2. 三张表原样打出来（「反射遍历」的本体就这二十行）===
+  ── 方法表（本类段：全局索引 4 到 11 ）──
+    [4] 信号  modeChanged(RadarMode)  参数名=(mode)  返回=void  局部索引=0  revision=0
+    [5] 信号  rangeChanged(int)  参数名=(range)  返回=void  局部索引=1  revision=0
+    [6] 信号  swept(int)  参数名=(total)  返回=void  局部索引=2  revision=0
+    [7] 槽  mark(QString)  参数名=(text)  返回=void  局部索引=3  revision=0
+    [8] 槽  clearLog()  参数名=()  返回=void  局部索引=4  revision=0
+    [9] 槽  marks()  参数名=()  返回=int  局部索引=5  revision=0
+    [10] 方法(Q_INVOKABLE)  sweep(int)  参数名=(times)  返回=int  局部索引=6  revision=0
+    [11] 方法(Q_INVOKABLE)  describe()  参数名=()  返回=QString  局部索引=7  revision=0
+  ── 属性表 ──
+    [1] mode : RadarMode  读=√ 写=√ 可复位=× 常量=× 终态=× NOTIFY=modeChanged 枚举/flag=×
+    [2] caps : QFlags<RadarBit>  读=√ 写=× 可复位=× 常量=√ 终态=√ NOTIFY=无 枚举/flag=×
+    [3] range : int  读=√ 写=√ 可复位=√ 常量=× 终态=× NOTIFY=rangeChanged 枚举/flag=×
+    [4] log : QString  读=√ 写=× 可复位=× 常量=√ 终态=× NOTIFY=无 枚举/flag=×
+  ── 枚举表 ──
+    区间 = [0, 0)  共 0 条
+    ↑ 0 条：moc 收下了第 217/218 行的 Q_ENUM/Q_FLAG，却没往枚举段写任何东西。产物层直接看得见——生成的 08_introspection.moc 里那一行是空的：`QtMocHelpers::UintData qt_enums { };`； 而 06 讲（枚举声明在类里，①号摆法）同一位置是`EnumData<enum Mode>(19, 19, ...).add({ { 20, Mode::Green }, { 21, Mode::Amber }, … })`。   本文件里③号摆法的 alarm 那张表有 2 条，第 6 节按名字读的就是它。
+  ── 类信息（Q_CLASSINFO）──
+    [0] author = 老师傅
+    [1] version = 2.1
+    [2] bus = can-0
+    [1] version = 2.1
+    不存在的那条 → 没有这条（indexOfClassInfo=-1）
+=== 3. 按名字查：查不到一律给 -1，判负再用 ===
+  indexOfMethod("sweep(int)")      = 10
+  indexOfSignal("swept(int)")      = 6
+  indexOfSlot("mark(QString)")     = 7
+  indexOfProperty("range")         = 3
+  indexOfEnumerator("RadarMode")   = -1
+  indexOfMethod("secretBearing()") = -1   ← **没写 Q_INVOKABLE 的普通成员函数根本不在表里**（跟访问权限无关）， 第 5 讲那条「Q_INVOKABLE 是注册，不是权限」在这儿再验一次
+=== 4. 用反射**写属性**：三条入口，落到同一个 setter ===
+  read() 当前值 = QVariant(int, 100)  属性类型名 = "int"  QMetaType = int
+    [NOTIFY] rangeChanged 收到 250
+  write(250) 成功？ true  读回 = 250  通知触发次数 = 1  ← 证据链：元对象 write → WriteProperty → switch 调 setRange → Q_EMIT → activate
+  mode.write("Scan") 成功？ false  读回 = QVariant(RadarMode, "0")  用 C++ 比较 =="Scan"? false
+  mode.write("不存在值") 成功？ false （这一条**本来就该** false：不动值、返回 false，不抛不崩。 上面那条 Scan 也 false 是②号摆法的病，不是这条的对照组——两条别混着读。）
+  mode.write(1)（按整数写）成功？ true  读回 = QVariant(RadarMode, "1")  C++ 那边 == 1
+  mode.write(99)（枚举里没这个值）成功？ true  读回 = QVariant(RadarMode, "99")  C++ 那边 == 99  ← 整数路压根不查枚举表（查表那条只服务「按名字」），所以 99 也写得进去。 而且这条**跟宏摆没摆对无关**：我把 RadarMode 搬进类里再跑，一样 true， 只是读回打印成了 `Radar::RadarMode(99)`（没有键名可映射，就退回数字）。 结论：Q_ENUM 不是输入校验，脏数据要在自己的 setter 里挡。
+  caps（CONSTANT FINAL）isWritable = false  isFlagType = false  写 7 的结果 = false  读回 = QVariant(QFlags<RadarBit>, QFlags(0x1|0x2))
+  reset() 成功？ true  range 现在 = 100 （RESET 落点是 resetRange()，回到默认 100）
+=== 5. 用反射**调方法**：QMetaMethod::invoke 与四个 invokeMethod 重载 ===
+  A) QMetaMethod::invoke("sweep", 3) ok = true  返回 = 3  累计 = 3
+  B) invokeMethod("sweep", Q_RETURN_ARG+Q_ARG) ok = true  返回 = 7
+  C) invokeMethod("mark", Q_ARG(QString,…)) ok = true  log = "自检 "
+QMetaObject::invokeMethod: No such method Radar::sweep(double)
+Candidates are:
+    sweep(int)
+  D) 故意用 Q_ARG(double,3.0) 调 sweep(int) → 返回 false （派发前要比对**参数类型 id**，对不上就 false；Debug 构建还会 qWarning。 这就是「字符串/按名字那条路把编译期检查换成运行期失败」的具体形状。）
+  invokeMethod("clearLog") 之后 log 长度 = 0  marks = 0
+=== 6. Q_ENUM / Q_FLAG：枚举进表，才有「按名字」这条路 ===
+  Radar 的表：indexOfEnumerator("RadarMode") = -1  枚举段区间 = [0, 0)
+    ← 表里没有它。217/218 行那两行宏**在**，可枚举本体在 178/180 行的全局作用域，moc 就不登记（第 1 节②号摆法）。按名字读、按名字写、QML 里列合法值，全从这张表出发。把小练习 3 做完再跑，这一整条会换成另一条——因为它是 if 出来的。
+  换一张有内容的表：alarm 区间=[0, 2) 共 2 条
+  读表两步走：indexOfEnumerator → enumerator(i)  索引 = 0  name = "Level"  keyCount = 3  isScoped = true  isFlag = false  挂在哪个表 = "alarm"
+  valueToKey(1) = "Notice"  keyToValue("Critical")（不带 ok 的重载）= 2
+  keyToValue("Critical", &ok) = 2  ok = true
+  keyToValue("Nope", &ok) = -1  ok = false （**用带 ok 的重载**：-1 既可能是「查不到」也可能是某个合法值本身， 别拿它当枚举值往下传。上面两行合起来就是把 ok 和返回值分开问清楚。）
+  ↑ 上面这个循环一行没跑：枚举段里**没有 isFlag 的条目**——180 行的 RadarBit 在全局， Q_FLAG(RadarCaps) 因此没登记。按位组合名字串那个待遇， 下面在 alarm::Sides（Q_FLAG_NS）上照样跑得通——差别只在宏和枚举摆哪儿，不在宏本身。
+  fromType<alarm::Level>()  name = "Level"  enumName（不带作用域）= "Level"  scope = "alarm"  keyCount = 3  isFlag = false  isScoped = true （Qt6 里 enum class 照样进得了表）
+  fromType<alarm::Sides>()  isFlag = true  keysToValue("Port|Starboard") = 3  ok = true  ← 按位组合的名字串被解析回整数，这就是 Q_FLAG / Q_FLAG_NS 的待遇 （没有宏，keysToValue 无从谈起）
+  metaType()（279 行）=  "QFlags<alarm::Side>"  ← 属性系统把 QVariant 变回 Sides、QML 那边按名字取值，落点都是这个 QMetaType
+=== 7. qobject_cast vs dynamic_cast：三条真实差别 ===
+  qobject_cast<Radar*> = 命中  dynamic_cast<Radar*> = 命中  两个指针相等？ true
+  同类型再 cast = 命中  把 Radar* cast 成 QCoreApplication* = 空（正确）
+  const QObject* 也能读元信息（想 cast 成非 const 指针会被 static_assert 拦）： Radar
+  radar.children().size() = 1 （new 出来的子对象挂在栈上的 radar 下——radar 析构时会把它删掉）
+=== 8. 反射写属性在事件循环里也一样：同步派发，不是消息 ===
+    [NOTIFY] rangeChanged 收到 777
+  write(777) 之后刷新增量 = 1  读回 = 777 （同线程就是 DirectConnection：这一行里 setter + notify + 槽全跑完了）
+  invokeMethod("sweep", Q_ARG(int,1)) 之后累计 = 8
+=== 第 8 讲演示结束，自动退出 ===

@@ -21,16 +21,17 @@
 采样到的像素值、耗时倍数），最后 `QCoreApplication::quit()`。**全程无人值守**，不用鼠标键盘，
 主路径里没有任何阻塞调用（没有 `QDialog::exec()`，没有裸 `QEventLoop::exec()`，没有静态 `QMessageBox`）。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
 > 本组 8 个目标统一链 `Qt6::Widgets Qt6::Svg`（见顶层 `CMakeLists.txt` 第 163~175 行，`QT_DEMO_LIBS` 里加了 Svg）。
 
-**本模块的证据强度，师傅给你交底**：本机 Qt 运行时库版本不匹配，**链接不了、跑不起来**。
-所以第 5~8 讲做到的核对是两层——① 每个类、函数、重载、枚举值都对着
-`C:\msys64\ucrt64\include\qt6` 下的真实头文件查过，行号就写在用的地方；
-② 每个文件都过了 `moc` + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`，**零 error、零 warning**。
-第 1~4 讲由同事同样按头文件核对过。但请注意：**「编得过」不等于「画面对」**——
-所有 PNG、所有打印数字都还没被任何机器验证过，你到能编译的机器上跑一遍，把真实数字抄回注释里，
-那才是你的实测。查不到签名的 API 一律不用，这条规矩本模块贯彻得很彻底（详见第六节）。
+**本模块的证据强度，师傅给你交底**（这一段以前写的是「本机 Qt 运行时库版本不匹配，**链接不了、跑不起来**……所有 PNG、所有打印数字都还没被任何机器验证过」——**那句话已经过期了**，环境修好后 8 个目标全部在本机编译、链接、`-platform offscreen` 跑过：`ctest -R "^painting_"` → **8/8 绿**，`build/bin` 下实际落了 **27 张 PNG**，八份输出存档在 `runlogs/painting_0N_*.log`。留着这段更正，是因为它正好证明「环境事实」是这套资料里最容易烂的一类。）
+
+现在的核对仍然是那两层，而且第一层没缩水：① 每个类、函数、重载、枚举值都对着
+`D:\Qt\6.12.0\mingw_64\include` 下的真实头文件查过，行号就写在用的地方；
+② 每个文件都过了 `moc` + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`，**零 error、零 warning**，
+整模块 `cmake --build` 也一条警告都不多。但请注意：**「编得过、跑得通」仍然不等于「画面对」**——
+退出码只证明没崩，画面要靠你自己开 PNG 比对。查不到签名的 API 一律不用，
+这条规矩本模块贯彻得很彻底（详见第六节）。
 
 ## 二、学习目标
 
@@ -130,7 +131,8 @@
           scale()/fitInView(QRectF, AspectRatioMode)/resetTransform + setTransformationAnchor，
           KeepAspectRatio 与 IgnoreAspectRatio 下 m11/m22 的差别（圆变椭圆那条坑在框架层重现）；
           QGraphicsItem::ItemIgnoresTransformations 让图例的设备尺寸不随缩放变；
-          CacheMode 三档（None / ItemCoordinateCache / DeviceCoordinateCache，qgraphicsitem.h 111~114）
+          CacheMode 三档（NoCache / ItemCoordinateCache / DeviceCoordinateCache，qgraphicsitem.h 第 111~115 行，
+          头文件里没写等号，0/1/2 是顺序推出来的；第一档就叫 NoCache，没有叫 None 的那一档）
           用 paint() 次数当证据；prepareGeometryChange 与 shape() 的规矩；
           手工投递 QGraphicsSceneMouseEvent 看 selectedItems()/mouseGrabberItem() 的变化；
           两条出图路线：scene->render(QPainter*, target, source, mode)（第 99 行）与
@@ -481,11 +483,13 @@ void paintGauge(QPainter &p, const QRectF &box, const QPalette &pal, double valu
 文字不重复算度量——**这些全是「别每帧都做同一件事」**，不是「把每件事做快点」。
 第 5/6/8 讲各留了一组计数证据，你跑一遍就知道自己浪费在哪儿。
 
-### 6. 跑一遍，把数字抄回注释里
+### 6. 跑一遍，把数字对回注释里
 
-本机编不动，师傅就写到这儿为止；**剩下的那一半必须你在能编译的机器上补完**：
-`cmake --build build --target painting_05_images_and_pixmaps`（其余同理），
-跑起来（或 `-platform offscreen`），到 `build/bin` 看图、看打印，把真实数字写回每个示例末尾
-「速查表」旁边的空位。做完这 8 讲，你就能从「用 Qt 的控件」进阶到「给别人提供控件」——
-这算入了 Qt 绘图的门。下一关是**第陆阶段「模型/视图与委托」**，去处理「一大堆数据怎么摆」；
-你在这儿学的绘制，到时候会在 `itemDecoration` 和委托的 `paint()` 里再用上一遍。加油，徒弟！
+**这一节原来写的是「本机编不动，师傅就写到这儿为止，剩下那一半必须你在能编译的机器上补完」——那句话已经过期了**，8 个示例现在都在本机编译、链接、`-platform offscreen` 跑过，`ctest -R "^painting_"` → 8/8 绿，输出全部存档在 `runlogs/painting_0N_*.log`（原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。所以「补完数字」这件事由师傅做了一半：图生成了、计数打印了、像素比值落纸了。
+
+那还剩什么要你做的？**两件事，都不是「把示例跑通」**：
+
+1. **把本机那一轮的数和你屏幕上那一轮对一遍**。这一讲里凡是像素计数、耗时、`QPixmap::toImage()` 的尺寸、缓存命中次数，都是**那一台机器**的读数——换 GPU、换 DPI 缩放、换 Qt 小版本就会变。对不上不算你错；但你要能说出「哪一行变了、为什么可以变、哪一条关系不可以变」（关系类结论，比如「不加 CacheMode 时 paint 次数随滚动线性上涨」，才是值得你验的东西）。
+2. **把证据搬到你自己的图上**。示例画的是仪表、雷达、路径这些教学形状；你把它换成业务控件时，同样的计数手法（进入 `paint()` 就打一行、`QElapsedTimer` 包住绘制）才真正开始给你省钱。第 5/6/8 讲留的那三组计数证据就是给你抄的模板。
+
+做完这 8 讲，你就能从「用 Qt 的控件」进阶到「给别人提供控件」——这算入了 Qt 绘图的门。下一关是**第陆阶段「模型/视图与委托」**，去处理「一大堆数据怎么摆」；你在这儿学的绘制，到时候会在 `itemDecoration` 和委托的 `paint()` 里再用上一遍。加油，徒弟！

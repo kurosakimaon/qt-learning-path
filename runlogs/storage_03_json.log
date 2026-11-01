@@ -1,0 +1,371 @@
+============================================================
+storage 第 3 讲 · JSON（Qt = 6.12.0，QLatin1StringView 之类都没关掉）
+本机头文件核对：D:\Qt\6.12.0\mingw_64\include（Qt 6.12.0）
+TempLocation = [C:\Users\Kuros\AppData\Local\Temp]｜QDir::tempPath() = [C:/Users/Kuros/AppData/Local/Temp]
+本次工作目录 = [C:\Users\Kuros\AppData\Local\Temp\qt_storage_03]｜mkpath 后 exists = 是
+提醒：这一轮就是本机跑出来的，所以下面每一行都是**打印即证据**；凡是敢写死的数字，都标了来源（头文件行号 / 纯 C++ 实算 / 本机打印）。
+============================================================
+
+────【1】QJsonValue 是个变体：类型只有 7 个枚举成员，读错类型不吭声 ────
+  第 1 个：Null  枚举值=0x0  isNull=是 isUndefined=否 isDouble=否
+  第 2 个：Bool  枚举值=0x1  isNull=否 isUndefined=否 isDouble=否
+  第 3 个：Double  枚举值=0x2  isNull=否 isUndefined=否 isDouble=是
+  第 4 个：String  枚举值=0x3  isNull=否 isUndefined=否 isDouble=否
+  第 5 个：Array  枚举值=0x4  isNull=否 isUndefined=否 isDouble=否
+  第 6 个：Object  枚举值=0x5  isNull=否 isUndefined=否 isDouble=否
+  第 7 个：Undefined  枚举值=0x80  isNull=否 isUndefined=是 isDouble=否
+  ↑ 7 行 = qjsonvalue.h 第 32~40 行的 7 个成员。前 6 个正好是 RFC 8259 的六种值，
+    Undefined 是第 7 个哨兵：它不是 JSON 里的值，是「这个位置根本没有值」。
+  样本对象 size=7（键数），逐个看 type()：
+    键「字符串」 → String(0x3)
+    键「对象」 → Object(0x5)
+    键「小数」 → Double(0x2)
+    键「布尔」 → Bool(0x1)
+    键「数组」 → Array(0x4)
+    键「整数」 → Double(0x2)
+    键「空」 → Null(0x0)
+  故意拿错类型去读（看它吭不吭声）：
+    1) 拿「布尔」toInt(-1)      → -1（第 96 行只有一个 int 默认值形参）
+    2) 拿「整数」toString(默认)  → [(读不到时给这个)]（第 100 行只有一个 defaultValue）
+    3) 拿「字符串」toDouble(-2.5) → -2.5（第 98 行）
+    4) 拿「数组」toObject()      → size=0（第 104 行，无默认值时给空对象）
+    5) 拿「对象」toArray(给一个1个元素的默认) → size=1（第 103 行）
+  ↑ 五次调用里「原样退回我传的默认值」的有 5 次（本机实测 =5）。
+    这就是为什么【7】要自己造闸门：这一族的 11 个读函数（第 95~105 行）
+    没有一个能把「失败」这件事传出来——返回值和默认值撞成同一个数，
+    你连「它是真值还是兜底」都分不开。
+  值为 null 的键「空」  ：Null(0x0) contains=是 isNull=是
+  不存在的键「这个键根本没有」：Undefined(0x80) contains=否 isUndefined=是
+  两次 const value() 之后 size 还是 7（第 70 行的 const 版返回**值**，不会建键）
+  【1】小结：类型表 7 行、故意错读 5 次、样本键数 7。
+
+────【2】对象的键是集合、数组的元素是队列：把三份键序并排打出来 ────
+  插入序      ：zulu、alpha、mike、Bravo、01num、温度
+  keys() 给的 ：01num、Bravo、alpha、mike、zulu、温度
+  迭代器给的  ：01num、Bravo、alpha、mike、zulu、温度
+  asKeyValueRange：01num、Bravo、alpha、mike、zulu、温度
+  与插入序**不同**的有 3 份（3 份全同 = 0）
+  ── 我观察到了什么、没观察到什么（这条最容易被人糊过去）──
+    · 上面这几行是**本机实测输出**（Qt 6.12.0 + MinGW 13.1.0，offscreen 跑出来的）：
+      三份键序完全一致，且都**不是**插入序——keys()/size()/迭代器存在（第 63/64/306~313 行），
+      「第 i 个键」的 keyAt/valueAt 被关在 private 段（第 391/392 行）。
+    · 官方文档那句「The list is sorted alphabetically.」现在有了落点，而且**它挂的位置我找到了**：
+      Src 树 src/corelib/serialization/qjsonobject.cpp 第 231 行，就在 keys() 的注释里。
+      但这里的 "alphabetically" 不是人理解的字母序：实测 "Bravo" 排在 "alpha" **前面**，
+      "01num" 又排在所有字母前面 —— 它是**码点序**。代码摆在那儿：QJsonObject 内部用
+      std::lower_bound + stringCompareElement(…, QtCbor::Comparison::ForOrdering) 维护有序键数组
+      （qjsonobject.cpp 第 263~277 行），而那个比较最后落到
+      `b->asStringView().compare(s)` / `QUtf8::compareUtf8(…)`（qcborvalue_p.h 第 380~395 行）——
+      纯字符串序，**没有 locale、没有大小写折叠、没有中文拼音**。所以「按字母序」这句话
+      在英文小写键上看着对，一旦混进大写开头或中文键就跟你预期不符：实测 6 个键里
+      「温度」（U+6E29）永远排最后。别拿 keys() 的顺序做人看的报表。
+    · 顺带一个有用的推论：既然键数组是有序的、查找走 lower_bound，那 QJsonObject 的
+      查找是 O(log n) 的**有序表**，不是哈希表。要「插入序」或「人看的顺序」，用 QJsonArray。
+  先 x 后 y：{"x":1,"y":2}
+  先 y 后 x：{"x":1,"y":2}
+  两份字节相等？是   两个对象 operator== ？是（等号来自第 367 行的宏）
+  ★ 如果这两行出现「对象相等但字节不等」，就把这句话抄进你的代码评审清单：
+    语义相等 ≠ 字节相等；拿 toJson() 的字节去做 diff、哈希、签名、缓存键，
+    迟早会因为一次插入顺序变化而误报。
+  QJsonArray 插了 5 个又在 0 号位插 1 个，size=6：
+    at(0)=-1  type=Double(0x2)
+    at(1)=0  type=Double(0x2)
+    at(2)=10  type=Double(0x2)
+    at(3)=20  type=Double(0x2)
+    at(4)=30  type=Double(0x2)
+    at(5)=40  type=Double(0x2)
+  Compact 出来的字节：[-1,0,10,20,30,40]
+  takeAt(0) 拿走的是 -1，剩下 size=5，头把 at(0)=0
+  【2】小结：键序样本 3 份、与插入序不同的 3 份、数组最后 6 项。
+
+────【3】fromJson 的两个入口，和 NDJSON 撞上的那一位（GarbageAtEnd）────
+  刚建出来的 QJsonParseError：error=NoError(0) offset=-1
+  ↑ offset 的默认是 -1（第 39 行）。所以「成功时 offset 指向哪」头文件没承诺，
+    下面每次成功我也把 offset 打出来，但**不拿它当长度用**，也不预设它该是几。
+  ① 顶层对象：error=NoError(0) offset=0｜isObject=是 isArray=否 isEmpty=否｜键数=5
+  ② 顶层数组：error=NoError size=3 at(1)=中 文档下标 dArr[qsizetype(2)]=尾
+  ③ 顶层标量「42」交给 QJsonDocument：error=IllegalValue｜isNull=是 isObject=否 isArray=否 isEmpty=是
+     同一段字节交给 QJsonValue::fromJson：error=NoError｜type=Double(0x2)｜toInt=42
+  ↑ 两个入口的分工看这就能记住：文档级只有 object/array（第 81/82 行的两个出口），
+    标量与任何单值都用 QJsonValue::fromJson（入参还是 QByteArrayView，UTF-8 视图）。
+  ④ 空输入：error=IllegalValue(5) offset=0｜illegal value｜isNull=是 isEmpty=是
+  ⑤ NDJSON 整块喂：error=GarbageAtEnd(14)｜garbage at the end of the document｜第 2 行第 1 列（offset=24）｜字节总长 72
+  ↑ 上面那行**实测**撞的就是 GarbageAtEnd（qjsonparseerror.h 第 33 行，隐式序号 14，和头文件里的期待一致）——「第一个文档读完了，后面还有东西」。这是**接口缺失**而不是解析器坏：
+  它一次只给你一个文档，所以 JSON Lines 只能自己切行。下面就是「自己切」：
+     第 1 段：OK id=1 msg=点火
+     第 2 段：OK id=2 msg=升温
+     第 3 段：OK id=3 msg=保温
+     第 4 段：空白（split 出来的**最后一段就是空的**，跳过）
+  ↑ split 给了 4 段，其中非空 3 段，解析成功 3 段。
+  【3】小结：解析总次数 9 = 成功 6 + 失败 3（含 NDJSON 整块与空输入）。这三个数是同一本账的三个视角，对不上就是有人在替预期记账。
+
+────【4】严格解析器：8 条非法样本 + 2 条合法但容易踩的样本 ────
+  样本「对象尾逗号」(按规范非法)｜输入 8 字节 hex=7B 22 61 22 3A 31 2C 7D
+      Qt 给的答案：拒绝（枚举数字 11）MissingObject
+      位置与原文：第 1 行第 9 列（offset=8） ｜ object is missing after a comma
+      备注：没有 parseTrailingComma，第 40~46 行的七个方法里没地方容它
+  样本「数组尾逗号」(按规范非法)｜输入 6 字节 hex=5B 31 2C 32 2C 5D
+      Qt 给的答案：拒绝（枚举数字 11）MissingObject
+      位置与原文：第 1 行第 7 列（offset=6） ｜ object is missing after a comma
+      备注：同上
+  样本「行注释 //」(按规范非法)｜输入 23 字节 hex=7B 22 61 22 3A 31 7D 20 2F 2F 20 E7
+      Qt 给的答案：拒绝（枚举数字 14）GarbageAtEnd
+      位置与原文：第 1 行第 9 列（offset=8） ｜ garbage at the end of the document
+      备注：JSON 从来不允许注释；即便只挂在后面也撞 GarbageAtEnd
+  样本「块注释 /* */」(按规范非法)｜输入 12 字节 hex=7B 22 61 22 2F 2A 78 2A 2F 3A 31 7D
+      Qt 给的答案：拒绝（枚举数字 2）MissingNameSeparator
+      位置与原文：第 1 行第 6 列（offset=5） ｜ missing name separator
+      备注：夹在成员中间，MissingNameSeparator 那一族
+  样本「单引号」(按规范非法)｜输入 7 字节 hex=7B 27 61 27 3A 31 7D
+      Qt 给的答案：拒绝（枚举数字 1）UnterminatedObject
+      位置与原文：第 1 行第 3 列（offset=2） ｜ unterminated object
+      备注：parseString 只认双引号（第 43 行），没有单引号分支
+  样本「裸键」(按规范非法)｜输入 5 字节 hex=7B 61 3A 31 7D
+      Qt 给的答案：拒绝（枚举数字 1）UnterminatedObject
+      位置与原文：第 1 行第 3 列（offset=2） ｜ unterminated object
+      备注：parseMember 要的是字符串（第 42 行）
+  样本「NaN」(按规范非法)｜输入 5 字节 hex=5B 4E 61 4E 5D
+      Qt 给的答案：拒绝（枚举数字 7）IllegalNumber
+      位置与原文：第 1 行第 2 列（offset=1） ｜ illegal number
+      备注：RFC 8259 非法；JavaScript 的 JSON.stringify 也产不出它
+  样本「负无穷」(按规范非法)｜输入 11 字节 hex=5B 2D 49 6E 66 69 6E 69 74 79 5D
+      Qt 给的答案：拒绝（枚举数字 7）IllegalNumber
+      位置与原文：第 1 行第 3 列（offset=2） ｜ illegal number
+      备注：同上，都属于「数字面量」里的非法拼写
+  样本「重复键」(按规范合法)｜输入 13 字节 hex=7B 22 61 22 3A 31 2C 22 61 22 3A 32
+      Qt 给的答案：通过（枚举数字 0）NoError
+      位置与原文：成功路径不谈位置 ｜ isObject=是
+      备注：合法！RFC 8259 只说「行为未约定」；QJsonObject 是键表，第 339 行的 insert 会覆盖 → 只剩一个 a
+  样本「带 BOM」(按规范合法)｜输入 10 字节 hex=EF BB BF 7B 22 61 22 3A 31 7D
+      Qt 给的答案：通过（枚举数字 0）NoError
+      位置与原文：成功路径不谈位置 ｜ isObject=是
+      备注：解析器有 eatBOM()（第 36 行），所以这一条**过**；注意只有这一个特例，别外推成「Qt 宽容」
+  【4】小结：样本 10 条，其中按规范非法 8 条，实际被拒 8 条（8 与 8 相等才配叫「严格」）。
+  三点要把住：
+    · 枚举的**数值**不在头文件里（第 19 行只写了 NoError=0），所以我把名字和数字一起打，
+      数字对不对让上面这张表自己排；背数字没意义，背名字才有意义。
+    · 「严格」的证据是 qjsonparser_p.h 里那些**不存在**的方法名，不是文档里的形容词。
+    · eatBOM() 让「BOM 一定毁掉 fromJson」这句老话在 Qt6 不成立 —— 顺带说一句：
+      第 2 讲结尾提醒过 BOM 会咬 QJsonDocument::fromJson，那是把 Qt5 的经验搬过来了；
+      本机头文件既然摆着 eatBOM()，就以头文件为准，别以讲义为准（我照此改了自己的说法）。
+
+────【5】数字：枚举里没有 Integer，可底下真存了 int64；2^53 是 double 的墙，qRound 越界不是钳位 ────
+  QJsonValue::Type（qjsonvalue.h 第 32~40 行）里的成员：
+    Null=0 Bool=1 Double=2 String=3 Array=4 Object=5 Undefined=128
+  ↑ 数一遍：**枚举里没有 Integer**。但注意别把这句话读歪——它说的是 `QJsonValue::Type`
+    这张**对外**的表，不是说底下没有整数。底层 CBOR 是分开的：QCborValue::Type
+    （qcborvalue.h 第 71~86 行）里 Integer=0x0（第 72 行）、Double=0x202（第 86 行），
+    而把两者折叠成一个 Double 的那行代码在 Src 树
+    src/corelib/serialization/qjsonvalue.cpp 第 39~41 行：
+      case QCborValue::Double:
+      case QCborValue::Integer:
+          return QJsonValue::Double;     ← 两个 case 共用一个 return
+    所以 type() 报 Double 时你**不知道**底下是 int64 还是 double——这一课的头号坑就是它。
+    同一个「9」有两条路：从 JSON 文本读进来时，parseNumber()（Src qjsonparser.cpp 第 650 行）先看字面量长得像不像整数——第 653 行 `isInt = true`，出现了小数点就逐位要求「小数部分必须全是 0」（第 671 行），出现 e/E 直接 `isInt = false`（第 678 行）；isInt 还活着就 `toLongLong()` 并 `return QCborValue(n)`（第 688~692 行），**根本不经过 double**。用 QJsonValue(qint64) 造出来那条路也一样，底下 append(qint64) 打的是 QCborValue::Integer（private/qcborvalue_p.h 第 216~219 行）。→ 所以【5】下面要现场问一次「往返掉不掉」。
+  ① double(2^53+1) == double(2^53) ？是   本机实测=真（1.0 加不进去了）
+  ② (long long)double(2^53+1) = 9007199254740992   本机实测=9007199254740992（掉回偶数）
+  ③ double(2^53+2) 转回整数 = 9007199254740994   本机实测=9007199254740994（偶数活着）
+  ④ (0.1+0.2)==0.3 ？否   本机实测（纯 C++ 独立跑过）=假
+     ④ 的两种打印："%.17g"＝0.30000000000000004（够还原 double）｜"%.20g"＝0.30000000000000004441（把二进制的全部真相倒出来）
+  ⑤ 同一个 double 三种打印：arg 取 15 位小数＝3.141592653589790｜printf("%g")＝3.14159｜printf("%.17g")＝3.14159265358979 （→ 别拿默认格式化的数字串当协议）
+     ⑤ 的本机实测（纯 C++）：3.141592653589790 用 printf("%g") 打出来是 3.14159（默认只有 6 位有效数字），用 "%.17g" 打出来是 3.14159265358979。同一个数，两个字符串，选哪个当协议字段就差在哪。
+  文本 9007199254740993 读进来：error=NoError｜type=Double(0x2)｜toInteger=9007199254740993｜toDouble(17 位)=9007199254740992
+  写回去（Compact）：{"id":9007199254740993,"seq":42}｜与原字节完全相同？是
+  ↑ 这一问就是本讲最贵的一问，而**本机实测把我原来的结论推翻了一半**。
+    原来我从头文件推的是：type() 只会报 Double（qjsonvalue.h 第 35 行那张表里确实没有
+    Integer），而 double 存不下 2^53+1（段二墙上的 ①②），所以「预期写回去会变成 …992」。
+    跑起来是上面那样——一个数字都没掉。原因就在段一那条暗道里：parseNumber() 认定它是
+    整数，直接 `return QCborValue(n)`（Src qjsonparser.cpp 第 688~692 行），全程不经过 double；
+    写回去时 qjsonwriter.cpp 第 107~108 行对 Integer 存的是
+    `json += QByteArray::number(v.toInteger())`——十进制整数直出。官方文档对 QJsonValue(qint64)
+    写得很直白（Src qjsonvalue.cpp 第 175~186 行）："This is stored internally as a 64-bit
+    integer, so retains its full precision, as long as it is retrieved with toInteger().
+    However, retrieving its value with toDouble() will lose precision unless the value lies
+    between ±2^53." 上面那行 toInteger=…993 和 toDouble(17 位)=…992 **不同意**，就是这句话的实拍。
+    ★ 所以墙没有拆，只是挪了位置：它不在「Qt 的 JSON 往返」上，而在**任何一次经过 double 的
+    路口**上——toDouble()、QVariant::toDouble()、toVariant() 落到 QMetaType::Double
+    （Src qjsonvalue.cpp 第 544 行那条转换表）、以及把这份 JSON 交给 JavaScript 的
+    JSON.parse / 任何按 IEEE-754 读数字的对端。雪花号、纳秒时间戳、数据库自增 bigint，
+    结论那一句不变：**放字符串**，或者定死在 2^53 以下——只是理由从「Qt 会丢」换成了
+    「Qt 这一段不丢，丢在下一双手上」。
+  自己造的 QJsonValue(qint64(2^53+1))：type=Double(0x2)｜toJson(Compact)=9007199254740993｜toInteger=9007199254740993｜toDouble(17 位)=9007199254740992
+  ↑ 两条路（读进来 / 造出来）实测**一模一样**：type 都报 Double(0x2)，字节都是 …993，toInteger 都对、toDouble 都错。也就是说 type() 在这两种情况下都**没有**告诉你底下是整数——想知道只能自己比 toInteger 和 (qint64)toDouble。
+  字面量 {"x":1.0,"y":1.5,"z":1e2} → 写回去 {"x":1,"y":1.5,"z":100}（本机实测：是）
+  ↑ 按 qjsonparser.cpp 第 671 行那句 `isInt = isInt && *json == '0'`，
+    "1.0" 的小数位全是 0 → 仍然算整数 → 存成 QCborValue::Integer → 写回去成了 "1"，
+    ".0" 被吃掉；第 678 行 "1e2" 见到 e 直接 isInt=false → 走 double，可
+    QByteArray::number(d, 'g', FloatingPointShortest)（qjsonwriter.cpp 第 110~113 行）
+    又把它打回 "100"。**别把「输出里没有小数点」当成「对方发给我的是整数」的证据**，
+    也别把自己是 1.0 的 double 发出去后指望对端看到小数点。
+  5000000000 这一份：toInt(-7)=-7｜toInteger(-7)=5000000000｜toDouble=5000000000
+  同一个对象里 small=7：toInt=7 toInteger=7（int 上限是 2147483647）
+  ↑ 两行的差别就是第 160~163 行那个 clamp：toInt 走 concreteInt(…, true)，toInteger 走 concreteInt(…, false)（声明在第 199 行）。**要 64 位就用 toInteger**，别拿 toInt 读时间戳，钳位这件事是悄悄发生的。
+  截断 vs 四舍五入（第 530~551 行三条路都是「远离零」）：
+    0.5 ：static_cast<int>=0   qRound=1
+    -0.5 ：static_cast<int>=0   qRound=-1
+    2.5 ：static_cast<int>=2   qRound=3
+    -2.5 ：static_cast<int>=-2   qRound=-3
+    3.9 ：static_cast<int>=3   qRound=4
+    -3.9 ：static_cast<int>=-3   qRound=-4
+    1.5 ：static_cast<int>=1   qRound=2
+    -1.5 ：static_cast<int>=-1   qRound=-2
+  ↑ 本机实测的对照（纯 C++，同一套编译器，不 link Qt）：向零截断 (int)3.9=3、(int)-3.9=-3；
+    而 qRound 那三条路都是**先按符号偏移 0.5、再截断**：正数 d+0.5、负数 d-0.5
+    （SSE 那条写成了 d + copysign(0.5, d)，ARM64 直接用 __builtin_round——三条路的**结果**
+    我都用公式复现过：0.5→1、-0.5→-1、2.5→3、-2.5→-3、3.9→4、-3.9→-4、1.5→2、-1.5→-2）。
+    所以 -0.5 会被 qRound 打成 -1，不是 0；它也不是「四舍六入五成双」，-half-away-from-zero 才是它。
+  ★ 越界那一刀我**故意不在这里跑**：qRound(double) 在第 570~573 行是
+    qCheckedFPConversionToInteger<int>(QRoundImpl::qRound(d))，而后者在第 508/517/523 行
+    只有三个 Q_ASSERT（508 那条还包在 #ifdef QT_SUPPORTS_IS_CONSTANT_EVALUATED 里），
+    然后第 527 行直接 `return Result(value)` —— 断言只在 debug 拦你，
+    release（QT_NO_DEBUG 把 Q_ASSERT 编成空）里越界就是未定义行为，**不是钳位**。会钳位的是第 557 行的
+    qSaturateRound，但它在 namespace QtPrivate（第 491~568 行）里，不是公开 API，
+    别在应用代码里调它。要安全就自己写 qBound 把 double 先夹进 int 的范围。
+  【5】小结：数字检验打了 22 行，大整数往返字节相同=是，"1.0" 被当整数存=是。
+
+────【6】toJson(Indented) 与 Compact：字节、转义，和 GBK 的那记闷棍 ────
+  Compact（113 B (0.11 KiB)）：{"emoji":"热?? 火","note":"制表\t完了\u0007","温度上限":85,"设备":"三号炉","通道":["A1","B2"]}
+  Indented 前 2 行（168 B (0.16 KiB)）：
+    第 1 行：前导空格 0 个 ｜ 内容 {
+    第 2 行：前导空格 4 个 ｜ 内容     "emoji": "热?? 火",
+  ↑ 缩进宽度是 private/qjsonwriter_p.h 第 30~32 行那个 `int indent` **形参**，头文件里没有「4」这个常量；所以第二行前导空格数几个是运行期的事，上面这行自己会数出来。
+    Indented 比 Compact 多花 55 字节 —— 单条无所谓，十万条就是你日志的体积。
+  Compact 字节头 24 个 hex = 7B 22 65 6D 6F 6A 69 22 3A 22 E7 83 AD F0 9F 94 A5 20 E7 81 AB 22 2C 22
+  自检三问（数出来，不猜）：原始中文 UTF-8 字节出现 1 次；「\u」出现 1 次；「\t」出现 1 次；BEL(0x07) 原字节出现 0 次
+  ↑ 这三行合起来回答「Qt 写 JSON 时怎么对待非 ASCII 与控制字符」，**本机已经数出来了**：
+    中文出现 1 次（原样 UTF-8，不转义）、「\u」出现 1 次（那一个就是 BEL 被打成 \u0007）、
+    「\t」出现 1 次、BEL 原字节出现 **0** 次。规则在 Src 树
+    src/corelib/serialization/qjsonwriter.cpp 第 26 行 `escapedString()`：第 47~48 行那个门槛是
+    `if (u < 0x80) { if (u < 0x20 || u == 0x22 || u == 0x5c)` —— 只有 ASCII 控制码、引号、反斜杠
+    这三类才转义；0x9 走第 69~70 行的 `\t`，其余控制码走第 72~77 行的 `\u00XX`。
+    **非 ASCII 一律不转义**，所以中文和 emoji 直接以 UTF-8 字节写出去——上面 hex 头里
+    E7 83 AD = 「热」，F0 9F 94 A5 = 那个火苗 emoji（U+1F525）的原字节。
+    ★ 火苗在源码里只以码点转义 `\U0001F525` 出现，不写成裸字符：裸字符会被
+      _tools/check_console_glyphs.pl 直接判失败。转义写法曾经穿得过它（那一行全是纯 ASCII，
+      连扫描都进不去），现在工具已经补上同一判据，所以本讲这两处靠行尾的
+      `glyph-ok:U+1F525 理由` 白名单放行——**放行不等于没事**，它照样要打印出来让你看见。
+      本节**故意**留着它，因为要测的就是输出侧这记闷棍：
+      本机它在控制台上变成**两个** ?（不是一个）—— QString 里它是 2 个 UTF-16 码元，
+      toLocal8Bit 走 qstring.cpp 5700~5706 行的 `QStringEncoder(System, Stateless)`，
+      GBK 装不下就一个码元换一个 ?（实测字节 c8 c8 3f 3f bb f0 = 热 + ? + ? + 火；
+      同一个编码器去掉 Stateless 再跑，字节一模一样，所以别赖这个 flag）。
+      ? 的个数**不是契约**：同一函数第 5718~5719 行写着 behavior is undefined，
+      能依赖的只有「这里丢了东西」——所以要看原文，去上面那行 hex 头里数 F0 9F 94 A5。
+    ★ 这条自检语句你可以原样搬进你的项目：数「原始非 ASCII 字节出现几次」比背规则可靠。
+    另外「热 + 火苗 + 火」那一串里，火苗是 U+1F525，在 U+FFFF **之外**（第 1 辅助平面，从 U+10000 起），UTF-16 得用一对代理码元（surrogate pair）才装得下它，所以 QString 里它的 length() 是 2，而不是 1 —— 数「字符」的时候，UTF-16 的 length 不等于字数。这条是 UTF-16 的性质，跟 Qt 版本无关。
+  写出来的两份 isValidUtf8()：Compact=是 Indented=是（qbytearray.h 第 247 行）
+  二进制写进 C:\Users\Kuros\AppData\Local\Temp\qt_storage_03\cfg.json：113 字节（期望 113），QFileInfo::size=113
+  读回来：open=是 error=NoError 对象相等？是
+  Text 模式写 Indented：磁盘 178 字节 vs 内存 168 字节（差 10；Text 位改的是换行翻译，第 24 行）
+  这份带 \r\n 的文件用二进制读回来解析：NoError｜isValidUtf8=是
+  GBK 版 {"温度":85}：11 字节 hex=7B 22 CE C2 B6 C8 22 3A 38 35 7D｜isValidUtf8()=否
+     直接喂给 fromJson：IllegalUTF8String(9)｜invalid UTF8 string｜第 1 行第 3 列（offset=2）｜回来的文档 isObject=否 isEmpty=是
+  ↑ **本机实测就是上面这行**：IllegalUTF8String、序号 9（声明在 qjsonparseerror.h 第 28 行，数值是数出来的不是写死的）、errorString「invalid UTF8 string」、offset=2 → 第 1 行第 3 列，**位置正好落在坏字节 CE 上**（在字符串里面，不在文件开头），回来的文档 isObject=否 isEmpty=是。
+    CE C2 为什么不是合法 UTF-8：0xCE=110xxxxx 表示两字节序列的头，跟它必须落在 10xxxxxx；而 0xC2=11000010 是另一个「头字节」，所以这一对直接判死。这条判定不依赖 Qt，是 UTF-8 自己的规则。
+    麻烦的是 Qt6 里没有 GBK 这个编码名可以选：QStringConverter::Encoding 的枚举（qstringconverter_base.h 第 102~114 行）只有 Utf8/Utf16/Utf16LE/Utf16BE/Utf32/Utf32LE/Utf32BE/Latin1/System，**没有 GBK/Big5/Shift-JIS**。所以「先转成 UTF-8 再交给 fromJson」这一步要么用 System 编码（第 113 行，跟着平台走，Windows 中文平台上就是 GBK —— 但**别把它写进跨平台协议**），要么自己在入口把文本转成 UTF-8 存起来。第 2 讲拆过 QTextStream::setCodec() 在 Qt6 已删，这里的坑是同一件事的另一面：不是 Qt 变笨了，是编码这条路只剩一条桥。
+  【6】小结：格式打了 2 份，编码/合法性判定做了 4 次，GBK 那份被 fromJson 实际拒了 1 次（0 次也别慌，把上面那行 hex 记下来回来改这一批的说法）。
+
+────【7】schema 是自己造的：8 个键逐个探针，再走一次一步的版本迁移 ────
+  闸门（jsonValueOf：先 contains 再 type）逐个问：
+    放行 键「schemaVersion」要 Double｜实际 Double(0x2)｜命中
+    放行 键「appName」要 String｜实际 String(0x3)｜命中
+    拒绝 键「maxTemp」要 Double｜实际 String(0x3)｜类型不对：要 Double，实际是 String
+    放行 键「flags」要 Array｜实际 Array(0x4)｜命中
+    放行 键「limits」要 Object｜实际 Object(0x5)｜命中
+    拒绝 键「nothing」要 String｜实际 Null(0x0)｜类型不对：要 String，实际是 Null
+    放行 键「ratio」要 Double｜实际 Double(0x2)｜命中
+    拒绝 键「这个键不存」要 String｜实际 Undefined(0x80)｜没有这个键（contains() 为假）
+  ↑ 放行 5、拒绝 3、总数 8（5+3 必须等于 8）
+  「maxTemp」是字符串 "85"：toInt(-1) 给了 -1（数字，看不出是失败），我们的 jsonInt64 给了 ok=否｜类型不对：要 Double，实际是 String
+  ★ 这就是本讲要的「bool-ok 模式」：Qt 不给你第二个返回值（qjsonvalue.h 第 95~105 行），
+    你必须在**自己**的函数里把它补上，并且让调用方拿到 false 时无路可走。
+    补法只有两问：contains()（第 81 行）与 type()（第 86 行）；剩下的都是纪律。
+  有人把 schemaVersion 写成 1e99：validate=否｜共 2 处不合 schema：schemaVersion 不可用：数值超出 qint64 能装的范围（或者是 NaN）：9.9999999999999997e+98；版本号 0 不在 [1, 2] 里（读旧写新都只在这区间内做）
+  ↑ 它**是** Double，类型关过得去；拦住它的是范围关（jsonInt64 里那两句 constexpr
+    边界）。少了这一关，程序不是报错，是 UB——UB 的意思是什么都可能，包括「看着对」。
+    顺手记一句：1e99 这种写法 JSON 是允许的（数字面量支持指数），所以它一定会进来。
+  非 const 的 cfg["凭空多出来的键"] = …：size 从 7 变成 8｜contains=是
+  ↑ const 版（第 70 行）返回的是**值**，读不存在的键不会建键；非 const 版（第 71 行）返回的是**可写引用**，赋值就要有个位置放，于是键就多了。
+    本机实测：size 从 7 变成 8，contains 立刻变「是」（remove 之后回到 7）。这条一旦在你的代码里发生，症状是「配置文件里莫名多出一堆空键」，而写代码的人完全不知道自己点了那颗扳机 —— 记法很简单：**读就用 value()/const，写才用 operator[]**。顺手把 cfg 变回干净：
+    remove 之后 size=7
+  旧文件（v1，还带一个我们不认识的 profile）：validate=是｜读出的版本=1｜不认识的键 1 个
+  migrate(1 → 2)：键数从 4 变 4，validate=是｜不认识的键还剩 1 个
+    迁移前的键：appName、maxTemp、profile、schemaVersion
+    迁移后的键：displayName、limits、profile、schemaVersion
+    profile 还在吗？是 —— **不认识的键一个都别扔**，那是别人的功能在读的东西
+    新键 limits 的内容：{"tempMax":85}
+  故意给一份坏的（v2 缺 displayName、limits.tempMax 是字符串）：validate=否｜共 2 处不合 schema：displayName：没有这个键（contains() 为假）；limits.tempMax：类型不对：要 Double，实际是 String
+  ★ 注意上面这行的问题数：**两个都报出来了**。一次只报第一个错是界面友好，一次报全是排查友好；配置文件出错的时候人不在现场，要的是后者。
+    迁移的规矩也只有一条：**一次只跨一个版本**。v1 直接跳 v3 的代码，三个月后没人敢改。
+  【7】小结：探针 8 个（放行 5 / 拒绝 3），迁移 1 → 2。
+
+────【8】原子替换与「读失败不许动内存」：一次升级、一次拒绝、一次截断 ────
+  旧文件就位：C:\Users\Kuros\AppData\Local\Temp\qt_storage_03\demo_cfg.json｜54 字节
+    [信号 loaded] 版本 v1，读了 54 字节
+  ① 读旧文件成功：内存版本=v1 键=appName、maxTemp、schemaVersion
+    [信号 saved] 写出 69 字节，内存版本升到 v2
+  ② 升级写回成功：磁盘从 54 字节变成 69 字节，内存版本=v2
+     新对象重读：版本=v2 键=displayName、limits、schemaVersion displayName=老炉子
+    [信号 refused] 候选内容不合 schema，磁盘一个字节都没动：共 1 处不合 schema：limits：没有这个键（contains() 为假）
+  ③ 坏候选（v2 但没 limits）：saveCandidate=否｜候选内容不合 schema，磁盘一个字节都没动：共 1 处不合 schema：limits：没有这个键（contains() 为假）
+     磁盘字节：拒前 69 → 拒后 69（相等才叫「没动过盘」）
+    [信号 refused] 解析失败：UnterminatedString(10)｜unterminated string
+  ④ resize 到一半（69→34 字节，shrunk=是）后再读：loadFromFile=否
+     失败原因：解析失败：UnterminatedString(10)｜unterminated string
+     ★ 内存里的版本：读前 v2 → 读后 v2；键数：读前 3 → 读后 3（读失败就必须一个都没变）；失败计数=1
+    [信号 saved] 写出 69 字节，内存版本升到 v2
+    [信号 loaded] 版本 v2，读了 69 字节
+  ⑤ 用好数据修盘：｜再读回来=是｜版本=v2｜字节=69
+  ↑ ⑤ 递给 saveCandidate 的是 reread 那份**从上一版好文件里读出来的内存数据**，
+    不是从那个被截断的坏文件里读出来的（那个读都没读成）。顺序不能反：
+    反了就是「拿坏数据覆盖好文件」，那是二次事故——第一次事故只坏了一个文件，
+    第二次事故把唯一的活口也灭了。
+    QSaveFile 为什么会给你「目标文件要么旧要么新、没有半截」的保证，第 2 讲拆过了（storage/02_file_io.cpp），这里只补一句：**它管的是字节，管不了语义**——语义要靠 commit 之后那次回读校验，本讲的回读就在 saveCandidate 的最后几行。
+  【8】小结：存盘 3 次（提交 2 / 拒绝 1），读盘 4 次（成功 3 / 失败 1）。
+
+────【合账】把八个批次打出来的数汇成一张表，自己跟自己对────
+  【1】类型表行数=7（qjsonvalue.h 第 32~40 行有 7 个成员）；故意错读=5（设计值 5）；样本键数=7（设计值 7）
+  [对得上]  【1】类型表行数 == 7
+  [对得上]  【1】故意错读次数 == 5
+  [对得上]  【1】五次错读全部原样退回我传的默认值（没有一个能把「失败」传出来）
+  [对得上]  【1】样本键数 == 7（对象里确实摆了 7 个键）
+  【2】键序样本=3（设计值 3）、与插入序不同的=3、数组最后=6 项
+  [对得上]  【2】键序样本份数 == 3
+  【3】解析总次数=9、成功=6、失败=3；NDJSON 非空行=3、逐行成功=3
+  [对得上]  【3】成功 + 失败 == 总次数（这本账是闭合的，没有漏记）
+  [对得上]  【3】NDJSON 逐行成功数 == 非空行数
+  【4】样本=10、按规范非法=8、实际被拒=8
+  [对得上]  【4】样本总数 == 10
+  [对得上]  【4】按规范非法数 == 实际被拒数（这一条是「严格」的定义）
+  【5】数字检验行=22；大整数往返字节是否完全相同=是；"1.0" 是否被当整数存=是
+  [对得上]  【5】2^53+1 往返字节完全相同（Qt 6 的 JSON 数字底层是 int64，不经 double）
+  [对得上]  【5】"1.0" 写成 "1"、"1e2" 写成 "100"（小数位全 0 仍算整数）
+  【6】JsonFormat 打了=2（设计值 2）；编码/合法性判定=4；转义四问是否等于「1/1/1/0」=是
+  [对得上]  【6】格式份数 == 2（Indented + Compact）
+  [对得上]  【6】非 ASCII 不转义、控制码转 \u00XX（中文原字节 1／\u 1／\t 1／BEL 原字节 0）
+  【7】探针总数=8、放行=5、拒绝=3
+  [对得上]  【7】放行 + 拒绝 == 探针总数（没有第三种答案）
+  [对得上]  【7】探针总数 == 8
+  【8】存盘=3（提交 2 / 拒绝 1）；读盘=4（成功 3 / 失败 1）
+  [对得上]  【8】提交 + 拒绝 == 存盘尝试数
+  [对得上]  【8】成功 + 失败 == 读盘尝试数（这本账也得闭合）
+  【6·补】GBK 样本实际被拒=1（这一条不进【3】的账）
+  ★ 上面这些「对不上」的行如果真出现了，说明**运行期的答案和头文件的期待不一样**——
+    那不是程序错了，是本讲有一处推测错了。请把那一行的原始输出记下来，回来改这份文件；这比让它默默通过有用得多。
+    而且它不会白说：对不上几行，进程就返回几（`exit(1)` 起步），CI 拦得住。
+
+────【清理】────
+  系统临时目录 = [C:\Users\Kuros\AppData\Local\Temp]
+  本次工作目录 = [C:\Users\Kuros\AppData\Local\Temp\qt_storage_03]
+  待删清单（3 项）：cfg.json、cfg_text.json、demo_cfg.json
+  removeRecursively()=1｜目录还在吗=0｜残留条目=0（应为 0）
+  [对得上]  清理后残留条目 == 0
+
+────【收尾声明】────
+  · 这份文件已在 Qt 6.12.0 + MinGW 13.1.0（Windows，offscreen）下真实编译、链接、运行；
+  · 下面那行退出码就是本机这一轮的对账结果，不是推理——但它只承诺**这一台机器**这一次；
+  · 文中每个数字都标了来源：头文件行号 / 纯 C++ 实算 / 本机这一轮的打印。前两种换机器不变，
+    第三种是**环境事实**（字节数、缩进空格数、GBK 那份的 offset），换 Qt 版本或平台可能变，
+    以你自己那次运行的打印为准（重跑：bash _tools/run_all.sh '^storage_03'）；
+  · 所有写盘都只在 TempLocation 下的 qt_storage_03/ 里，上面已经删干净。
+────【退出码】对不上一共 0 行 → exit(0) ────

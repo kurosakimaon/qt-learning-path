@@ -79,8 +79,8 @@ window.STEPS = [
           <rect class="svg-field" x="345" y="168" width="95" height="28"/>
         </g>
         <text class="svg-small" x="265" y="220" text-anchor="middle">它们加起来是 1 个 QTableView</text>
-        <text class="svg-small" x="265" y="242" text-anchor="middle">外加 0 个子控件</text>
-        <text class="svg-small" x="265" y="264" text-anchor="middle">（可以用 findChildren&lt;QWidget*&gt;().size() 验证）</text>
+        <text class="svg-small" x="265" y="242" text-anchor="middle">外加 0 个「格子控件」</text>
+        <text class="svg-small" x="265" y="264" text-anchor="middle">（结构子控件仍有 8 个，与行列数无关）</text>
 
         <rect class="svg-box-accent" x="480" y="40" width="255" height="125" rx="10"/>
         <text class="svg-small" x="500" y="68">如果一格一个控件：</text>
@@ -99,12 +99,12 @@ window.STEPS = [
         <text class="svg-small" x="50" y="362">编辑结束就销毁。所以「控件数量」永远和「跟你有几个格子在编辑」有关，和行数无关。</text>
         <text class="svg-small" x="50" y="386">★ 这条事实，是第 1 讲里最该亲手验证一次的东西。</text>
       </svg>`,
-    caption: '一屏 40 个格子，加起来只是<strong>一个 <code>QTableView</code> 加 0 个子控件</strong>。如果一格一个控件，10 万行 × 4 列就是 40 万个 <code>QWidget</code>——每个都要内存、要事件、要布局，开机就要几十秒。实际做法是<strong>画的时候才问数据，画完就忘</strong>。唯一的例外是「打开编辑器」那一刻才真的创建一个控件，编辑完就销毁。',
-    code: `// 亲手验证：一屏格子不产生子控件
+    caption: '一屏 40 个格子，加起来只是<strong>一个 <code>QTableView</code> 加 0 个「格子控件」</strong>。★ 别说成「0 个子控件」，那是错的：本机实测 <code>findChildren&lt;QWidget*&gt;().size()</code> = <strong>8</strong>（视口、横/纵表头、滚动条一类的结构件，见 <code>runlogs/model_view_01_architecture.log</code> 第 13~14 行），关键是这个数<strong>跟行数、列数完全无关</strong>——40 行 160 格，视图侧一个「格子控件」都没有。如果真的一格一个控件，10 万行 × 4 列就是 40 万个 <code>QWidget</code>——每个都要内存、要事件、要布局，开机就要几十秒。实际做法是<strong>画的时候才问数据，画完就忘</strong>。唯一的例外是「打开编辑器」那一刻才真的创建一个控件，编辑完就销毁。',
+    code: `// 亲手验证：一屏格子不产生「格子控件」
 auto *view = new QTableView;
 view->setModel(model);
 const int widgets = view->findChildren<QWidget *>().size();
-qInfo() << "子控件数量" << widgets;   // 与你「看到的格子数」无关
+qInfo() << "子控件数量" << widgets;   // 本机实测 8：视口+两个表头+滚动条…，与行列数无关
 
 // 只有正在编辑的那一格才有编辑器
 qInfo() << "编辑器" << view->findChildren<QLineEdit *>().size();`,
@@ -213,7 +213,7 @@ proxy->setFilterFixedString("未完成");`,
 
         <text class="svg-small" x="380" y="330">结论：索引是「临时的坐标」，不是「可以存起来的东西」。</text>
         <text class="svg-small" x="380" y="354">要存，就存 row/column + QPersistentModelIndex。</text>
-        <text class="svg-small" x="380" y="376">★ 只在「画这一格」的期间用它，永远安全。</text>
+        <text class="svg-small" x="380" y="372">★ 只在「画这一格」的期间用它，永远安全。</text>
       </svg>`,
     caption: '<code>QModelIndex</code> 里只有 <strong>行号、列号、属于哪个模型、以及你放的内部线索</strong>。它<strong>不存数据</strong>，也<strong>不是身份证</strong>：容器一扩容、结构一变，旧索引就可能悬垂。<strong>要跨结构性变更留住一格，用 <code>QPersistentModelIndex</code></strong>，但那是登记在册的开销。最安全的用法是：只在「画这一格 / 处理这一格」的期间持有它。',
     code: `// 安全的用法：索引只活在一个函数里
@@ -362,7 +362,7 @@ qInfo() << "data() 实际被问" << model->dataCalls() << "次";
         <text class="svg-small" x="528" y="80">改内部数据</text>
 
         <path class="svg-arrow svg-flow" d="M610 100 L610 130"/>
-        <rect class="svg-box-warn svg-pulse" x="470" y="130" width="240" height="70" rx="8"/>
+        <rect class="svg-box-warn svg-pulse" x="470" y="130" width="264" height="70" rx="8"/>
         <text class="svg-mono" x="488" y="158">emit dataChanged(topLeft, bottomRight)</text>
         <text class="svg-small" x="488" y="180">告诉视图：这几格脏了</text>
 
@@ -462,7 +462,7 @@ const QModelIndex back = proxy->mapFromSource(srcIdx);
 // 选择也要映射
 const QItemSelection sel =
     proxy->mapSelectionToSource(view->selectionModel()->selection());`,
-    highlight: [2, 3, 4, 9]
+    highlight: [2, 3, 6, 9]
   }
 ];
 </script>

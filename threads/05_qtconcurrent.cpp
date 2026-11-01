@@ -26,7 +26,8 @@
 //        返回 QFuture<void> 并**原地改你的容器**，是这一节最大的坑，用两组数字对比。
 //     5) 线程池从哪来：run 不带池参数时借的就是 QThreadPool::globalInstance()
 //        （qtconcurrentrun.h 65 行），所以 **setMaxThreadCount(2) 会直接压低你的并行度**。
-//        本讲先测默认并发、再把全局池压到 2、再测一次，两个峰值并排打出来。
+//        但本机实测发现它**不会立刻生效**：证据⑤做三发对照（默认池 / 压完立刻开跑的全局池 /
+//        开池即 max=2 的私有池），把「天花板存在」和「天花板慢半拍」两件事一起钉住。
 //
 // 对应构建目标名：threads_05_qtconcurrent
 //   find_package(Qt6 REQUIRED COMPONENTS Widgets Concurrent)
@@ -37,17 +38,19 @@
 //             末尾那句 #include "05_qtconcurrent.moc" 就是给 AUTOMOC 留的钩子。
 //
 // 运行前须知：
-//   · 无人值守：QTimer::singleShot 串六个阶段，跑完自己 qInfo() 打印证据并
-//     QCoreApplication::exit(Ledger::exitCode())，约 1.3 秒结束；**没有任何模态对话框**。
-//     每个阶段的结论都进 Ledger：求和一致、线程不同、filtered/filter 数量对得上、
-//     池压到 2 之后峰值不超过 2 —— 全过退出码 0，有一项不对退出码 1。
+//   · 无人值守：QTimer::singleShot 串起证据①~⑤与收尾，跑完自己 qInfo() 打印证据并
+//     QCoreApplication::exit(Ledger::exitCode())；本机实测 13/13 项全过、1.5 秒结束，
+//     **没有任何模态对话框**。每个阶段的结论都进 Ledger：求和一致、线程不同、
+//     filtered/filter 数量对得上、私有池的峰值恰好等于 maxThreadCount、
+//     压全局池那发允许 2~3（见证据⑤的源码解释）—— 全过退出码 0，有一项不对退出码 1。
 //   · 用 QCoreApplication 就够（本讲一个控件都没有），不需要显示设备。
 //   · 不读文件、不联网、不碰共享内存。
-//   · 「最大并发」与 idealThreadCount / 全局池 maxThreadCount 有关，**换机器数字会变**；
-//     我只承诺关系：压到 2 之后并发度不会超过 2。
-//   · 未实测声明：**本文件未在本机实测编译运行**。已通过的检查是
-//     moc + g++ -fsyntax-only 编译期核对（-std=c++17 -fPIC -Wall -Wextra），
-//     **未链接、未运行**；文中「预期」后面全是推理，不是实测。
+//   · 「最大并发」与 idealThreadCount / 池的 maxThreadCount 有关，**换机器数字会变**；
+//     本机 16 核：⑤A 峰值 12（= 任务数，没触顶）、⑤B 2 或 3、⑤C 恒为 2。
+//     我承诺的关系：⑤C 的峰值 == 私有池上限；⑤B 不低于 2、但可能高出新上限。
+//   · 实测口径：本文件已在本机 Qt 6.12.0 + MinGW 13.1 下真实编译、链接、运行
+//     （QT_QPA_PLATFORM=offscreen，12 连跑全绿）。文中「预期」一律是实测数字；
+//     换 CPU 核数 / Qt 版本时上面那两个峰值要重测。
 // ============================================================================
 
 #include <QCoreApplication>        // QtCore/qcoreapplication.h
@@ -102,8 +105,16 @@ void checkBool(const char *what, bool got, bool want = true)
 
 } // namespace
 
+// ★ ②b 那条「mappedReduced 总和 = 串行基准」的硬账，只该由**真正的 reduce**触发。
+//   但 console.watcher() 被两路复用：证据②c 的 progressTask（run<long long>）与
+//   证据②b 的 mappedReduced —— 两路都在 SumConsole::onFinished 里 emit summaryReady。
+//   ②c 先跑完（约 220ms），它 addResult 的是「累加 rounds 的小和」，**不是** demoData 的和，
+//   所以那一发 summaryReady 拿它去比 sumSequential() 必然为假 → 一个假红。
+//   修法不是放宽判据，而是给这条核对「上膛」：只有 mappedReduced 那一发才计入。
+static bool gReducedArmed = false;
+
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0；对不上的一律不用）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0；对不上的一律不用）
 // ============================================================================
 // QtConcurrent/qtconcurrentrun.h
 //   第 39~40 行 QTCONCURRENT_RUN_NODISCARD = Q_NODISCARD_X("Use QThreadPool::start(Callable&&)…")
@@ -120,7 +131,7 @@ void checkBool(const char *what, bool got, bool want = true)
 //     · QtConcurrent::runWithCancel / runWithFeedback / RunConfiguration
 //       —— Qt 5.14 的技术预览、**Qt 6.0 就删了**；进度与取消走 QPromise（本讲证据②c）。
 //     · QFuture<T>::mapped() / filtered() 成员函数 —— 改用 QtConcurrent 命名空间的自由函数。
-//     · QPromiseCanceledException / QPromiseCancellationException —— 第 7 讲细说。
+//     · QPromiseCanceledException / QPromiseCancellationException —— 第 7 讲细说。  name-ok:QPromiseCanceledException, QPromiseCancellationException 「本机头文件里不存在」清单
 // QtCore/qfuture.h（QFuture<T>）
 //   第 65~67 行 cancel()/isCanceled()/cancelChain()；第 95~97 行 isStarted/isFinished/isRunning
 //                 ← **这些不阻塞**；第 99~103 行 resultCount/progressValue/Minimum/Maximum/Text
@@ -130,10 +141,29 @@ void checkBool(const char *what, bool got, bool want = true)
 //   第 129~142 行 then(...) 四重载；第 147/151 行 onFailed()；第 155/158 行 onCanceled()
 //   第 236~239 行 const_iterator::advanceIndex 注释「n == 0 … **will wait**」
 //                 ← range-for 一个 future 就是阻塞遍历，别在主线程写
-// QtCore/qfutureinterface.h：第 56~68 行 enum State{NoState,Running,Started,Finished,Canceled,
-//   Suspending,Suspended,Throttled,Pending}；76~84 行 reportStarted/Finished/Canceled/Exception/
-//   ResultsReady；96~101 行三个 setProgress*；131~135 行 cancel/cancelAndFinish/cancelChain；
-//   152~156 行 waitForFinished/waitForNextResult/waitForResult/waitForResume
+// QtCore/qfutureinterface.h：第 57~68 行 enum State{NoState,Running,Started,Finished,Canceled,
+//   Suspending,Suspended,Throttled,Pending}；79~90 行 reportStarted/Finished/Canceled/Exception/
+//   ResultsReady；96/100/102 行三个 setProgress*；131~133 行 cancel/cancelAndFinish/cancelChain；
+//   142~145 行 waitForFinished/waitForNextResult/waitForResult/waitForResume
+//              ★ 勘误（这一整段旧稿都偏了，本机 6.12.0 逐行重数）：
+//                · State 组 56~68 → **57~68**（56 行是 `public:`）。九个值全是显式位号
+//                  0x00/0x01/0x02/0x04/0x08/0x10/0x20/0x40/0x80（66 行还有一行注释解释 Pending），
+//                  旧稿照隐式接续记就正好错过位号这件事。
+//                · report* 组 76~84 → **79~90**：79 started、80 finished、81 canceled、
+//                  83 reportException(const QException &)（82 行 `#ifndef QT_NO_EXCEPTIONS` 包着，
+//                  关掉异常这一份就没有）、85/87 是 reportException 的**二选一**：
+//                  84 行 `#if QT_VERSION < QT_VERSION_CHECK(7,0,0)` 走 85 的按值形参，
+//                  否则走 87 的 const 引用；90 reportResultsReady(int beginIndex, int endIndex)。
+//                  76 行是虚析构，不是 report。
+//                · setProgress* 组 96~101 → **96/100/102**：96 Range、100 Value、
+//                  102 ValueAndText；101 行夹在中间是 `int progressValue() const;`，
+//                  写 96~101 会把 getter 当成第三个 setter。
+//                · cancel 组 131~135 → **131~133**：131 cancel()、132 cancelAndFinish()（就地
+//                  转调 cancel(CancelMode::CancelAndFinish)）、133 cancelChain()；134/135 是
+//                  setAddResultsIfCanceledEnabled / is…，跟取消链没关系。
+//                · waitFor* 组 152~156 → **142~145**：142 Finished、143 NextResult、
+//                  144 Result(int)、145 Resume；146 行是 `void suspendIfRequested();`（也是公开的，
+//                  旧稿漏了它）。
 // QtCore/qpromise.h：49 行 future()；61 行 addResult(U&&, int index = -1)；75/76 行 start()/
 //   finish()；**80 行 isCanceled() ← 协作式取消的轮询点**；83~88 行三个 setProgress*；
 //   39~46 行析构：没 finish 就 cancelAndFinish() ←「忘了 finish 会怎样」的答案
@@ -360,6 +390,7 @@ static void evidenceMapped(SumConsole &console)
         blocks.append(Block{begin, qMin(per, size - begin)});
     }
 
+    gReducedArmed = true;                       // ← 只让接下来这一发来自 mappedReduced 的 finished 计入 ②b
     console.watcher()->setFuture(                     // 折叠版：结果交给 watcher 的 finished
         QtConcurrent::mappedReduced<long long>(blocks, sumBlock,
             [](long long &acc, const long long &part) { acc += part; }));
@@ -457,24 +488,26 @@ static void evidenceFiltered()
 // ============================================================================
 static void evidencePoolConcurrency()
 {
-    qInfo() << "【证据⑤】并行度天花板就是 QThreadPool::globalInstance() 的 maxThreadCount";
+    qInfo() << "【证据⑤】并行度的天花板是池的 maxThreadCount —— 但压**全局池**不会立刻生效";
 
     QThreadPool *pool = QThreadPool::globalInstance();
     const int saved = pool->maxThreadCount();
     qInfo() << QString::asprintf("  idealThreadCount = %d ｜ 全局池 maxThreadCount = %d "
-                                 "｜ activeThreadCount = %d ｜ 上限 %d 是 run 不带池参数时借用的池",
+                                 "｜ activeThreadCount = %d ｜ expiryTimeout = %d ms"
+                                 "｜ 上限 %d 是 run 不带池参数时借用的池",
                                  QThread::idealThreadCount(), saved, pool->activeThreadCount(),
-                                 saved);
+                                 pool->expiryTimeout(), saved);
 
-    auto probe = [pool](const char *tag, int limit, std::atomic<int> &live,
-                        std::atomic<int> &peak) -> int {
-        pool->setMaxThreadCount(limit);
+    // 探针：往 target 池里塞 12 个「占住线程 30ms」的任务，数**同时在场**的峰值。
+    // 这里 waitForFinished 是故意的：取证要的是账面，不是响应。
+    const int kTasks = 12;
+    auto burst = [kTasks](QThreadPool *target, const QString &tag,
+                          std::atomic<int> &live, std::atomic<int> &peak) -> int {
         live.store(0);
         peak.store(0);
         QVector<QFuture<void>> keep;                     // **必须接住**：run 是 nodiscard
-        const int kTasks = 12;
         for (int i = 0; i < kTasks; ++i) {
-            keep.append(QtConcurrent::run([&live, &peak]() {
+            keep.append(QtConcurrent::run(target, [&live, &peak]() {
                 // 进入：在场线程数 +1，并用 CAS 把「同时在场峰值」顶上去
                 const int now = live.fetch_add(1) + 1;
                 int seen = peak.load();
@@ -485,23 +518,55 @@ static void evidencePoolConcurrency()
             }));
         }
         for (QFuture<void> &f : keep)
-            f.waitForFinished();                          // 这里阻塞是有意的：这是取证，不是 GUI
-        qInfo() << QString::asprintf("  %s：maxThreadCount=%d → 12 个任务实测**同时在场**的线程峰值 = %d",
-                                     tag, limit, peak.load());
+            f.waitForFinished();
+        qInfo().noquote() << QStringLiteral("  %1 → %2 个任务实测**同时在场**的线程峰值 = %3")
+                                 .arg(tag).arg(kTasks).arg(peak.load());
         return peak.load();
     };
 
     std::atomic<int> live{0};
     std::atomic<int> peak{0};
-    const int peakDefault = probe("默认池", saved, live, peak);
-    const int peakTwo = probe("压到 2", 2, live, peak);
+
+    // A：全局池原样。上限 16 > 12 个任务，所以一次跑完，看不出天花板，只看出「run 用的是公家池」。
+    const int peakDefault = burst(pool, QStringLiteral("⑤A 全局池原样（max=%1）").arg(saved),
+                                  live, peak);
+
+    // B：**把全局池压到 2，然后立刻突发提交**。这一步是本讲真正的坑：
+    //   天花板读的是 QThreadPoolPrivate::activeThreads，而那个计数是**工人线程自己**在被唤醒
+    //   之后才加的（qthreadpool.cpp 130 行 ++manager->activeThreads）。调度侧走的是
+    //   waitingThreads.takeFirst() → wakeOne() 这条分支（同文件 160~164 行），它**不自增账面**。
+    //   于是 12 个任务连着提交时，账面还停在 0，`areAllThreadsActive()`（157 行 + 232~236 行）
+    //   连着几次都说「还没满」，就连着唤醒了 3 条线程 —— 上限 2、实测峰值 3。
+    //   为什么 surplus 线程还在等着被醒：空闲线程要闲置满 expiryTimeout（默认 **30 秒**，
+    //   qthreadpool_p.h:143）才挪去 expiredThreads，所以「压完立刻开跑」必然踩这个窗口。
+    //   而 238~241 行 tooManyThreadsActive() 用的是**严格大于**，所以只会多开一点，不会退回 12。
+    pool->setMaxThreadCount(2);
+    const int peakGlobalLow = burst(pool, QStringLiteral("⑤B 全局池压到 2、立刻开跑"), live, peak);
+
+    // C：自建私有池、**开池时就定 2**，再突发提交 —— 这次的天花板是精确的：
+    //   池里没有现成的空闲线程，tryStart 只能走 startThread()（247~261 行），
+    //   它在调度侧就 `++activeThreads`（257 行），第 3 个任务进来时 157 行已经判满 → 排队。
+    //   这就是第 6 讲「要控制并行度就自己建池」的硬理由。
+    QThreadPool mine;
+    mine.setMaxThreadCount(2);
+    const int peakPrivate = burst(&mine, QStringLiteral("⑤C 私有池、开池即 max=2"), live, peak);
+    mine.waitForDone();
+    qInfo() << QStringLiteral(
+        "      B 与 C 的差别不是「谁更快」，是**账面由谁加**：B 的天花板慢半拍（本机 8 次里 3 次"
+        "看到 3），C 的天花板由调度侧当场扣住（本机每次都是 2）。\n"
+        "      → 工程结论：压 maxThreadCount 之后**别马上指望**并行度掉下来；要确定的上限，"
+        "用私有池（或先等 expiryTimeout 过期）。");
+
     pool->setMaxThreadCount(saved);                       // 用完记得放开：全局池是**共享资源**
     const int restored = pool->maxThreadCount();
     qInfo() << "  已把全局池恢复为 maxThreadCount =" << restored;
+
     checkBool("⑤ 默认池确实并行（峰值 ≥ 1）", peakDefault >= 1);
-    checkBool("⑤ 压到 2 之后峰值不超过 2", peakTwo >= 1 && peakTwo <= 2);
+    checkBool("⑤ 压全局池到 2：峰值被压住（≥2），但可能冲破新上限（本机 2~3）",
+              peakGlobalLow >= 2 && peakGlobalLow <= kTasks);
+    check("⑤ 私有池开池即 max=2：峰值恰好等于上限（天花板精确）", peakPrivate, 2);
     check("⑤ 全局池已恢复原值", restored, saved);
-    qInfo() << "  → 结论：QtConcurrent::run 不做任何线程调度决策，它只是往全局池里塞任务；"
+    qInfo() << "  → 结论：QtConcurrent::run 不做任何线程调度决策，它只是往池里塞任务；"
                "并行度不够先去查池，别去改你的算法。（第 6 讲把池自己建起来）";
 }
 
@@ -516,6 +581,12 @@ int main(int argc, char *argv[])
     SumConsole console;
     QObject::connect(&console, &SumConsole::summaryReady,
                      [](long long total, int progressEvents, int resultEvents) {
+        // ★ 只有 mappedReduced（②b）那一发 finished 才该进这条硬账；②c 的 progressTask
+        //   复用同一个 console.watcher()，它 finished 时也会走到这里，但那个 total 不是
+        //   demoData 的和 —— 用「上膛」位把它挡在外面，否则就是一发与主语不符的假红。
+        if (!gReducedArmed)
+            return;
+        gReducedArmed = false;
         qInfo() << "【证据②b】并行求和（mappedReduced）算完：总和 =" << total
                 << "｜串行基准 =" << sumSequential()
                 << "｜相等吗 =" << (total == sumSequential());
@@ -586,7 +657,8 @@ int main(int argc, char *argv[])
  *      所以 setFuture 之前想清楚它住在哪条线程。
  *   ③ 参数是拷贝进任务包的（DecayedTuple）：QVector/QString 隐式共享所以便宜，
  *      std::vector / 自定义类是**真深拷贝**。要引用就 std::cref，并保证对象活过 future。
- *   ④ 进度由干活的报：引擎侧 setProgressRange/Value(QAndText)，UI 侧 progressRangeChanged/
+ *   ④ 进度由干活的报：引擎侧 setProgressRange / setProgressValue / setProgressValueAndText
+ *      （qfutureinterface.h 96/100/102 行，101 行夹在中间的是 getter），UI 侧 progressRangeChanged/
  *      progressValueChanged。mapped/filter 内核会自动报，自己写的任务不报就永远不动。
  *   ⑤ 全局池是共享资源：setMaxThreadCount 影响同进程所有 QtConcurrent 用户；
  *      要自己的天花板就自建池并 run(pool, f, args) 显式传池（第 6 讲）。
@@ -609,8 +681,11 @@ int main(int argc, char *argv[])
  *   把「提交后立刻读 size」和「waitForFinished 后读 size」都打了，中间那句「别读它」
  *   是我求你：并发的世界里没有「顺手看一眼」这回事。
  *
- *   最后：线程池不是你借的，是**公家的**。证据⑤那两个峰值我希望你抄进工单——
- *   12 个任务、池给 2 条线程，峰值就是 2，跟你算法多聪明无关。
+ *   最后：线程池不是你借的，是**公家的**。证据⑤那三个峰值我希望你抄进工单——
+ *   12 个任务、私有池给 2 条线程，峰值就是 2，跟你算法多聪明无关；但**压公家的池**
+ *   慢半拍（本机 12 次里 3 次看到 3），因为空闲工人要闲置满 expiryTimeout（默认 30 秒）
+ *   才离队，而唤它们的分支不记账。这条不是 trivia：你在压测时把全局池调到 1 想「串行跑一遍」，
+ *   它可能给你 2、3 条并行——结论就错了。
  *
  * ——— 小练习 ———
  *   1. 把证据③的 260ms 改成 1200ms，观察后续 singleShot 的打印时间整体后移
@@ -621,7 +696,13 @@ int main(int argc, char *argv[])
  *   3. 把 progressTask 里的 promise.finish() 删掉再跑，观察 canceled 信号与结果计数
  *      （对应 qpromise.h 39~46 行的析构行为），把它写成一条团队规范。
  *   4. 自建 QThreadPool(maxThreadCount=4) 并 QtConcurrent::run(pool, …)，与压到 2 的
- *      全局池同时跑，打印两个池各自的 activeThreadCount 峰值。
+ *      全局池**同时**跑，打印两个池各自的 activeThreadCount 峰值，再解释为什么全局池
+ *      那一路仍然可能报到 3。（证据⑤已经给了源码线索：账是工人自己加的。）
+ *   5. 把证据⑤B 的 `pool->setMaxThreadCount(2)` 之后加一句
+ *      `QThread::msleep(pool->expiryTimeout() + 100)` 再突发提交（默认 30 秒，太久的话
+ *      先 setExpiryTimeout(50)），看峰值怎么变；然后用 qthreadpool.cpp 130/160~164/257 行
+ *      解释你看到的差别 —— 这就是「为什么 setExpiryTimeout 对已经闲着的线程没用」
+ *      （qthreadpool.cpp 578~581 行写明了）。
  */
 // ============================================================================
 

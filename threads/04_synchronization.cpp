@@ -95,6 +95,11 @@
 //     不该条件反射地加个 Q_OBJECT。第 3 讲要 moc 是因为要发信号，这里一个信号都不发。
 //
 // 运行前须知（每条都是可核对的，跑起来对着看）：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_04_synchronization）。本机这一轮：汇总行「核对总数 24，不符 0，收尸超时 0 节」。
+//     这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//     换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//     （本机那一轮存档 runlogs/threads_04_synchronization.log）。
 //   · **本讲有一条刻意的格式偏离**：前面几讲的 main 都用 QTimer::singleShot 串步骤，
 //     本讲八节**同步顺序跑完，一次事件循环都不进**。理由：本讲观察的是锁与等待，
 //     不是事件调度；把每节塞进 singleShot 反而会把「哪条线程在什么时刻观察到什么」
@@ -141,11 +146,11 @@
 //     CI 和脚本就看不见失败，那份「核对」只对眼睛负责。
 //     同一本账也解释了为什么 [预期中]/[实测] 两类**不进**分母：那是调度的结果，
 //     不是代码的对错；把它们计进去，等于把「我的程序有 bug」和「今天机器忙」写成同一句话。
-//   · 本文件的校验状态（照实说）：`g++ -fsyntax-only -std=c++17 -fPIC -Wall -Wextra`
-//     对着本机 Qt 6.12.0 头文件通过（0 error / 0 warning），无 Q_OBJECT 故不需 moc；
-//     **未链接、未运行**（本机 Qt 运行时缺符号，进程一起就 0xC0000139）。
-//     所以上面每一条「预期」都是**推理**，等你在能编译的机器上复核；
-//     但下面这些是**实测**：所有行号是本机头文件里逐条 grep 出来的；
+//   · 本文件的校验状态（照实说）：**已在本机真实编译、链接、运行**（Qt 6.12.0 +
+//     MinGW 13.1.0，Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_04_synchronization）。
+//     本机这一轮：核对总数 24，不符 0，收尸超时 0 节 → 退出码 0
+//     （存档 runlogs/threads_04_synchronization.log）。
+//     下面这些同样是**实测**：所有行号是本机头文件里逐条 grep 出来的；
 //     【3】那四种 locker 写错形状的诊断文本，是我用同一套 g++ 单独跑最小样例抓的，
 //     原文抄在下面第三节注释里，一个字没改；
 //     ★ 第二节那条「`slots` 是个宏」不是从博客抄的 —— 是我这一版本**先写成
@@ -153,7 +158,7 @@
 //     （`error: declaration does not declare anything [-fpermissive]`）之后，
 //     再去 qtmetamacros.h 找到那两句 `# define slots Q_SLOTS` 的。
 //     一条编译错误换一节课，这笔交易很划算，所以原话留在代码里。
-//   · 本讲所有 API 都对着本机真实头文件核对过（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）：
+//   · 本讲所有 API 都对着本机真实头文件核对过（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）：
 //       QtCore/qmutex.h          —— 17 行 `#if QT_CONFIG(thread) || defined(Q_QDOC)`：
 //                                    ★ 整段真实锁都在这个条件里，311 行 `#else` 起是
 //                                    「无线程构建」的空壳：313 行 QMutex 的 lock/unlock/tryLock

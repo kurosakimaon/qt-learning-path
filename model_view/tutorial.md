@@ -16,9 +16,9 @@
 
 这套东西是 MVC 在 GUI 里最落地的一次实现，本模块一共 **8 讲**，从五角色总览一路讲到「10 万行为什么不卡」。每一讲都是完整可编译的示例，而且都遵守全课那条硬规矩：**无人值守能自己跑完、自己吐证据**（`QTimer::singleShot` 排动作 → 计数器/计时取证 → `qInfo()` 打印 → `QCoreApplication::quit()`）。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`，8 个目标名（`model_view_01_architecture` … `model_view_08_view_tuning`）已在顶层 `CMakeLists.txt` 的「第陆阶段 · 模型/视图与委托（model_view/）」一节登记，也写在每个文件顶部注释块里。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 **GCC 13.1.0**（`D:\Qt\Tools\mingw1310_64`，Qt 官方自带那套）、CMake ≥ 3.21、C++17。★ 本机 **没有装 Ninja**，所以生成器用 `-G "MinGW Makefiles"`（写了 Ninja 的命令行在本机会直接报错）。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`，8 个目标名（`model_view_01_architecture` … `model_view_08_view_tuning`）已在顶层 `CMakeLists.txt` 的「第陆阶段 · 模型/视图与委托（model_view/）」一节登记，也写在每个文件顶部注释块里。
 >
-> 诚实标注：本机当前**无法编译链接** Qt 程序（运行时库正在升级）。本模块示例**未链接、未运行**，但每个 .cpp 都过了 `g++ -fsyntax-only -std=c++17 -Wall -Wextra` 的编译期核对（零 error、零 warning），每个类、函数、重载、枚举值都对着本机 `C:\msys64\ucrt64\include\qt6` 真实头文件逐字核对；文中所有「预期」后面是推理，不是实测数字。
+> 实测口径：本模块 8 个目标已在本机**真实编译、链接、运行**（`QT_QPA_PLATFORM=offscreen`，无头、无人值守跑完并自己吐证据），包含在顶层 `ctest` 的 73/73 里；每个 .cpp 也过 `moc` + `g++ -std=c++17 -Wall -Wextra`（零 error、零 warning），每个类、函数、重载、枚举值都对着本机 `D:\Qt\6.12.0\mingw_64\include` 真实头文件逐字核对。各讲自己的硬账条数写在每个 .cpp 头部，原始输出存档在 `runlogs/<目标名>.log`（UTF-8；重跑 `bash _tools/run_all.sh '^model_view'`）。换 Qt 版本 / 换平台之后，带具体数字的预期以你自己那次打印为准。
 
 ## 二、学习目标
 
@@ -83,7 +83,12 @@
           filterFixedColumn 这个函数）vs 重写 filterAcceptsRow / filterAcceptsColumn / lessThan；
           外部判据变了必须显式失效：invalidate()（public slot）或子类里
           beginFilterChange()/endFilterChange()（老 API invalidateFilter 等在本机已 protected 且标废弃）；
-          sort 与视图 setSortingEnabled 的分工、dynamicSortFilter 默认 false 的坑
+          sort 与视图 setSortingEnabled 的分工；
+          ★ 三个默认值全部实测钉死（第 5 讲证据①，别再背）：filterKeyColumn 默认 **0**
+             （不是 -1，-1 要显式设；qsortfilterproxymodel.cpp 第 2736 行属性文档）、
+             dynamicSortFilter 默认 **true**（第 2994 行，「源一变就自动重排/重筛」是出厂行为）、
+             sortRole / filterRole 默认都是 **Qt::DisplayRole**（第 3033 / 3072 行，
+             **不是** EditRole——Qt6 删了 Qt::SortRole 但没有「改用 EditRole」这回事）
 
   06_selection_model.cpp       ← QItemSelectionModel：选择不归视图管
     重点：三个视图共用一个选择模型 → 会同时高亮；换/重建选择模型 → 选择就没了
@@ -295,10 +300,10 @@ endInsertRows();                        // ③ 收尾并发 rowsInserted
 `beginInsertRows` → 改容器 → `endInsertRows` 的顺序反了，视图会拿旧行号越界问你（崩溃的经典配方）。而 `beginResetModel()` 虽然一把梭，但它会让视图丢掉**选择集与滚动位置**（第 3 讲把 `verticalScrollBar()->value()` 在 reset 前后打出来对比）。
 **另外记一条**：`ScrollMode` 这个枚举**属于 `QAbstractItemView`**（本机 `qabstractitemview.h` 第 92~95 行），不属于 `QAbstractScrollArea`——`qabstractscrollarea.h` 里 grep `ScrollMode` 是 0 个结果。写错命名空间是编不过的。同理 `QTreeView::setUniformRowHeights` 只在 `QTreeView` 上，`QTableView` 没这个函数。
 
-### 9. 外部判据变了却没让代理失效 / `dynamicSortFilter` 没开
+### 9. 外部判据变了却没让代理失效 / `dynamicSortFilter` 状态不明
 
 代理会跟源模型的结构性信号自己重算映射，但你**自己的** `m_keyword`、集合过滤条件变了它无从得知，结果就是「界面还是老样子」。正规做法是 `invalidate()`（public slot）或在子类里 `beginFilterChange()` / `endFilterChange()`（protected）。注意老的 `invalidateFilter()` / `invalidateRowsFilter()` / `invalidateColumnsFilter()` 在本机 Qt 6.12 头文件里同时是 **protected** 且被标了废弃（`QT_DEPRECATED_VERSION_X_6_13("Use begin/endFilterChange() instead")`），`-Wall` 下会一串 warning。
-另一半坑是 `dynamicSortFilter`：默认 `false`，意思是「源数据改了不自动重排/重筛」。很多「数据一多就不筛了 / 排序不跟手」的 bug 就卡在这一个开关上。
+另一半坑是 `dynamicSortFilter`：★ 它的默认是 **true**（`qsortfilterproxymodel.cpp` 第 2994 行 "The default value is true."，第 5 讲证据① 实测打出来也是 true），也就是「源数据改了自动重排/重筛」**不用你开**。所以真坑在反方向：很多人照老资料写了一句 `setDynamicSortFilter(false)`（或者像本讲原稿那样**以为**当前是 false、根本没设），于是「源改了代理不跟」——第 5 讲证据③ 原先就是这么红的：判据、源都变了，rowCount 却因为默认还是 true 而立刻重筛了一次。纪律只有一条：**这个开关要用就显式 set，并知道自己设成了什么**；要「关掉动态重筛来换性能」，就得同时接受「漏掉的账不会自己补」，事后靠重设判据（或 `beginFilterChange()/endFilterChange()`）追认——这两条第 5 讲都打了硬账。
 
 ### 10. 在视图上 `setModel` 之后以为选择、编辑器、滚动位置都还在
 
@@ -325,7 +330,7 @@ endInsertRows();                        // ③ 收尾并发 rowsInserted
 
 ### 5. 别背二手 API，本机头文件才是准
 
-这一阶段师傅拆掉了好几条「网上人人都在背」的说法：`filterFixedColumn` 根本不存在（真名是 `setFilterFixedString` + `filterKeyColumn`）；Qt 6.12 的 `SelectionFlag` 里没有 `CommandMask`；`selectionChanged` 的参数不带命令（翻译发生在 protected virtual `selectionCommand()`）；`ScrollMode` 属于 `QAbstractItemView`；Qt6 的 `QStandardItem` 已不继承 `QObject`；Qt 里没有 `appendChild`（加子节点用 `appendRow`）。**查不到签名的名字一律不写进代码**——包括我说的，你也去头文件里复核一遍。
+这一阶段师傅拆掉了好几条「网上人人都在背」的说法：`filterFixedColumn` 根本不存在（真名是 `setFilterFixedString` + `filterKeyColumn`）；Qt 6.12 的 `SelectionFlag` 里没有 `CommandMask`；`selectionChanged` 的参数不带命令（翻译发生在 protected virtual `selectionCommand()`）；`ScrollMode` 属于 `QAbstractItemView`；Qt6 的 `QStandardItem` 已不继承 `QObject`；Qt 里没有 `appendChild`（加子节点用 `appendRow`）；`QSortFilterProxyModel` 的三个默认值是 `filterKeyColumn=0`、`dynamicSortFilter=true`、`sortRole/filterRole=Qt::DisplayRole`（背成 `-1 / false / EditRole` 的，第 5 讲证据① 一条条红给你看过）。**查不到签名的名字一律不写进代码**——包括我说的，你也去头文件里复核一遍。
 
 ### 6. 这一阶段的验收标准：能撑住面试，也能撑住线上
 

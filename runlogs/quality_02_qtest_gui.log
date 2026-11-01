@@ -1,0 +1,30 @@
+********* Start testing of TestWidgets *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 15.1.0), windows 11
+QINFO  : TestWidgets::initTestCase() QPA 平台插件 = offscreen
+QINFO  : TestWidgets::initTestCase()   如果是 offscreen：没有窗口管理器、屏幕上是空的，但事件照样能分发 —— 这正是界面测试需要的环境。★注意别推过头：本机实测 show() 之后 QWidget::hasFocus() 是 **true**（Qt 自己把焦点给了它），「没有真实焦点」指的是没有 WM 抢焦点，不等于 hasFocus()==false。
+QINFO  : TestWidgets::initTestCase()   QApplication 存在 = 是
+PASS   : TestWidgets::initTestCase()
+PASS   : TestWidgets::platformIsARealQpaPlugin()
+PASS   : TestWidgets::widgetVisibilityLifecycle()
+PASS   : TestWidgets::findChildByObjectName()
+QWARN  : TestWidgets::keyboardWithoutFocus() QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+QINFO  : TestWidgets::keyboardWithoutFocus()   show() 之后 hasFocus() = true（offscreen 实测，只打印不断言）
+PASS   : TestWidgets::keyboardWithoutFocus()
+QINFO  : TestWidgets::keyboardIsLatin1Only()   QChar(U+4E2D).toLatin1() = 0x00，而原码点是 U+4E2D —— 一个字节装不下它
+QINFO  : TestWidgets::keyboardIsLatin1Only()   keyToAscii(Key_Eacute) = 0xc9（那是大写 é 的字节，不是小写 é 的 0xe9）
+PASS   : TestWidgets::keyboardIsLatin1Only()
+SKIP   : TestWidgets::keyboardLatin1AbortsProcess() 鎵撳紑 QTEST_FORCE_NON_LATIN1=1锛堟垨 =latin1_eacute锛夊啀鍗曠嫭璺戣繖涓�涓敤渚嬶細瀹冧細 abort 鏁翠釜杩涚▼锛岀暀鍦ㄩ粯璁ょ敤渚嬪垪琛ㄩ噷灏辨槸鎶婃暣浠芥祴璇曚竴璧峰垽澶辫触
+C:\Users\Kuros\Documents\Qoder\2026-10-31\c6d4ea7f\qt-learning-path\quality\02_qtest_gui.cpp(418) : failure location
+PASS   : TestWidgets::textChangedSpy()
+PASS   : TestWidgets::buttonClickBasics()
+PASS   : TestWidgets::buttonClick(enabled)
+PASS   : TestWidgets::buttonClick(disabled)
+PASS   : TestWidgets::customWidgetCounts()
+PASS   : TestWidgets::modalDialogIsClosedByATimer()
+PASS   : TestWidgets::asyncSignalWithSpyWait()
+PASS   : TestWidgets::tryMacroInsteadOfSleep()
+QINFO  : TestWidgets::cleanupTestCase()   一共跑了 14 轮 init/cleanup
+PASS   : TestWidgets::cleanupTestCase()
+Totals: 15 passed, 0 failed, 1 skipped, 0 blacklisted, 78ms
+********* Finished testing of TestWidgets *********

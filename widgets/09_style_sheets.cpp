@@ -41,10 +41,10 @@
 //   · 依赖 Qt6::Widgets（样式表在 QtWidgets 里，QGuiApplication **没有** setStyleSheet）。
 //     Windows 上要能找到 platforms/qwindows.dll；无桌面时用 -platform offscreen 也能跑，
 //     因为本讲的所有证据都来自 grab() 抓到的像素，不依赖肉眼。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；每个类/函数/枚举值
-//     都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对过（行号见下）。
-//     但请注意：**样式的最终呈现结果本机也无法实测**——凡「Qt 到底认哪个 border-style」
-//     这类问题，本讲一律用「打印出来让你看」代替「我告诉你结论」。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_09_style_sheets，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_09_style_sheets.log）。
 //   · 无人值守：QTimer::singleShot 排十个步骤，每步 qInfo() 打印证据，
 //     最后 QCoreApplication::quit()。**没有任何阻塞调用**：
 //     不调 exec()、不调 QMessageBox 静态方法、不弹 QMenu、不抓真实鼠标。
@@ -59,9 +59,12 @@
 //         所以只连 QtGui 的工程里样式表是不可用的。
 //       - 属性选择器、WA_StyledBackground 在 Qt6 数值不变（qnamespace.h 389 行
 //         `WA_StyledBackground = 93`，注释还写着 internal）。
-//       - Qt6 把 QStyleSheetStyle / QStyleSheetSelector 全放在**私有头**
-//         （qstylesheetstyle_p.h 一类），公共头里没有：别去 include、也别 qobject_cast
-//         到它。想知道当前谁在画，用 `app.style()->metaObject()->className()`（本讲这么干）。
+//       - Qt6 把 QStyleSheetStyle 连同它的私货（QStyleSheetStylePrivate / QRenderRule /
+//         QStyleSheetStyleCaches，见 qstylesheetstyle_p.h 37~42、149 行）全放在**私有头**里，
+//         公共头里没有：别去 include、也别 qobject_cast 到它。
+//         ★ 勘误：旧稿这里写「QStyleSheetStyle / QStyleSheetSelector」——后者本机全树 grep  name-ok:QStyleSheetSelector ★ 勘误段落复述旧错名
+//           是 0 处，Qt 没有这个类；选择器逻辑是 QStyleSheetStyle 的成员函数，不是独立类。
+//         想知道当前谁在画，用 `app.style()->metaObject()->className()`（本讲这么干）。
 //       - QWidget 的 contentsMargins/contentsRect 在 Qt6 **还在**（qwidget.h 533~537 行），
 //         但它跟样式表的 padding 不是一回事：前者是 Qt 自己的边距，后者走 QStyle。
 //         Qt5 时代有人用 setContentsMargins 调样式表内边距，迁移时请改用 `padding:`。
@@ -107,7 +110,7 @@
 #include <QDebug>
 
 // ============================================================================
-// 一、核对签名（本讲全部依据，路径相对 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本讲全部依据，路径相对 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // QtWidgets/qwidget.h
 //   第 225 行  QStyle *style() const;                     ← 谁在画这个控件
@@ -441,7 +444,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("widgets_09_style_sheets"));
 
-    qInfo().noquote() << "==== 第 9 讲 · Qt 样式表实验室（本示例未在本机实测编译）====";
+    qInfo().noquote() << "==== 第 9 讲 · Qt 样式表实验室（本机已真实编译链接运行：Qt 6.12.0 + MinGW 13.1.0）====";
 
     // ------------------------------------------------------------------ 建树
     QWidget window;
@@ -586,7 +589,7 @@ int main(int argc, char *argv[])
                                  .arg(w->styleSheet().size());
         }
         qInfo().noquote() << "  batch 窗口里的子控件总数：" << batch.findChildren<QWidget *>().size();
-        qInfo().noquote() << "  ⚠ 上面这一串的意义：样式表**只认这两个身份**——objectName（#id / [属性]）"
+        qInfo().noquote() << "  【注意】 上面这一串的意义：样式表**只认这两个身份**——objectName（#id / [属性]）"
                           "和类名（类型 / .类）。给控件起个好 objectName 不是洁癖，是让它「可被点名」。";
     });
 
@@ -679,7 +682,7 @@ int main(int argc, char *argv[])
         qInfo().noquote() << "  读法：外面一圈是父容器色（margin 让出来的，**不会被画**，"
                           "它只是把控件的盒子往里推）→ 黑圈 = border 8px → 白圈 = padding 14px → "
                           "中心是文字区。颜色种类数：" << distinctColors(borderProbe);
-        qInfo().noquote() << "  ⚠ 三条和 CSS 不一样的地方：① Qt 里 padding 只对**部分**控件生效"
+        qInfo().noquote() << "  【注意】 三条和 CSS 不一样的地方：① Qt 里 padding 只对**部分**控件生效"
                           "（QStyle 里有对应的盒模型才认）；② margin 只对布局里的控件有意义，"
                           "脱离布局写 margin 等于没写；③ 写 border 一定要同时写 border-style，"
                           "只写 `border: 8px` 会被当成「无边框」。";
@@ -758,7 +761,7 @@ int main(int argc, char *argv[])
                           << (pSub->testAttribute(Qt::WA_StyledBackground) ? 1 : 0)
                           << " 红像素=" << redPixels(pSub)
                           << "（属性值本身 = 93，qnamespace.h 389 行）";
-        qInfo().noquote() << "  ⚠ 三条相关经验：① 写自定义控件（第 12 讲）时，要么设这个属性、"
+        qInfo().noquote() << "  【注意】 三条相关经验：① 写自定义控件（第 12 讲）时，要么设这个属性、"
                           "要么在 paintEvent 里自己画，**别两个都要**（会打架，见 pSubPainting 那格）；"
                           "② 样式表之前的年代用 setAutoFillBackground(true) + palette"
                           "（qwidget.h 642/317 行），画的是 palette 的颜色，**不是**样式表的颜色，"
@@ -922,7 +925,7 @@ int main(int argc, char *argv[])
                           << " #okButton=" << swatchAt(okBtn, 0.5, 0.5);
         qInfo().noquote() << "    列表第 2 行（:selected）色带=" << bandOf(list, 0.5, 24);
         qInfo().noquote() << "    palette(Window)=" << window.palette().color(QPalette::Window).name(QColor::HexRgb);
-        qInfo().noquote() << "  ⚠ 看见没有：A/B 两个「选择器实验室」组的按钮**还是青发的**——"
+        qInfo().noquote() << "  【注意】 看见没有：A/B 两个「选择器实验室」组的按钮**还是青发的**——"
                           "它们身上挂着控件级样式表（步骤②），换肤管不到它："
                           << " groupA->styleSheet() 长度=" << groupA->styleSheet().size()
                           << "，A 组直子取色=" << swatchAt(btnA1, 0.06, 0.5)
@@ -957,7 +960,8 @@ int main(int argc, char *argv[])
         qInfo().noquote() << "  清理演示：plainBtn->styleSheet() 现在长度=" << plainBtn->styleSheet().size()
                           << " groupA=" << groupA->styleSheet().size()
                           << "；app 级还剩 " << app.styleSheet().size() << " 个字符。";
-        qInfo().noquote() << "  本示例未在本机实测编译；所有颜色/几何数字请在你的机器上以实际打印为准。";
+        qInfo().noquote() << "  提醒：offscreen 平台没有真实渲染，上面每个选择器命中了什么、颜色对不对，"
+                          << "只有你开个窗口才看得见 —— 本机这一轮保证的是「编译过、链接过、跑到自动退出」。";
         QCoreApplication::quit();
     });
 

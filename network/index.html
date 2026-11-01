@@ -36,16 +36,20 @@
       所有等待都有期限，临时文件都在 <code>QStandardPaths::TempLocation</code> 下并且用完就删。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
       目标名 <code>network_01_network_access_manager</code> … <code>network_05_dns_and_ssl</code>，已登记在顶层
       <code>CMakeLists.txt</code> 的「第玖阶段 · 网络（network/）」一节，本组额外链 <code>Qt6::Network</code>。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>；每个 .cpp 都过了
-      <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
-      每个类、函数、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过
-      （<code>qnetworkrequest.h</code>、<code>qnetworkreply.h</code>、<code>qabstractsocket.h</code>、<code>qhostinfo.h</code>……）。
-      真实网络的行为依赖对方服务器，文中凡是「对方会怎么答」的说法都写成条件句，不冒充实测。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 5 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），全部包含在顶层 <code>ctest</code> 的 73/73 里；
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning）。
+      每个类、函数、枚举值都对着本机真实头文件逐字核对过（<code>D:\Qt\6.12.0\mingw_64\include</code>），
+      源码级结论另注明 Src 树（<code>D:\Qt\6.12.0\Src\qtbase\src</code>）的行号；
+      「grep 零命中」这类话也是真跑过 grep 的结果。原始输出存档在
+      <code>runlogs/&lt;目标名&gt;.log</code>（UTF-8；重跑：<code>bash _tools/run_all.sh '^network'</code>）。
+      ★ 唯一没法在本机钉死的仍是<strong>外网那几发</strong>：真实对端怎么答、什么时候断，取决于对方服务器，
+      所以凡「对方会怎么答」都写成条件句；本模块的硬账全部走 <code>127.0.0.1</code> 自建回环服务。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
@@ -97,7 +101,7 @@
       <div class="card-step">第 3 步 · 第二道坎</div>
       <div class="card-icon">🔌</div>
       <div class="card-title">03 · TCP：在字节流上盖出协议</div>
-      <div class="card-desc">事件驱动：newConnection / connected / readyRead / disconnected / errorOccurred / stateChanged 全是信号；端口现拿（listen(LocalHost, 0) + serverPort），并注意 listen 的默认地址是 Any——「桌面软件被防火墙弹窗」一半是顺手 listen() 造成的；一次 readyRead ≠ 一条消息（半包 3 次 write、粘包 2 帧 1 次 write 并排打印）；用长度前缀把帧找回来；connectToHost 返回 void，连不上只能等 errorOccurred。</div>
+      <div class="card-desc">事件驱动：newConnection / connected / readyRead / disconnected / errorOccurred / stateChanged 全是信号；端口现拿（listen(LocalHost, 0) + serverPort），并注意 listen 的默认地址是 Any——「桌面软件被防火墙弹窗」一半是顺手 listen() 造成的；一次 readyRead ≠ 一条消息（半包 3 次 write、粘包 2 帧 1 次 write 并排打印）；用长度前缀把帧找回来；connectToHost 返回 void，连不上只能等 errorOccurred——<strong>实测还得补一句「等不到也是现实」</strong>：Windows 回环上连一个刚 close() 的死端口，可能几秒内既不 connected 也不 errorOccurred，所以每一步都要自己挂兜底定时器；复用 socket 前必须先 <code>abort()</code>，还在 ConnectingState 时再调 connectToHost 只会同步回一个 <code>SocketResourceError=19</code> 然后<strong>什么都不做</strong>（静默卡死，本机整条状态机就是断在这儿）。</div>
       <div class="card-meta"><span class="tag hard">协议边界</span><span class="tag framework">事件驱动</span></div>
     </a>
 
@@ -105,7 +109,7 @@
       <div class="card-step">第 4 步</div>
       <div class="card-icon">📥</div>
       <div class="card-title">04 · 下载任务的状态机</div>
-      <div class="card-desc">downloadProgress 的三个分支：总量 &gt; 0 正常算百分比、== -1 是长度未知（别去做除法）、== 0 是空文件；熟头与生头的两种读法（Content-Range / Accept-Ranges 只在生头里）；断点续传 = Range 头 + 206 状态码 + Content-Range 回显，两段拼起来与整段逐字节比对；边下边写绝不攒内存（readyRead → read → QSaveFile::write）；取消用 abort() 而不是 deleteLater()。</div>
+      <div class="card-desc">downloadProgress 的三个分支：总量 &gt; 0 正常算百分比、== -1 是长度未知（别去做除法）、== 0 是空文件。<strong>但 -1 有两个本机实测前提</strong>：进度信号被节流到最快每 100ms 一次（<code>progressSignalInterval = 100</code>），快网络上中途那一帧根本不存在；收尾那一帧 Qt 还会把未知的 total 改口成 <code>received</code>（<code>qnetworkreplyhttpimpl.cpp:2240</code>）。熟头与生头的两种读法（Content-Range / Accept-Ranges 只在生头里，且 <code>rawHeaderList()</code> 的名字是全小写）；断点续传 = Range 头 + 206 + Content-Range 回显，两段拼起来与整段逐字节比对；边下边写：一次 readyRead 只 read 一片会<strong>把下载截断</strong>，要 while 排空并在 finished 后兜底再读；实测限定：<strong>边下边写 ≠ 一定省内存</strong>（1 MiB 整包到手的峰值就是 1 MiB，8 MiB 限速流才降到 64 KiB）；取消用 abort() 而不是 deleteLater()，错误码是 <strong>5</strong> 不是 41，且 <strong>abort() 是同步的</strong>——收尾槽在它返回前就跑完了。</div>
       <div class="card-meta"><span class="tag hard">状态机</span><span class="tag elementary">进阶入门</span></div>
     </a>
 

@@ -21,7 +21,11 @@
 //        压缩：Qt6 的 CMake 层默认让 AUTORCC 用 zstd，除非本机 Qt 没编 zstd 或你设了
 //        QT_NO_AUTORCC_ZSTD（Qt6CoreMacros.cmake 第 698~711 行给目标追加 "--no-zstd"）。
 //     3) **QResource 到底能读到什么**——这里要先把三个「听起来很该有」的名字钉死：
-//        Qt 6.12 的 QtCore/qresource.h 我通读了（全文件只有 71 行），公共可读项是
+//        Qt 6.12 的 QtCore/qresource.h 我通读了（全文件 70 行），公共可读项是
+//        【勘误】这里原先写 71 行，是**把文件末尾那个空位当成了一行**：该文件最后一个字节
+//        就是换行（`tail -c 1 | xxd` 打出 0a），所以 `wc -l`、`grep -c ''`、`awk END{NR}`
+//        三个独立口径一致报 70，而按 Ctrl+End 数行的编辑器会显示 71。
+//        「全文几行」这种话一旦写进讲义就成了可核对的账，按工具报的数写、别按屏幕数。
 //        fileName / absoluteFilePath / locale / isValid / compressionAlgorithm /
 //        size / data / uncompressedSize / uncompressedData / lastModified + 两个静态
 //        register/unregisterResource。**没有 alias()、没有 lang()（6.x 是 locale()）、
@@ -53,18 +57,26 @@
 //   qt_add_demo(storage storage_04_resource_system storage/04_resource_system.cpp storage/resource_demo.qrc)
 //   展开后等价于：
 //     add_executable(storage_04_resource_system 04_resource_system.cpp resource_demo.qrc)
-//     target_link_libraries(... Qt6::Widgets Qt6::Sql Qt6::Xml Threads::Threads)   # 第 212 行的 QT_DEMO_LIBS
-//   ⚠ 一处如实记录的缺口：本讲用了 **QSvgRenderer（Qt6::Svg）**，而第 212 行 storage 组的
-//     QT_DEMO_LIBS 只有 Widgets/Sql/Xml，**没有 Qt6::Svg**；按要求我不改 CMakeLists.txt，
-//     所以链接期需要维护者把 Svg 补进这一组（或者把本讲挪到 painting 那组）。
-//     校验门 _tools/check_syntax.sh 的 include 路径里**是**带 QtSvg 的（脚本第 18 行），
-//     所以本文件的 API 用法能被编译期核到；缺的只是链接。
+//     target_link_libraries(... Qt6::Widgets Qt6::Sql Qt6::Xml Qt6::Svg Threads::Threads)  # 第 300 行的 QT_DEMO_LIBS
+//   ★ 勘误（旧稿这一段整块是错的，本机重核）：
+//     旧稿写「第 212 行 storage 组的 QT_DEMO_LIBS 只有 Widgets/Sql/Xml，没有 Qt6::Svg，
+//     链接期要维护者补」——三处都不成立：
+//       ① 行号错。CMakeLists.txt 第 212 行现在是 widgets 第 10 讲 i18n 那段
+//          `elseif(TARGET widgets_10_internationalization)`，跟 storage 无关。
+//          storage 组的 QT_DEMO_LIBS 在 294 行（Widgets/Sql/Xml），本讲单独一份在 300 行。
+//       ② 事实错。300 行确实带了 Qt6::Svg，而且是 298~299 行注释说好的「只给这一个示例开」，
+//          302 行立刻改回不含 Svg 的那份——所以「整个 storage 组都被 Svg 卡住」这个担心没发生。
+//       ③ 结论错。本讲不是「只核到编译期、链接没验」：runlogs/storage_04_resource_system.log
+//          第 284 行是 `QSvgRenderer::load(QByteArray) = true ｜isValid() = true
+//          ｜defaultSize() = QSize(128, 128)`，这个符号在链接期没解析成就根本跑不到这里。
+//     校验门 _tools/check_syntax.sh 的 include 路径里带 QtSvg 是 **41 行**（旧稿写 18 行）。
 //
 // 运行前须知：
 //   · 无人值守：QTimer::singleShot 串步骤 → qInfo() 打印证据 → 清理临时目录 → quit()。
 //     **没有 QDialog::exec()、没有模态对话框**，只用 processEvents() 催一次绘制。
-//   · 可以无头跑：`storage_04_resource_system -platform offscreen`（CMakeLists 第 88 行的
-//     CTest 就是这么设的）。需要 QApplication：QPixmap/QIcon/QPainter 属于 QtGui，
+//   · 可以无头跑：`storage_04_resource_system -platform offscreen`（CMakeLists 第 122~125 行
+//     的 set_tests_properties 就是这么设的：123 行 ENVIRONMENT 里
+//     `QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1`，旧稿写的「88 行」是别处的代码）。需要 QApplication：QPixmap/QIcon/QPainter 属于 QtGui，
 //     没有 QGuiApplication 实例时它们一律给空对象，那会让本讲的像素证据失真。
 //   · 资源来自本目标的 resource_demo.qrc：`:storage/demo/hello.txt` 与 `:storage/demo/logo.svg`、
 //     `:brand/qt-style-logo.svg` 三个入口。**如果换了个目标编译本 .cpp 而没带 qrc，
@@ -74,9 +86,10 @@
 //     本机 QtSql/Svg 头文件在，插件不保证在，所以②是先探测再决定要不要演示（打印原因，不崩）。
 //   · 落盘约定：所有临时文件写在 QStandardPaths::TempLocation 下的 qtc_storage04 小目录，
 //     结尾 removeRecursively 删掉并把结果打印出来。
-//   · 未实测声明：**本文件未在本机实测编译运行**；只做的是 moc + g++ -fsyntax-only 核对
-//     （-std=c++17 -fPIC -Wall -Wextra，0 error / 0 warning），未链接、未运行。
-//     文中所有「预期」后面是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_04_resource_system，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/storage_04_resource_system.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h（本讲要画像素，得建 GUI 应用对象）
@@ -90,7 +103,7 @@
 #include <QFileInfo>                 // QtCore/qfileinfo.h
 #include <QDir>                      // QtCore/qdir.h（第 24~47 行 Filter 枚举）
 #include <QDirIterator>              // QtCore/qdiriterator.h（第 26~33 行三个重载）
-#include <QResource>                 // QtCore/qresource.h（全文 71 行，第一节逐行抄）
+#include <QResource>                 // QtCore/qresource.h（全文 70 行，第一节逐行抄）
 #include <QStandardPaths>            // QtCore/qstandardpaths.h（第 29 行 TempLocation / 第 48 行 writableLocation）
 #include <QLocale>                   // QResource 的 locale 构造参数
 #include <QDateTime>                 // lastModified() 的返回类型
@@ -107,9 +120,9 @@
 #include <QtSvg/QSvgRenderer>        // QtSvg/qsvgrenderer.h（第 37/44/73/76 行，见第一节）
 
 // ============================================================================
-// 一、本机头文件逐行核对（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、本机头文件逐行核对（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
-// QtCore/qresource.h（整份只有 71 行，这是本讲最重要的一节）：
+// QtCore/qresource.h（整份 70 行，这是本讲最重要的一节）：
 //   第 20 行  class Q_CORE_EXPORT QResource
 //   第 23~27 行 enum Compression { NoCompression, ZlibCompression, ZstdCompression };
 //   第 29 行  QResource(const QString &file = QString(), const QLocale &locale = QLocale());
@@ -140,10 +153,20 @@
 // QtCore/qdir.h：第 24 行 Dirs=0x001、第 47 行 NoDotAndDotDot = NoDot | NoDotDot（无弃用标记）
 // QtCore/qdiriterator.h：第 26~33 行 (path, Filters, IteratorFlags) 三个重载
 // QtGui/qicon.h：第 243/244 行 fromTheme(name[, fallback])、245 hasThemeIcon、257 themeName、258 setThemeName
-// QtSvg/qsvgrenderer.h：第 37 行 bool isValid()、第 44 行 QSize defaultSize()、
+// QtSvg/qsvgrenderer.h：第 42 行 bool isValid()、第 44 行 QSize defaultSize()、
 //                      第 73/74/75 行 load(filename)/load(QByteArray)/load(QXmlStreamReader*)、
 //                      第 76/77 行 render(QPainter*)/render(QPainter*, const QRectF&)
-//                      ⚠ **没有 imageSize()**（那是 QSvgItem/QSvgWidget 上的），本讲用 defaultSize()。
+//                      ★ 勘误：旧稿把这个号写成了 37，而 37 落在构造函数那一组里。
+//                        本机 6.12.0 的 qtsvg/src/svg/qsvgrenderer.h：36~39 行是四个
+//                        QSvgRenderer 构造（37 = 按文件名加载那一版），40 行析构，
+//                        42 才是 isValid()。
+//                        顺带一句：这个头不在 qtbase 里，审计脚本只搜 qtbase/src 时它会
+//                        报「找不到文件名」而不是报错号 —— 跨模块的引用要额外指一下源码树。
+//                      ⚠ **没有 imageSize()**（本机 6.12：qsvgrenderer.h 全文 grep imageSize
+//                      0 处；连 QtSvgWidgets 的 QSvgWidget 也没有，它只有 sizeHint()，
+//                      qsvgwidget.h 30 行。★ 勘误：旧稿说「那是 QSvgItem/QSvgWidget 上的」，  name-ok:QSvgItem 有意复述旧错名，本行正在说它不存在
+//                      而 QSvgItem 在 qtbase + qtsvg 全树 grep 也是 0 处，没这个类）。  name-ok:QSvgItem 同上
+//                      尺寸这件事在本讲用 defaultSize()。
 // ============================================================================
 
 namespace {
@@ -224,7 +247,7 @@ static void evidenceResourceTree()
     qInfo() << "  同一张 logo 的两个入口，字节数相同 =" << (QFileInfo(kLogoPath).size() == QFileInfo(kLogoAlias).size())
             << "｜路径不同但内容是同一份：**rcc 存了两份字节**（alias 只改路径，不省空间）";
     qInfo() << "  对照：磁盘上的文件路径" << QDir::currentPath() << "里根本没有 \":/\"，"
-               "这套前缀只存在于 Qt 的文件抽象层（QFileDevice → QFileEngine → 资源引擎）。";
+               "这套前缀只存在于 Qt 的文件抽象层（QFileDevice → QAbstractFileEngine → 资源引擎）。";
 }
 
 // ============================================================================
@@ -237,7 +260,7 @@ static void evidenceReadResource()
     QString why;
     const QByteArray raw = slurpResource(kHelloPath, &why);
     if (raw.isEmpty()) {
-        qInfo() << "  ⚠ 读不到" << kHelloPath << "，原因：" << why;
+        qInfo() << "  【注意】 读不到" << kHelloPath << "，原因：" << why;
         qInfo() << "     → 十有八九是本 .cpp 被编进了**没有带 resource_demo.qrc 的目标**。"
                    "按 CMakeLists 第 216 行的目标名编译就没有这个问题。跳过本条证据。";
         return;
@@ -295,7 +318,9 @@ static void evidenceQResource()
             << "（data() 返回的是**包里那一坨**，压缩时不是明文，别直接当内容用）";
     const QDateTime lm = res.lastModified();
     qInfo() << "  lastModified() =" << lm << "｜isValid =" << lm.isValid()
-            << "（时间戳不是 qrc 格式的必备字段，拿到无效值属正常，别拿它做逻辑判断）";
+            << "（本机实测：isValid 是 true，值 = 构建那一刻的时间戳，不是磁盘文件的修改时间。"
+               "所以「能不能拿到值」和「能不能拿来判断」是两件事——重新构建它就变，别用它做逻辑；"
+               "但 size() 不一样，那是包里真实字节数，可以和 readAll() 对上账）";
 
     // alias 不是可查询字段：能核对的是「alias 拼出来的那条路径存不存在、内容是否一致」
     QResource logoA(kLogoPath), logoB(kLogoAlias);
@@ -310,7 +335,7 @@ static void evidenceQResource()
             << "｜locale =" << de.locale().name()
             << "｜size 仍 =" << de.size()
             << "（qrc 里没写 lang=\"de\" 的条目 → 回落到无语言的那份，这就是 lang 机制的行为）";
-    qInfo() << "  ⚠ 这一版 QResource 的 isDir()/isFile()/children() 在 **protected**（第 54~60 行），"
+    qInfo() << "  【注意】 这一版 QResource 的 isDir()/isFile()/children() 在 **protected**（第 54~60 行），"
                "外面调不到；想列目录请走 QDir/QDirIterator（证据①）。老教程里 `res.children()` 那种写法编不过。";
 }
 
@@ -324,7 +349,7 @@ static void evidenceSvgAndIcon()
     QString why;
     const QByteArray svg = slurpResource(kLogoPath, &why);
     if (svg.isEmpty()) {
-        qInfo() << "  ⚠ 读不到" << kLogoPath << "：" << why << "，跳过本条。";
+        qInfo() << "  【注意】 读不到" << kLogoPath << "：" << why << "，跳过本条。";
         return;
     }
     qInfo() << "  SVG 源字节数 =" << svg.size() << "｜前 5 字节 =" << svg.left(5).toHex()
@@ -392,7 +417,7 @@ static void evidenceCopyToDiskAndEdit()
     QString why;
     const QByteArray original = slurpResource(kHelloPath, &why);
     if (original.isEmpty()) {
-        qInfo() << "  ⚠ 资源没读到：" << why << "，跳过。";
+        qInfo() << "  【注意】 资源没读到：" << why << "，跳过。";
         return;
     }
     const qint64 sizeInResource = QFileInfo(kHelloPath).size();
@@ -408,7 +433,7 @@ static void evidenceCopyToDiskAndEdit()
     if (!copied) {
         QFile probe(dst);                            // Qt6 的 errorString() 是 QIODevice 的成员，不是静态的
         const bool probeOk = probe.open(QIODevice::ReadOnly);   // open 带 nodiscard，必须接住返回值
-        qInfo() << "  ⚠ copy 失败；再单独打开目标文件：" << (probeOk ? QStringLiteral("居然能开") : QStringLiteral("也开不了"))
+        qInfo() << "  【注意】 copy 失败；再单独打开目标文件：" << (probeOk ? QStringLiteral("居然能开") : QStringLiteral("也开不了"))
                 << "｜errorString =" << probe.errorString()
                 << "→ 通常是 TempLocation 不可写或目录创建失败，后面的比对全部跳过。";
         if (probeOk)
@@ -571,7 +596,7 @@ int main(int argc, char *argv[])
  *   徒弟，资源系统这玩意儿看着小，坑全在「名字」上。你在网上搜一圈，能搜出
  *   QResource::lang()、compressedSize()、registeredResourcePaths() 一大把写法——那些是
  *   Qt4/Qt5 时代的账本，或者是**根本没人核对过头文件的想象**。我这文件第一节把
- *   qresource.h 全文 71 行逐条抄给你了，公共面就那么大；想列资源就走 QDir，想问压缩后
+ *   qresource.h 全文 70 行逐条抄给你了，公共面就那么大；想列资源就走 QDir，想问压缩后
  *   字节就用 size()/uncompressedSize() 这一对，想按语言挑就用 locale。
  *   我为什么这么较真：这类「听起来完全合理」的 API 名，编译器拦得住，代码评审拦不住——
  *   因为评审的人也想当然。**记 API 记到能报出它在哪个头文件第几行**，这是这一行手艺的门票。
@@ -585,14 +610,23 @@ int main(int argc, char *argv[])
  *   第三件事：别把资源当"能改的文件"。证据②里我以 ReadWrite 打开过一次资源本体，
  *   拿到的是失败；这就是设计。你要是遇到「产品要求运行时改图标/改 qss」，
  *   正确答案是证据⑤那条：释放到 AppDataLocation/TempLocation，改副本，程序只读副本。
- *   硬要往 :/ 写，你会去搜索「QFile 写资源」，然后掉进自定义 QFileEngineHandler 的深坑里，
+ *   硬要往 :/ 写，你会去搜索「QFile 写资源」，然后掉进自定义 QAbstractFileEngineHandler
+ *   的深坑里（★ 勘误：旧稿写的是 QFileEngineHandler —— 那是 Qt5 的名字，本机 6.12 的   name-ok:QFileEngineHandler 有意复述旧错名
+ *   qtbase 全树 grep 0 处，真名带 Abstract，声明在 corelib/io/qabstractfileengine_p.h，
+ *   是个**私有**头），
  *   那是一个为了插件化文件系统而生的机制，不是给你改图标用的。
  *
  *   最后一句关于 SVG：它漂亮、体积小、随 DPI 放大不糊，但**它靠插件**。
  *   我在证据④里把两件事分开验证了：链了 Qt6::Svg 就有 QSvgRenderer；
  *   QPixmap/QImageReader 能不能直接吃 svg，看的是 imageformats 里那个 qsvg 插件在不在。
  *   发布包里忘了带插件，开发机上跑得好、客户机上黑屏，就是这么来的。
- *   （本讲还有一条如实记录的缺口：第 212 行 storage 组没链 Qt6::Svg，我在文件头写明了。）
+ *   （本讲开头那条「storage 组没链 Qt6::Svg」的旧缺口已经不存在：CMakeLists.txt 300 行
+ *     只给本讲这一份 QT_DEMO_LIBS 加了 Qt6::Svg，294/302 行给组里其余示例的还是不含它的那份。
+ *     本机实测两面：①链上了——日志里 QSvgRenderer::load 返回 true、defaultSize 128×128；
+ *     ②插件那条路单独算——本机连 qsvg imageformats 插件都在，所以
+ *     QPixmap(":/brand/qt-style-logo.svg") 直接吃 svg 也成立（isNull = false，size 128×128）。
+ *     换一台没带这个插件的机器，②会翻成 null，①照旧——这就是上一条说的「两件事」。
+ *     别因为本机两条都绿，就以为发布包里它们会一起绿。）
  *
  * ——— 小练习 ———
  *   1. 把 resource_demo.qrc 里的 <file alias="qt-style-logo.svg"> 那一条删掉，重跑本程序：

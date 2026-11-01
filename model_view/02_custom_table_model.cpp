@@ -37,9 +37,10 @@
 //   · data() 调用次数依赖窗口尺寸与样式；我只承诺数量级关系：
 //     「问到的行数」是可见行那一段，不是 0..4999 全区间。
 //   · 图解页面：../visuals/model_view.html（第 1 讲那张五角色图，这讲看 Model 那一格）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；文中所有「预期」后面是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_02_custom_table_model，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_02_custom_table_model.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -69,7 +70,7 @@
 #include <cstdint>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // 必须覆写的五个（QAbstractItemModel 里的纯虚函数，qabstractitemmodel.h）：
 //   第 274/275 行 virtual QModelIndex index(int row, int column,

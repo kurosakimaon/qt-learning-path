@@ -17,8 +17,8 @@
 //       身份 vs 值             QObject 禁止拷贝（编译期事实）
 //
 //   六个阶段，每个阶段都落到一道能红的账上：
-//     ① 对象树：删父删子，销毁顺序是「实现细节」不是「契约」
-//     ② 栈对象挂 parent：那条路径会 double free，本讲安全地演示「挂上去再摘下来」
+//     ① 对象树：删父删子——兄弟之间的顺序是「实现细节」，父子之间的顺序是「契约」
+//     ② 栈对象挂 parent：会当场要命的是「爹先死」；「忘了摘」留下的是失控的寿命，本讲安全地演示「挂上去再摘下来」
 //     ③ deleteLater：它只是**投递一个事件**，不冲洗就永远不删
 //     ④ QPointer vs 裸指针：同一个对象，整数看着还在，QPointer 已经知道它没了
 //     ⑤ 带 context 的连接会随接收者断开，不带 context 的连接**谁死都不管**
@@ -36,11 +36,13 @@
 //     必要时再兜底跑一圈最小事件循环 —— 都不是常驻事件循环，不会挂住。
 //   · 可以无头跑：`quality_04_ownership_and_lifetime -platform offscreen`。
 //   · 不写磁盘、不联网、不碰用户配置：本讲所有对象都在内存里。
-//   · **不演示任何一次真崩溃**。double free、悬空解引用这类事，本讲只**描述**
+//   · **不演示任何一次真崩溃**。爹 delete 一个栈地址、悬空解引用这类事，本讲只**描述**
 //     不**执行** —— 一个会崩的讲义没法用来核对别的东西。
-//   · 未实测声明：本机当前无法链接 Qt 运行时，本示例**未链接、未运行**，
-//     仅通过 moc + g++ -fsyntax-only（-std=c++17 -Wall -Wextra）做编译期核对。
-//     文中所有「期望」后面是推理，不是跑出来的数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 quality_04_ownership_and_lifetime）。本机这一轮：硬账 44 项：对上 44，不符 0。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QCoreApplication>          // QtCore/qcoreapplication.h：115 行 sendPostedEvents
@@ -59,7 +61,7 @@
 #include <utility>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // 所有权相关的全部入口，都在 qobject.h 里，一共就这些：
 //   第 115 行  virtual ~QObject();                       ← 析构里会 delete 所有子对象
@@ -188,12 +190,18 @@ private:
 // 三个要点：
 //   1) children() 是父对象手里的名单，setParent(nullptr) 就是摘名单；
 //   2) 删父对象时，析构函数会把名单上的子孙全删掉 —— 你不需要（也不该）再删一遍；
-//   3) 兄弟之间的销毁顺序是**实现细节**，Qt 没有承诺过。本节把它打出来当 Obs，
-//      并且明确写一句：不许依赖这个顺序（一旦依赖，换个 Qt 版本就可能炸）。
+//   3) **兄弟之间**的销毁顺序是实现细节：Qt 没承诺过谁先走，本节把它打出来当 Obs，
+//      并明确一句：不许依赖（换个 Qt 版本、换个插入顺序就可能变）。
+// 但要点 3 有一个**反直觉的例外**，别和它混：父子之间的次序是确定的契约 ——
+//   「父对象的派生析构函数体」永远**早于**「它的子对象析构」。
+//   原因：子对象是在基类 ~QObject() 里被 delete 的（qobject.cpp 第 1058 行进入 ~QObject，
+//   第 1189~1190 行才 deleteChildren()；deleteChildren() 在 2282 行），
+//   而 C++ 析构次序是「派生析构体 → 基类析构」。所以 a 记完账，才轮到删 a1。
+//   实测销毁顺序会印成 a → a1 → b：a 在 a1 前面，正是这条契约；b 的位置才是实现细节。
 // ============================================================================
 static void phase1_tree()
 {
-    section(QStringLiteral("① 对象树：删父删子，顺序不是契约"));
+    section(QStringLiteral("① 对象树：删父删子，兄弟顺序不承诺、父子次序是契约"));
 
     QStringList log;
     const int liveBefore = g_live;
@@ -215,30 +223,51 @@ static void phase1_tree()
     checkNum(QStringLiteral("【1G】删 root 之后活着的手下"), g_live - liveBefore, 0);
     checkNum(QStringLiteral("【1H】三个对象的析构各记了一笔"), log.size(), 3);
     qInfo().noquote() << QStringLiteral("  实测销毁顺序：") + log.join(QStringLiteral(" → "));
-    verdict(Obs, QStringLiteral("【1I】销毁顺序"),
-            true, QStringLiteral("这是实现细节，本讲讲义不承诺，你的代码也不许依赖"));
+    verdict(Obs, QStringLiteral("【1I】兄弟之间的销毁顺序"),
+            true, QStringLiteral("b 落在哪个位置是实现细节，本讲不承诺、你的代码也不许依赖；"
+                                 "但父子之间的次序是确定契约，见下一条 1J"));
 
-    // 用字符串名字再确认一次：a1 一定死在 a 之后（子先于父，这条是契约）。
+    // 销毁顺序的**因果**要钉死，而不是只报一串名字。关键在 C++ 的析构次序：
+    //   删 a（a 是 TrackedObject : public QObject）时，先跑派生类 ~TrackedObject() 的函数体
+    //   （这里 m_log->append("a")），**函数体跑完之后**才轮到基类 ~QObject()；
+    //   而「delete 所有子对象」这件事恰恰写在基类 ~QObject() 里 —— 见 qobject.cpp：
+    //     第 1058 行 QObject::~QObject()  { ... 第 1189~1190 行
+    //         if (!d->children.isEmpty()) d->deleteChildren();  ... }
+    //     第 2282 行 QObjectPrivate::deleteChildren() 逐个 delete children.at(i)。
+    //   所以父对象 a 的「析构函数体（记 a 这笔）」**早于**子对象 a1 的析构（记 a1 这笔）。
+    //   结论跟直觉相反：不是「子先死、父后死」，而是「父的派生析构体先走完，基类再把子删掉」。
+    //   （删 root 时同理：root 只有基类 ~QObject()，直接 deleteChildren() 删 a、b；
+    //    a 又被删时才轮到 a 自己的两级析构。）
     const int posA = log.indexOf(QStringLiteral("a"));
     const int posA1 = log.indexOf(QStringLiteral("a1"));
-    checkBool(QStringLiteral("【1J】子对象 a1 比父对象 a 先销毁"),
-              posA1 >= 0 && posA >= 0 && posA1 < posA, true);
+    checkBool(QStringLiteral("【1J】父对象 a 的析构函数体早于子对象 a1 的析构"),
+              posA >= 0 && posA1 >= 0 && posA < posA1, true);
 }
 
 // ============================================================================
-// 五、阶段②：栈对象挂 parent —— 那条路会 double free
+// 五、阶段②：栈对象挂 parent —— 危险在「爹先死」，不在「爹后来补一刀」
 // ----------------------------------------------------------------------------
 // 这是 Qt 新手最常见的致命错，写法还特别像「顺手」：
 //
 //     void f(QWidget *parent) {
 //         QPushButton btn("确定", parent);   // ← 栈上，但 parent 说「我会删它」
 //     }                                      // ← 这里 btn 已经销毁
-//     // 之后 parent 析构时，又 delete 一次那个地址 → 堆破坏
+//     // 旧说法：「之后 parent 析构时又 delete 一次那个地址 → 堆破坏」
 //
-// 本讲**不执行**这个错误写法。改成安全的等价演示：
+// 【这条旧说法本机实测**不成立**，别再这么记】独立探针跑同形状的两种顺序：
+//   顺序 A（栈儿先出作用域、堆爹还活着，之后再 delete 爹）：**3/3 次 exit 0**。
+//          爹的 children() 在栈儿出作用域那一刻由 1 变 0 —— ~QObject 会把自己从爹的
+//          名单里划掉（同一件事在 metaobject/07 也实测过：`delete label` 后
+//          window->children() 1→0），所以「爹后来补一刀」根本排不上号。
+//   顺序 B（栈儿还活在作用域里，先 `delete 爹`）：**3/3 次异常终止**，而且死在
+//          `delete 爹` 这一行**内部**——爹的 deleteChildren() 直接 delete 了一个栈地址，
+//          后面那句打印一个都没出来。
+//   ⇒ 真正致命的是**爹先死**，不是「忘了摘」。但别把它记成「只要顺序对就安全」：
+//     漏掉「摘下来」这行，代价是**爹从此管着一个它管不着的儿子**，儿子什么时候没的
+//     你完全不知道 —— 下一节就要用 QPointer 才能看见它没了。
+//
+// 本讲**不执行**任何一种崩溃写法。改成安全的等价演示：
 //   挂上去 → 看见名单从 0 变 1 → 立刻摘下来 → 名单回到 0。
-// 只要摘干净，栈对象随作用域正常销毁，就没有第二次 delete。
-// 至于「忘了摘」会发生什么：那是未定义行为，不是「可能崩」而是「崩了也别惊讶」。
 //
 // 正确的非 QObject 或「不设 parent 的 QObject」该怎么管？std::unique_ptr。
 // 唯一要守的规矩：**一个对象只许有一个主人**。unique_ptr 和 parent 二选一。
@@ -257,7 +286,7 @@ static void phase2_stackAndParent()
                   stackChild.parent() == nullptr, true);
         checkNum(QStringLiteral("【2B】owner 名下初始为空"), owner.children().size(), 0);
 
-        stackChild.setParent(&owner);              // ★ 这一行如果留下来，就是 double free
+        stackChild.setParent(&owner);              // ★ 留下来 = 把栈对象的寿命交给树管
         checkNum(QStringLiteral("【2C】挂上去之后，owner 名下有 1 个"), owner.children().size(), 1);
         checkBool(QStringLiteral("【2D】反向也能问到 parent"), stackChild.parent() == &owner, true);
 
@@ -282,7 +311,34 @@ static void phase2_stackAndParent()
     //   std::unique_ptr 的销毁是**确定**的（作用域结束就删）；
     //   parent 的销毁是**跟随**的（parent 死它才死）。
     //   两者混用 = 两个主人 = 迟早删两次。
+    //   【为什么这一条和上面「栈对象」不矛盾】爹删孩子时走的是 `delete`，孩子的 ~QObject
+    //   会把自己从爹的名单里划掉（下面 2L~2N 实测），所以**爹这一侧**永远不会补第二刀；
+    //   但 unique_ptr 手里那把指针**没人替它置空**（它不听 destroyed，只有 QPointer 听），
+    //   于是作用域结束时由智能指针补上真正的第二次 delete。主人只能有一个，说的就是这个方向。
     checkBool(QStringLiteral("【2K】owner 名下始终没留下栈对象"), owner.children().isEmpty(), true);
+
+    // ── 「忘了摘」到底会怎样？这一段**不崩**，所以敢放进 CI ──────────────────
+    // 走的是「栈儿子先出作用域、堆爹还活着」这条路，也就是流言里
+    // 「爹后来会再 delete 一次那个栈地址」的那条。本讲不执行崩溃，所以只演这一半；
+    // 另一半（爹先死）用同形状的独立探针单独测过：3/3 次死在 `delete 爹` 那一行内部，
+    // 后面那句打印一个都没出来。
+    {
+        QObject *longLivedOwner = new QObject;          // 故意比栈对象活得久
+        {
+            TrackedObject forgetful(QStringLiteral("忘了摘"), &log, longLivedOwner);
+            checkNum(QStringLiteral("【2L】忘了摘：此刻爹名下确实有 1 个"),
+                     longLivedOwner->children().size(), 1);
+        }                                               // 栈对象在这里正常销毁
+        checkNum(QStringLiteral("【2M】它一走，爹名下自动回到 0"),
+                 longLivedOwner->children().size(), 0);
+        checkNum(QStringLiteral("【2N】「忘了摘」也只析构了一次"),
+                 log.count(QStringLiteral("忘了摘")), 1);
+        delete longLivedOwner;                          // 爹后来才死：名单里已经没有它了
+        verdict(Obs, QStringLiteral("【2O】「爹后来补一刀」这条流言"), true,
+                QStringLiteral("2M/2N 就是反证：~QObject 先把自己从爹的名单里划掉，"
+                               "爹之后再死也轮不到这个栈地址。真正的问题不是崩，是"
+                               "**爹以为自己管着它**——它的寿命其实由作用域定。"));
+    }
 }
 
 // ============================================================================
@@ -348,12 +404,24 @@ static void phase3_deleteLater()
     checkNum(QStringLiteral("【3D】冲洗之后 destroyed 次数"), g_victimDestroyed, 1);
     checkBool(QStringLiteral("【3E】QPointer 已经知道它没了"), guard.isNull(), true);
 
-    // ★ 为什么不能「deleteLater 完再 delete 一次」：
-    //   那等于预定了两次删除，第二次执行的时候对象已经没了。这是本讲最典型的崩溃。
-    //   同理，deleteLater 之后**不许**再用裸指针碰它 —— 它现在还活着，但已经「判了刑」，
+    // ★ 「deleteLater 完再 delete 一次」到底会不会双删？——本机实测：**不会**。
+    //   独立探针跑 deleteLater(); delete v; 再 sendPostedEvents + 一圈事件循环：
+    //   析构只发生 1 次，3/3 次 exit 0。原因在源码里写得很直白：
+    //     qobject.cpp 213~214 行（QObjectPrivate::~QObjectPrivate）
+    //         if (postedEvents.loadRelaxed())
+    //             QCoreApplication::removePostedEvents(q_ptr, 0);
+    //   ——对象一死，挂在它名下的待处理事件（含 DeferredDelete）被**连着摘掉**，
+    //   所以「第二刀」根本排不上。Qt 自己替你把这条最蠢的路堵住了。
+    //   那为什么还是**禁止**这么写？因为省掉的是崩溃、省不掉的是语义：
+    //     ① deleteLater 的全部意义是「等这一串同步调用走完再死」；你当场 delete，
+    //        等于把第 ③ 节刚讲的保护机制原地作废，后面任何还引用它的代码都是悬空访问；
+    //     ② 两行代码、两个意图，读的人得先推断哪个生效 —— 这是给人埋雷，不是给机器。
+    //   同理，deleteLater 之后**不许**再用裸指针碰它：它现在确实还活着，但已经「判了刑」，
     //   任何时刻都可能被事件循环收走。
     verdict(Obs, QStringLiteral("【3F】deleteLater 与 delete 二选一"),
-            true, QStringLiteral("同时写 = 预定两次删除 = 早晚 double free"));
+            true, QStringLiteral("同时写**不会**双删（~QObjectPrivate 会摘掉待处理的 DeferredDelete，"
+                                 "本机实测析构 1 次 / 3 次 exit 0）；但它作废了 deleteLater 的意义，"
+                                 "而且留下「两个意图谁生效」这种要读者猜的代码。二选一是**语义**规矩，不是防崩规矩。"));
 }
 
 // ============================================================================
@@ -565,10 +633,17 @@ int main(int argc, char *argv[])
 /*
  * 一、这个对象有 parent 吗？有 → 你不要 delete 它。
  *   有 parent 的对象，生死归 parent；你唯一该做的是**别抢着删**。
+ *   （本机实测：抢着删**不崩**，~QObject 会把自己从爹的名单里划掉，见 2M/2N。
+ *     但代价是你手里那把裸指针当场悬垂，而爹那一侧从此再也不知道它存在过。）
  *   例外：你想把它从树里摘出来自己管 —— 那就 setParent(nullptr)，然后再 delete。
  *
  * 二、它是栈上的还是堆上的？栈上 → **绝对不许设 parent**。
- *   栈对象的销毁时机由作用域决定，parent 的销毁时机由树决定，两者不同步就是 double free。
+ *   栈对象的销毁时机由作用域决定，parent 的销毁时机由树决定，两者不同步。
+ *   【要精确】哪一侧先死，后果完全不同（本机各测 3 轮）：
+ *     栈儿先死、爹还活着 → **不崩**（爹的名单自动清空，2L~2N 就是这段）；
+ *     爹先死、栈儿还在作用域里 → **必崩**：deleteChildren 直接 delete 一个栈地址，
+ *       独立探针 3/3 次死在 `delete 爹` 那一行内部。
+ *   所以「栈上对象设 parent」的真正风险是：你**控制不了**爹什么时候死。
  *   真需要临时挂一下（比如为了让布局管它），用完立刻 setParent(nullptr)。
  *
  * 三、是不是 QObject？不是 → std::unique_ptr（独占）或 std::shared_ptr（共享）。

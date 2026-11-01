@@ -1,0 +1,48 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① setModal(true) 之后 isModal = true  windowModality 枚举值 = 2 （**0 = NonModal**：setModal 并不改 windowModality！它只在 exec()/open() 里被兑现，show() 路线上等于没说话）
+② WindowModal 枚举值 = 1 ，ApplicationModal 枚举值 = 2  → **setModal(bool) 与 setWindowModality(三档) 是两套开关**：前者是「我要不要当模态用」的意图标记（只在 exec()/open() 里被兑现），后者是直接对窗口系统下命令。用 show() 还想要真模态，请用 setWindowModality 或改用 open()。
+   FormDialog 构造：isSizeGripEnabled = true
+   按钮盒：standardButtons 是否等于 Ok|Cancel = true （Ok = 0x400 = 1024 ，Cancel = 0x400000） ；button(Ok) 拿到了真实按钮 = true → 拿到它才能无人值守地 click()
+④ FileMode 枚举值（ExistingFile）= 1 ；AcceptMode（AcceptOpen）= 0 ；DontUseNativeDialog 这个 Option 的位值 = 8 （48~57 行：非 0，是位标志）→ 需要「长得一样、可被样式表改」的对话框时才置它
+⑤ 自定义按钮已塞进 QMessageBox，它的 role 是 ActionRole （位值 int(QMessageBox::ActionRole) = 3 ；ActionRole 的按钮**不参与** result()，点了也不会关窗）
+⑤ 静态版我们**不调**；实例版已备好：Icon(Warning) 枚举值 = 2 ；Ok 的位值 = 1024 （= 0x400 = 1024） ；Cancel 的位值 = 4194304
+⑥ QColorDialog 静态 getColor（56 行）**不调**；实例版 currentColor = "#000080"  → 想拿结果请连 colorSelected（69 行）或 accept 后读 selectedColor()（44 行）
+⑥ QFontDialog 静态 getFont（59~61 行，**第一个参数是 bool \*ok**）**不调**； 实例版 currentFont = "Sans Serif"  pointSizeF = 9  bold = false
+This plugin does not support propagateSizeHints()
+① 走 open()：模态效果有（主窗被挡），但 main 已经往下走了 —— 这就是 open() 相对 exec() 的全部优势（54 行的 exec 会停在那一行）
+① accepted()（= finished(1) 的伴生信号）
+① finished( 1 ) —— **唯一可靠的收尾点**，三个出口都会走到这
+② 两个对话框走 show()：WindowModal / ApplicationModal 的差别要**真人点主窗**才看得出来，这里只打印枚举值当证据（WindowModal = 1 ，ApplicationModal = 2 ）
+This plugin does not support propagateSizeHints()
+③ FormDialog 用 show()（不是 exec）：主循环继续跑，脚本才能往下填值
+   clicked(QAbstractButton*)： "OK"  它的 ButtonRole = 0
+   校验：nameOk = false  qtyOk = true ；顺带读 isModified() = false （预期 false —— 别拿它当必填判据） （**校验失败时绝对不要 accept()**：对话框一关，用户输入就蒸发了）
+③ 第一次按 OK 之后 visible = true （**预期 true：校验没过，窗子还开着**）result = 0
+   clicked(QAbstractButton*)： "OK"  它的 ButtonRole = 0
+   校验：nameOk = true  qtyOk = true ；顺带读 isModified() = false （预期 false —— 别拿它当必填判据） （**校验失败时绝对不要 accept()**：对话框一关，用户输入就蒸发了）
+③ 自定义信号 validated → "写第 5 讲"
+③ FormDialog finished( 1 ) → **主流程只该在这里继续，不要在按钮的 clicked 里干活**
+③ 第二次按 OK 之后 visible = false （预期 false）result = 1 （预期 1 = QDialog::Accepted，qdialog.h 第 31 行）
+This plugin does not support propagateSizeHints()
+④ QFileDialog 已 show()（非模态）：真实程序在这之后就可以继续干活，文件选好了自然收到 fileSelected
+④ 用 reject() 收尾（**换成 exec() 这行就是超时**）
+This plugin does not support propagateSizeHints()
+⑤ QMessageBox 实例版 show()：静态版同样效果但会阻塞，本讲不用
+⑤ 拿到内置 OK 按钮 = true ，现在 click() 它
+⑤ QMessageBox finished( 1024 )，result() = 1024 ；它等于 QMessageBox::Ok( 1024 ) 吗 = true
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+⑥ 颜色/字体对话框 show() 完，接下来程序自动 accept，不劳用户
+⑥ colorSelected → "#000080"
+⑥ QColorDialog finished( 1 )；selectedColor = "#000080"
+⑥ fontSelected → "Sans Serif" 9
+⑥ 两个都 accept 了；selectedColor 的 name() 与 selectedFont 的 family() 见上面 finished 打印
+
+=== 结论 ===
+① exec() 阻塞 / open() 模态不阻塞 / show() 非模态；三条出口都汇入 done(int) → finished(int)。
+② setModal(true) 对 show() 无效，真模态请用 open() 或 setWindowModality(三档)。
+③ 收尾逻辑一律连 finished()，别连按钮的 clicked()：Esc、关闭按钮、代码 reject() 都会漏。
+④ QMessageBox 的 result() 是 StandardButton 位值（Ok = 1024），不是 1；别拿 Accepted 去比。
+⑤ 静态便捷函数（getOpenFileName / information / getColor / getFont）= 建对话框 + exec()，在无人值守与自动化测试里是禁地；请用实例 + 信号。
+主事件循环退出，rc = 0 （对话框们已经把各自的 finished 打完了）

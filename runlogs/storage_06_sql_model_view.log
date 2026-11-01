@@ -1,0 +1,165 @@
+================================================================
+storage 第 6 讲 · SQL 接界面（Qt = "6.12.0" ）
+================================================================
+  [OK ] 核对  前提：【0】本机有 QSQLITE 驱动 = 可用驱动：QIBASE, QSQLITE, QMIMER, QOCI, QODBC, QPSQL
+  [OK ] 核对  前提：【0】内存库打开成功 = lastError = 
+  [OK ] 核对  前提：【0】建表 = dept/emp + 3 个部门 + 5 个员工
+
+========== 【1】QSqlQueryModel（只读快照） vs QSqlTableModel（可编辑的行） ==========
+  [OK ] 核对  前提：【1】快照模型查出了 5 行 = rowCount = 5，lastError = 
+  [OK ] 核对  【1A】快照模型列数 = 3（期望 3）
+  [OK ] 核对  【1B】第 1 行第 2 列 = 「张三」（期望「张三」）
+  [OK ] 核对  【1C】快照模型的 flags 里没有 ItemIsEditable = 实测 false（期望 false）
+  [OK ] 核对  【1D】对快照模型 setData 会被拒 = 实测 false（期望 false）
+  [OK ] 核对  前提：【1】表模型 select() 成功 = lastError = 
+  [OK ] 核对  【1E】表模型行数（和快照一样） = 5（期望 5）
+  [OK ] 核对  【1F】刚查完不属于「脏」 = 实测 false（期望 false）
+  [OK ] 核对  【1G】表模型的 flags 里有 ItemIsEditable = 实测 true（期望 true）
+  [OK ] 核对  【1H】setData 成功返回 true = 实测 true（期望 true）
+  [OK ] 核对  【1I】这时候模型是脏的 = 实测 true（期望 true）
+  [OK ] 核对  【1J】★ 但数据库里还没变（问库本人） = 0（期望 0）
+  [OK ] 核对  【1K】模型自己报告的已经是新值 = 「张三丰」（期望「张三丰」）
+  → 这一对数字（【1J】=0 与【1K】=张三丰）就是「模型是缓存」的第一份证据：
+     用户看到的是缓存，库里还是旧值。谁负责把它们对齐？下一节的策略。
+  [OK ] 核对  前提：【1】submitAll() 成功 = lastError = 
+  [OK ] 核对  【1L】提交之后库里有了 = 1（期望 1）
+  [OK ] 核对  【1M】提交之后不脏了 = 实测 false（期望 false）
+  [OK ] 核对  【1N】revertAll() 把改动退回库里的值 = 「张三丰」（期望「张三丰」）
+
+========== 【2】OnFieldChange / OnRowChange / OnManualSubmit：改在哪一刻落地 ==========
+  [OK ] 核对  前提：【2】表模型查表成功 = lastError = 
+  [实测]  【2】默认编辑策略 = 1（枚举序：OnFieldChange=0, OnRowChange=1, OnManualSubmit=2）
+  [OK ] 核对  【2】salary 在第 4 列（下标 3） = 3（期望 3）
+  [OK ] 核对  【2A】OnFieldChange：setData 之后库里立刻变了 = 11111（期望 11111）
+  [OK ] 核对  【2B】OnRowChange：第一行的 setData 被接受 = 实测 true（期望 true）
+  [OK ] 核对  【2B1】但库里还是旧值（改动只在缓存里） = 5000（期望 5000）
+  [OK ] 核对  【2B2】缓存里确实挂着这条未提交的改动 = 实测 true（期望 true）
+  [OK ] 核对  【2C】OnRowChange：另一行还挂着未提交改动 → 换行再改被拒 = 实测 false（期望 false）
+  [OK ] 核对  【2C0】被拒之后模型里第 4 行仍是旧值（缓存也没动） = 6000（期望 6000）
+  [OK ] 核对  【2C1】OnRowChange：手调 submit()（=关编辑器那一下）成功 = 实测 true（期望 true）
+  [OK ] 核对  【2C2】submit() 之后，先前那一行的改动落库 = 22222（期望 22222）
+  [OK ] 核对  【2C3】提交之后不再脏（缓存腾出来了） = 实测 false（期望 false）
+  [OK ] 核对  【2C4】submit() 之后换行再改就被接受了 = 实测 true（期望 true）
+  [OK ] 核对  【2C5】再 submit()：这一行也落库（submit 内部就是 submitAll） = 33333（期望 33333）
+  [OK ] 核对  【2D】OnManualSubmit：setData 之后库里还是旧值 = 7000（期望 7000）
+  [OK ] 核对  【2E】OnManualSubmit：模型是脏的 = 实测 true（期望 true）
+  [OK ] 核对  【2E1】OnManualSubmit：手调 submit() 什么都不做（返回 true 但没提交） = 实测 true（期望 true）
+  [OK ] 核对  【2E2】OnManualSubmit：submit() 之后库里仍旧是旧值 = 7000（期望 7000）
+  [OK ] 核对  【2F】OnManualSubmit：submitAll 之后落库 = 44444（期望 44444）
+  [OK ] 核对  【2G】emp 的主键列数 = 1（期望 1）
+  [实测]  【2】主键是哪一列 = id
+  [这次没命中] 【2H】无主键表：setData 被接受但 submitAll 应当失败 = setData=true，submitAll=true（两种情况都合理：拒绝可能发生在任一步）
+  [实测]  【2】无主键表：库里最终是什么 = b
+  → 已把 salary 复原成 0，后面的节从干净状态开始。
+  → 三种策略怎么选，只有一个判断标准：**用户能不能容忍「刚填的东西突然没了」**。
+     · 单个开关 / 单个数字：OnFieldChange，setData 里就替你 submit 了，改完就走；
+     · 一个表单（多字段要一起成立）：OnManualSubmit + 一个「保存」按钮调 submitAll()；
+     · 表格里逐行编辑：OnRowChange —— 注意它落库的时刻是**编辑器关闭**（closeEditor→model->submit()），不是「光标挪到别的格」；而且它**一次只允许挂一行的改动**，第二行的 setData 会被直接拒掉（见【2C】），提交完才轮得到下一行（见【2C4】【2C5】）。
+     两条额外的纪律：① 混合策略是灾难 —— setEditStrategy 应该在 setTable 之后立刻定下来；
+     ② 真要中途换策略，记住 setEditStrategy() 进门先 revertAll()（.cpp 第 823~828 行），缓存里没提交的改动会当场蒸发。
+
+========== 【3】setFilter / setSort 会重新查询：未提交的改动跟它怎么相处 ==========
+  [OK ] 核对  前提：【3】表模型查表成功 = lastError = 
+  [预期中] 【3A】重新查询之前是脏的 = isDirty = 1
+  [预期中] 【3B】setFilter 之后 isDirty 应当已经清零 = isDirty = 0
+  [预期中] 【3C】那一行的值应当回到库里的旧值 = 现在是「张三」
+  [实测]  【3】旧值的长度（对照用） = 2 字符
+  [OK ] 核对  【3D】显式提交成功 = 实测 true（期望 true）
+  [OK ] 核对  【3E】先提交再过滤：改动一定还在（模型里） = 「已提交的名字」（期望「已提交的名字」）
+  [OK ] 核对  【3F】先提交再过滤：改动一定还在（库里） = 1（期望 1）
+  [OK ] 核对  【3G】重新排序之后，已提交的改动仍然在库里 = 1（期望 1）
+  → 把这条写成规矩：**任何会触发重新查询的动作（setFilter / setSort / select），
+     前面都要有一句 submitAll() 或者一个明确的「放弃修改」确认框。**
+     用户的半截输入不该被一次排序默默吃掉。
+     更稳的做法：把表单字段和模型分开 —— 表单是表单，模型是模型，
+     用户点「保存」时一次性构造 SQL 写下去。
+
+========== 【4】QSqlRelationalTableModel：外键显示成人看得懂的名字 ==========
+  [OK ] 核对  前提：【4】先看一眼「没有关系表的模型」长什么样 = lastError = 
+  [OK ] 核对  【4A】没有关系表时，第 2 列就是那个整数 = 「1」（期望「1」）
+  [OK ] 核对  前提：【4】关系表模型 select() 成功 = lastError = 
+  [OK ] 核对  【4B】DisplayRole 变成了部门名 = 「研发部」（期望「研发部」）
+  [OK ] 核对  【4C】relationModel(2) 拿得到那张部门表 = 实测 true（期望 true）
+  [OK ] 核对  【4D】部门表里有 3 个部门 = 3（期望 3）
+  [实测]  【4】同一个格子里 EditRole 的值 = 研发部
+  [实测]  【4】往关系列写入 "2" 之后，库里的 dept_id = 1
+  [OK ] 核对  【4E】复原之后又显示回部门名 = 「研发部」（期望「研发部」）
+  → 这一节只解决「显示」。要在界面上**编辑**外键，还得给这一列装一个
+     QSqlRelationalDelegate（视图侧的事），它会把关系表变成一个下拉框。
+     没有它，用户只会看到「研发部」却改不动 —— 这不是 bug，是分工。
+     要按部门名过滤？用 setFilter 只能过滤本表的列；跨表过滤请写视图（JOIN）。
+
+========== 【5】QTableView：模型归谁、选择怎么读、列怎么藏、表头怎么改 ==========
+  [OK ] 核对  前提：【5】模型查表成功 = lastError = 
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+  [OK ] 核对  【5A】视图记住了我们给的模型 = 实测 true（期望 true）
+  [OK ] 核对  【5B】setModel 顺手建了一个选择模型 = 实测 true（期望 true）
+  [OK ] 核对  【5C】视图看到 5 行 = 5（期望 5）
+  [OK ] 核对  【5D】选中行的个数 = 1（期望 1）
+  [OK ] 核对  【5E】选中的是第几行 = 1（期望 1）
+  [OK ] 核对  【5F】第 0 列被藏起来了 = 实测 true（期望 true）
+  [OK ] 核对  【5G】setHeaderData 成功 = 实测 true（期望 true）
+  [OK ] 核对  【5H】表头读回来是新的 = 「姓名」（期望「姓名」）
+  [OK ] 核对  【5I】视图的表头跟着变（它只是转发给模型） = 「姓名」（期望「姓名」）
+  [OK ] 核对  【5J】id 列不可编辑 = 实测 false（期望 false）
+  [OK ] 核对  【5K】name 列仍然可编辑 = 实测 true（期望 true）
+  [实测]  【5】对只读列 setData 的返回值 = false
+  [OK ] 核对  【5L】不管返回值如何，id 没有被改掉 = 1（期望 1）
+  → 视图从来不保存数据，它只**问**模型。所以：
+     · 两个 QTableView 可以挂同一个模型 —— 一份数据两处显示，改一处两处都变；
+     · 但一个模型**不能**同时挂两个线程的视图（模型有线程归属，见 threads 第 3 讲）；
+     · 想让某个视图只读，别去禁用它，套一个代理或者改 flags —— 后者最干净。
+
+========== 【6】QSortFilterProxyModel：一层只改变「投影」的玻璃 ==========
+  [OK ] 核对  前提：【6】模型查表成功 = lastError = 
+  [OK ] 核对  前提：【6】源模型有 5 行 = rowCount = 5
+  [OK ] 核对  【6A】不设过滤时，代理看到全部 5 行 = 5（期望 5）
+  [OK ] 核对  【6B】代理只留下名字带「张」的行 = 1（期望 1）
+  [OK ] 核对  【6C】源模型一行没少 = 5（期望 5）
+  [OK ] 核对  【6D】降序排列后第一行的 salary 是最大值 = 3（期望 3）
+  [OK ] 核对  【6E】源模型的第一行还是原来的第一行 = 「张三」（期望「张三」）
+  [OK ] 核对  【6F】mapToSource 指回源模型的一个有效格子 = 实测 true（期望 true）
+  [OK ] 核对  【6G】通过代理 setData 成功 = 实测 true（期望 true）
+  [OK ] 核对  【6H】源模型那一格也变了（同一个格子） = 「排第一的」（期望「排第一的」）
+  [OK ] 核对  【6I】OnFieldChange 下，库里也变了 = 1（期望 1）
+  → 代理的全部秘密就是 mapToSource / mapFromSource 两行（qsortfilterproxymodel.h 57/58）。
+     它不存数据，它存一个「代理第 i 行 → 源第 j 行」的映射。
+     所以：排序/过滤可以叠很多层，每层只加一次映射，数据永远只有一份。
+     代价是每取一个格子都要走一遍映射 —— 上百万行 + 多层代理时，这就是性能瓶颈。
+
+========== 【7】绕过模型直接 UPDATE：模型为什么会「不动」 ==========
+  [OK ] 核对  前提：【7】模型查表成功 = lastError = 
+  [OK ] 核对  前提：【7】绕过模型直接 UPDATE 成功 = id=1
+  [OK ] 核对  【7A】模型里还是旧值 —— 它不是数据库的实时视图 = 「张三」（期望「张三」）
+  [OK ] 核对  【7B】但库里的值已经变了 = 「库里偷偷改的」（期望「库里偷偷改的」）
+  [OK ] 核对  【7C】select() 之后模型才跟上 = 「库里偷偷改的」（期望「库里偷偷改的」）
+  → 这不是缺陷，是分工。模型只保证「它查过的那一次」和界面一致。
+     所以跨进程写同一个库（两台机器、两个用户、一个后台服务）时，你必须自己安排刷新：
+       · 定时 select() —— 最土，但从来不骗人；
+       · 让写的那一方发通知（本地套接字广播，见 threads 第 8 讲），收到再 select()；
+       · 用 SQLite 的 WAL + 一个「版本号表」，每次读先比版本号。
+     最不该做的是「假设没人会绕过我改库」。
+
+========== 【8】200 行的大表：模型是分批取的，视图滚动时才要下一批 ==========
+  [OK ] 核对  前提：【8】造一张 200 行的表 = 建表 + 插 200 行
+  [OK ] 核对  前提：【8】查询成功 = lastError = 
+  [实测]  【8】刚查询完就看到的行数 = 200（canFetchMore = false）
+  [OK ] 核对  【8A】一直拉到底之后，总行数一项不差 = 200（期望 200）
+  [OK ] 核对  【8B】到底之后 canFetchMore 为假 = 实测 false（期望 false）
+  [OK ] 核对  【8C】第 1 行的内容仍然正确 = 「row-1」（期望「row-1」）
+  [OK ] 核对  【8D】最后一行的内容仍然正确 = 「row-200」（期望「row-200」）
+  [实测]  【8】额外调了几次 fetchMore = 0
+  → QTableView 滚动到底部时会自己调 fetchMore，所以「表格滚动时越来越长」
+     是设计行为，不是 bug（qsqlquerymodel.h 第 60/61 行就是给它的两个齿轮）。
+     只读的大表可以开 setForwardOnly(true)（QSqlQuery 上）省内存，
+     代价是不能往回滚、rowCount 也不可靠 —— 鱼与熊掌。
+
+  ★ 本讲从头到尾没进过事件循环。这不是省略 —— 模型/视图的通信是同步的：
+    setData 立刻改缓存，dataChanged 立刻通知视图，视图立刻重画那一格。
+    「一份数据、多个投影」是**结构**上的分工，不是并发。
+
+========== 合账 ==========
+  硬账 86 项：对上 86，不符 0；整节作废 0
+  退出码 = 0（没有硬账不符、没有整节作废）
+进程退出码 = 0

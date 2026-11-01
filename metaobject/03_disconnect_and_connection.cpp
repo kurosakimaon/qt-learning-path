@@ -18,39 +18,10 @@
 //   · 只建 QApplication 不显示窗口；结论全部 qInfo()；QTimer 驱动 + 自动 quit()。
 //   · 本示例里有「delete 掉接收者再发射信号」的演示——那是**安全**的（Qt 已自动断连），
 //     这也正是本讲要证明的事。别把这模式推广到「lambda 捕获裸指针」（第 4 讲会炸给你看）。
-//   · 本机当前无法编译链接 Qt 程序，本示例**未在本机实测编译**；API 全对本机头文件核对过：
-//       QtCore/qobject.h —— disconnect 的七组重载：
-//                            289~290 行 字符串式（4 参静态）
-//                            291~292 行 QMetaMethod 式（4 参静态）
-//                            293~295 行 成员式 disconnect(signal, receiver, member)
-//                                  —— 三个参数**全都有默认值 nullptr**
-//                            296~297 行 成员式 disconnect(receiver, member = nullptr)
-//                            298~300 行 disconnect(const QMetaObject::Connection &)
-//                                  —— 被 #ifndef QT_NO_DISCONNECT_CONST_CONNECTION 包住
-//                            301~303 行 disconnect(QMetaObject::Connection &) 与 && 转发版
-//                            305~325 行 成员指针式（Q_QDOC 声明 305~307、模板实现 309~325，
-//                                  四元组精确匹配）
-//                            326~337 行 「断掉该信号到某接收者的全部槽」模板版，
-//                                  第 4 个形参是 void **zero，函数体第一句 Q_ASSERT(!zero)（333 行）
-//                            connectNotify 376 行 / disconnectNotify 377 行（都是 virtual）
-//                            destroyed 信号 352 行、
-//                            receivers() 369 行 —— **在 366 行起的 protected 段里**，
-//                                  类外调不动（第 5 节演示怎么绕），isSignalConnected() 同样 370 行、
-//                            setParent 208 行
-//       QtCore/qobjectdefs.h —— class QMetaObject::Connection 定义在 674~700 行：
-//                            683 行析构、684~685 行默认构造标着 QT_CORE_INLINE_SINCE(6, 12)、
-//                            686~687 行拷贝构造 / 拷贝赋值、
-//                            689 行 Q_QDOC 下的 operator bool()（只是给文档看的），
-//                            693~694 行真身：受限 bool（restricted bool）operator RestrictedBool，
-//                            头文件注释原话「still using the restricted bool trick here, in
-//                            order to support code using copy-init (e.g. `bool ok = connect(...)`)」
-//                            697 行移动构造、698 行移动赋值（纯 swap 实现）、699 行 swap()
-//       QtCore/qmetaobject.h —— QMetaMethod::fromSignal 222 行、name() 27 行、methodSignature 26 行
-//     【本机实测的否定结论】在 C:\msys64\ucrt64\include\qt6 整棵树执行
-//       grep -rin "scopedconnection" .
-//     零命中 —— 即本机 Qt 6.12.0 **没有** QMetaObject::Connection::ScopedConnection。
-//     同一棵树 grep "ConnectResult" 也零命中（Qt::SingleShotConnection 这个枚举值倒确实在
-//     qnamespace.h 第 1319 行）。因此本模块不使用这两个东西；换机器请先跑上面两条 grep。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_03_disconnect_and_connection，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_03_disconnect_and_connection.log）。
 // ============================================================================
 
 #include <QApplication>
@@ -383,7 +354,7 @@ int main(int argc, char *argv[])
  * `QMetaObject::Connection::ScopedConnection` 做 RAII。本机 Qt 6.12.0 **没有**这个类
  *（整棵头文件树 grep 零命中），`QMetaObject::ConnectResult` 同样没有。
  * 我没抄它，而是写了 20 行的 ScopedConnGuard 顶上。你换机器时，第一件事就是跑
- * `grep -rin "scopedconnection" C:/msys64/ucrt64/include/qt6`，
+ * `grep -rin "scopedconnection" D:/Qt/6.12.0/mingw_64/include`，
  * 有就用官方的，没有就用这种自制壳。查不到签名的 API 一律不用，这条纪律比省 20 行代码重要。
  *
  * 最后关于「返回值 true 还是 false」：所有 disconnect 重载返回的都是

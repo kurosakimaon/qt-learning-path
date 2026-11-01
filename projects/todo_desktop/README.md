@@ -72,7 +72,7 @@ echo $?        # 0 = 全部通过
 ### 在仓库顶层一起构建（推荐）
 
 ```bash
-cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64
 cmake --build build --target todo_desktop tst_taskmodel
 ctest --test-dir build -R "todo_|tst_taskmodel" --output-on-failure
 ```
@@ -83,7 +83,7 @@ ctest --test-dir build -R "todo_|tst_taskmodel" --output-on-failure
 
 ```bash
 cd projects/todo_desktop
-cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
@@ -154,6 +154,9 @@ QSettings 适合「少量键值配置」（窗口大小、表头宽度），不�
 **为什么自检不建窗口？**
 因为窗口没法在 CI 里断言。业务逻辑不依赖 `QWidget`，自检才能用退出码说话——这也是分层架构最实际的好处。
 
+**为什么写库前要把 null 字符串归一成空串？**
+`Task.notes`/`Task.title` 的默认值是 `QString()`（null），不是空串 `""`。QSQLITE 驱动绑参时把 null `QString` 认成 SQL `NULL`（`qsql_sqlite.cpp` 的 `exec()` → `QSqlResultPrivate::isVariantNull()` → `sqlite3_bind_null`），而 `notes`/`title` 是 `NOT NULL` 列。巧的是 `upsert()` 的 `INSERT OR REPLACE` 会用 REPLACE 冲突解决把 NULL 悄悄换成默认值 `''`，而 `replaceAll()` 的普通 `INSERT` 会当场报 `NOT NULL constraint failed`——同一份数据两条路径一隐一现，正是自检当初跑出来才暴露的 bug。仓储层用 `notNull()` 在边界把 null 归一成 `""`，两条路径行为才对齐。
+
 ---
 
 ## 数据与安全
@@ -167,8 +170,17 @@ QSettings 适合「少量键值配置」（窗口大小、表头宽度），不�
 
 ## 已知边界
 
-- 本项目与整个资料库一样，**写于当前机器无法链接 Qt 运行库的时期**：源码过了 `moc` + `g++ -fsyntax-only -Wall -Wextra`（0 error / 0 warning），但**没有在本机链接、运行过**。自检与单元测试的「预期全绿」是推理结论，请在你自己的机器上验证。
+- **本机已真实构建并运行过**（Qt 6.12.0 + MinGW 13.1.0，Windows，`QT_QPA_PLATFORM=offscreen`）：
+  静态库 `todo_core`、可执行 `todo_desktop`、QtTest 目标 `tst_taskmodel` 全部编译链接通过；
+  `todo_desktop --self-check` **38 项全 `[PASS]`、退出码 0**；`ctest` 2/2 通过
+  （`todo_selfcheck` 0.13 s、`tst_taskmodel` 9 passed / 0 failed / 0 skipped）。
+  两条路径都验过：① 顶层 `cmake -B build` 里以 `add_subdirectory` 构建；
+  ② 在本目录单独 `cmake -G "MinGW Makefiles" -B build -S .` 也configure/build/ctest 全通。
+  ★ ②这条以前是**通的假的**：这份 `CMakeLists.txt` 没有 `cmake_minimum_required()`/`project()`
+  （它一直靠顶层提供），单独 configure 当场 `CMake Error: No cmake_minimum_required command is present`。
+  现在用 `if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)` 守卫补齐，两种用法都实测过。
 - 界面细节（行高、胶囊颜色、状态栏文字）在不同平台/主题下会有出入，这属于样式差异，不是缺陷。
+  ⚠ 这一条**不在**上面的「已验证」范围内：offscreen 平台不往屏幕画东西，像素级的东西只有人眼在真显示器上说得准。
 - 没有做撤销/重做、没有多用户、没有云同步——这些不是本项目的目标。
 
 ---

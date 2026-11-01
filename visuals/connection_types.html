@@ -57,7 +57,7 @@ window.STEPS = [
     ms: 6500,
     stage: `
       <svg viewBox="0 0 760 420" role="img" aria-label="ConnectionType 枚举与取值">
-        <rect class="svg-box-accent" x="20" y="25" width="720" height="175" rx="10"/>
+        <rect class="svg-box-accent" x="20" y="25" width="720" height="185" rx="10"/>
         <text class="svg-small" x="40" y="52">Qt::ConnectionType（qnamespace.h 1313~1320 行，按声明顺序从 0 开始）</text>
         <text class="svg-mono" x="40" y="82">AutoConnection          = 0     ← 默认，connect 不写就是它</text>
         <text class="svg-mono" x="40" y="106">DirectConnection        = 1     ← 立刻在发射方线程调用</text>
@@ -67,7 +67,7 @@ window.STEPS = [
         <text class="svg-mono" x="40" y="196">SingleShotConnection    = 0x100 ← 开关：触发一次后自动断开</text>
 
         <rect class="svg-field" x="20" y="220" width="720" height="175" rx="10"/>
-        <text class="svg-small" x="40" y="248">前三个是「位」，后两个是「标志」—— 它们靠按位或组合：</text>
+        <text class="svg-small" x="40" y="248">前四个是「行为」（小整数 0~3，互斥）；后两个是「标志」（0x80 / 0x100，用 | 叠上去）：</text>
 
         <rect class="svg-box" x="40" y="264" width="330" height="52" rx="8"/>
         <text class="svg-mono" x="58" y="296">Qt::QueuedConnection | Qt::UniqueConnection</text>
@@ -120,7 +120,7 @@ window.STEPS = [
         <rect class="svg-field" x="20" y="325" width="720" height="80" rx="10"/>
         <text class="svg-small" x="40" y="352">三个容易踩的点：</text>
         <text class="svg-text" x="40" y="378">① 看的是「接收者挂在哪」，不是「信号定义在哪」；② 判断在 emit 时，之后 moveToThread 不改变已有连接；</text>
-        <text class="svg-text" x="40" y="400">③ 接收者没有事件循环（线程没 exec()），排队连接永远不执行 —— 不报错，只是没反应。</text>
+        <text class="svg-text" x="40" y="396">③ 接收者没有事件循环（线程没 exec()），排队连接永远不执行 —— 不报错，只是没反应。</text>
       </svg>`,
     caption: '<code>AutoConnection</code> 的规则就一句：<strong>emit 那一刻，发射方线程和 <code>receiver-&gt;thread()</code> 相同就直连，不同就排队</strong>。看的是接收者挂在哪，不是信号声明在哪。判断发生在 <code>emit</code> 时刻，之后 <code>moveToThread</code> 不会改写已有连接的行为。<strong>接收线程没有事件循环，排队连接就永远不执行，且不报错</strong>。',
     code: `// 默认就是 AutoConnection：不写第五个参数
@@ -163,15 +163,19 @@ Qt::ConnectionType t =
         <text class="svg-text" x="80" y="358">同一线程内的高频通知（鼠标移动、重绘、模型 dataChanged）—— 排队反而多一次拷贝和一轮事件循环。</text>
         <text class="svg-small" x="80" y="384">★ 跨线程却硬写 Direct，等于亲手拆掉 Qt 的线程边界，还留下「偶现崩溃」。</text>
       </svg>`,
-    caption: '<code>DirectConnection</code> 就是一次<strong>普通函数调用</strong>：没有事件、没有参数复制、没有队列，最快。代价是<strong>槽在发射方线程执行</strong>，所以它摸到的数据可能属于别的线程，而且槽一慢发射方就卡。同一线程的高频通知适合直连；<strong>跨线程硬写直连，就是亲手拆掉线程边界</strong>。',
+    caption: '<code>DirectConnection</code> 就是一次<strong>普通函数调用</strong>：没有事件、没有参数复制、没有队列，最快。代价是<strong>槽在发射方线程执行</strong>，所以它摸到的数据可能属于别的线程，而且槽一慢发射方就卡。同一线程的高频通知适合直连；<strong>跨线程硬写直连，就是亲手拆掉线程边界</strong>。另外顺手记一件与连接类型无关、却天天挡路的事：<code>update()</code> 这种<strong>有重载</strong>的成员函数当槽用，编译器挑不出版本，必须 <code>qOverload&lt;&gt;(&amp;QWidget::update)</code> 点名（四个重载在 <code>qwidget.h</code> 第 470 / 474 / 475 / 476 行）。',
     code: `// 直连：帧率相关的通知，别绕事件循环
+// update() 有四个重载（qwidget.h 第 470 / 474 / 475 / 476 行），
+// 光写 &QWidget::update 编译器挑不出是哪一个 → 必须用 qOverload<> 点名无参那个。
+// 本机 g++ 实测，原样写编不过：no matching function for call to
+//   'QObject::connect(QStandardItemModel*, ..., QWidget*, <unresolved overloaded function type>, ...)'
 connect(model, &QAbstractItemModel::dataChanged,
-        view,  &QWidget::update, Qt::DirectConnection);
+        view,  qOverload<>(&QWidget::update), Qt::DirectConnection);
 
 // 反例：跨线程却直连 —— 偶现崩溃的经典来源
 connect(worker, &Worker::tick, gui, &Page::onTick,
         Qt::DirectConnection);   // 槽跑到 worker 线程里去了`,
-    highlight: [1, 2, 5]
+    highlight: [5, 6, 9, 10]
   },
   {
     title: 'Queued：参数被复制，事件排队，接收方线程执行',
@@ -224,7 +228,7 @@ qRegisterMetaType<QList<TodoItem>>("QList<TodoItem>");
 
 // 接收线程必须有事件循环
 void Worker::run() { /* … */ }   // 若重写 run()，记得自己 exec()`,
-    highlight: [1, 2, 6]
+    highlight: [1, 2, 5]
   },
   {
     title: 'BlockingQueued：排队 + 等它做完 —— 只在真需要结果时用',
@@ -309,16 +313,23 @@ qint64 Worker::askFontHeight() {
         <text class="svg-small" x="50" y="345">★ 连接是先到先得的：直连在 emit 内执行，排队在事件循环里执行 ——</text>
         <text class="svg-small" x="50" y="370">所以「自动断开」也不是「立刻断开」，别把它当成并发原语用。</text>
       </svg>`,
-    caption: '<code>UniqueConnection</code> 防的只是「同一组 sender/signal/receiver/slot 重复连」——对 lambda 无效，因为每次都是新对象。<code>SingleShotConnection</code> 是 Qt 6 新增，触发一次后自动断开，适合「等到这一次就继续」的等待。两者都能用更朴素的写法替代，认识它们主要是为了读懂别人的代码。',
+    caption: '<code>UniqueConnection</code> 防的只是「同一组 sender/signal/receiver/slot 重复连」，而且<strong>只对成员函数槽有效</strong>——Qt 的原话是它不适用于 lambda、普通函数和函数对象（<code>qobject.cpp</code> 第 5482~5483 行），理由是这些可调用对象没有可比对的「身份」。<strong>更要注意它拒绝的方式分两种脸</strong>：Release（定义了 <code>QT_NO_DEBUG</code>）里 <code>qobject.h</code> 第 268 行那句 <code>Q_ASSERT_X</code> 被整个编译掉，改由 <code>qobject.cpp</code> 第 5578~5581 行的运行期守卫调 <code>connectWarning()</code>（同文件第 2773~2784 行，里面是 <code>qCWarning(lcConnect, …)</code>，所以那行前面带类别前缀 <code>qt.core.qobject.connect:</code>）打一句，然后返回<strong>无效 Connection</strong>——程序照常跑，回调永远不响；Debug 里同一行直接 abort。本机两种都编过跑过，<code>metaobject/02</code> 第 5 节现在就现场演 Release 那一条。<code>SingleShotConnection</code> 是 Qt 6 新增（<code>qnamespace.h</code> 第 1319 行 = <code>0x100</code>），触发一次后自动断开，<strong>配 lambda 是好使的</strong>（实测连发 3 次只回调 1 次），适合「等到这一次就继续」。两者都能用更朴素的写法替代，认识它们主要是为了读懂别人的代码。',
     code: `// 防重复连接（只对成员函数槽有效）
 connect(btn, &QPushButton::clicked, this, &Dlg::apply,
-        Qt::UniqueConnection);
+        Qt::UniqueConnection);   // 再连同样的四元组 → 返回 false，不新增
 
-// 只触发一次的等待
+// lambda 当槽 + Unique：Qt 直接拒。本机 Release（带 -DQT_NO_DEBUG）实测输出：
+//   qt.core.qobject.connect: QObject::connect(Sensor, Collector): unique connections
+//     require a pointer to member function of a QObject subclass
+//   返回的 Connection 转 bool = false，槽一次都没被叫到
+connect(sensor, &Sensor::tick, ctx, [c] { ++c->n; }, Qt::UniqueConnection);
+//   ↑ 同一个坑的两张脸：Debug 构建里这里是 Q_ASSERT abort（qobject.h 第 268 行）
+
+// 只触发一次的等待（配 lambda 有效）
 connect(reply, &QNetworkReply::finished,
         this, &Page::onOneShot,
         Qt::SingleShotConnection);      // Qt 6 起可用`,
-    highlight: [1, 5]
+    highlight: [2, 8, 9, 12, 14]
   }
 ];
 </script>

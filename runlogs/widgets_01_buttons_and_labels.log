@@ -1,0 +1,37 @@
+② autoExclusive：radioA = true  临时构造一个 QCheckBox 的默认值 = false （复选框当然不互斥）→ 每个按钮都带这个属性，互斥是按钮自己实现的，不是父控件的功劳；这里的临时对象只为读默认值，构造即析构
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+⑤ setNum(3.14159) 之后文字 = "3.14159" （它只是个「数字 → 本地化字符串」的快捷写法，别为它建属性绑定）
+⑤ 未附带 .gif 资源，故只演示接线；movie->state() 当前枚举值 = 0
+⑥ QPushButton::setMenu 之后：menu() = true （注意 setMenu 会**改变按钮的绘制**：右侧出现箭头，点击变成弹菜单而不是发 clicked 的语义）
+This plugin does not support propagateSizeHints()
+① click() 非 checkable 之后：pressed = 1  released = 1  clicked = 1  toggled = 0 （toggled 必须是 0）
+① click() checkable 之后：pressed = 1  released = 1  clicked = 1  toggled = 1  isChecked = true （一次点击：前三个各 +1，toggled 也 +1）
+① 只调 setChecked(false) 之后：clicked 增量 = 0 （应为 0）toggled 累计 = 2 （应为 2）
+① animateClick() **刚返回**时 clicked = 1 （此刻大概率还是 1 —— 动画走的是事件循环，稍后自己会补上）
+① animateClick() 300ms 之后：pressed = 2  released = 2  clicked = 2  → 与 click() 的区别得到证据：**同样是发一遍信号， animateClick 是延后完成的**
+② idToggled(id = 10 , on = true )
+② idClicked( 10 ) —— Qt6 的正确写法，替代 Qt5 的 buttonClicked(int)
+② buttonClicked 指针版：谁被点了 = "选项 A" ；group->id(b) = 10
+② 点 A 之后：A checked = true  B checked = false  group->checkedId = 10 （10）group->checkedButton()->text = "选项 A"
+② idToggled(id = 10 , on = false )
+② idToggled(id = 20 , on = true )
+② idClicked( 20 ) —— Qt6 的正确写法，替代 Qt5 的 buttonClicked(int)
+② buttonClicked 指针版：谁被点了 = "选项 B" ；group->id(b) = 20
+② 再点 B 之后：A checked = false  B checked = true  group->checkedId = 20 （20）
+② idToggled(id = 30 , on = true )
+② setExclusive(false) 后同时勾两个：  A/B/C checked = 3 个按钮在册；  C checked = true ；取消互斥后 checkedId 在有多个勾选时**没有意义**（文档语义，别依赖）
+③ checkStateChanged 强类型信号 → Qt::CheckState 枚举值 = 1
+③ stateChanged(int) 老信号（Qt 6.9 起弃用）同时收到 = 1 （两个信号是**重复广播**，新代码请只连 checkStateChanged）
+③ setCheckState(PartiallyChecked) 之后 isChecked() = true （注意：**部分选中在 isChecked() 里读作 true**，三态只能用 checkState() 表达）
+③ checkStateChanged 强类型信号 → Qt::CheckState 枚举值 = 2
+③ stateChanged(int) 老信号（Qt 6.9 起弃用）同时收到 = 2 （两个信号是**重复广播**，新代码请只连 checkStateChanged）
+③ click() 之后 isChecked() = true ；请对照上面 checkStateChanged 那两行打印，自己数出 Unchecked(0)→PartiallyChecked(1)→Checked(2) 的循环顺序
+④ QCommandLinkButton 也是 QAbstractButton：isChecked = true ；构造期那句 setChecked(true) 已经让复选框 toggled 计数 = 0 （**先连信号再改状态**才收得到，顺序错了就漏事件——新手第一大漏）
+② buttonClicked（指针版）总共收到 = 2 次；它与 idClicked 是**同一次点击的两个信号**，不是两次点击
+
+=== 结论 ===
+① clicked = pressed + released 的「合成结果」；toggled 只属于 checkable；setChecked 不发 clicked。
+② click() 同步、animateClick() 异步；测试与自动化脚本里请优先用 click()。
+③ autoExclusive 只在同一父控件里管用，跨容器必须 QButtonGroup；Qt6 请用 idClicked/idToggled。
+④ QLabel 的富文本走 Qt::RichText + AutoText 自动嗅探；链接信号只能由真实交互产生。

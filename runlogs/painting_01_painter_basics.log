@@ -1,0 +1,43 @@
+平台插件 = "offscreen" （用 -platform offscreen 可以无头跑，paint 事件照样派发）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+
+=== 证据① 画进 QImage（exec() 之前，合法）===
+  图像尺寸 = 400 x 220 ，rect() = QRect(0,0 400x220) ，hasAlphaChannel = true
+  save() 返回 = true （false 表示当前目录不可写或格式不支持）
+  不透明像素总数 = 88000
+  着墨包围盒 = x[ 0 .. 399 ]  y[ 0 .. 219 ] ，重心 =( 199 , 109 )
+  pixelColor(8,8) = 200 30 30 255 ，name = "#c81e1e"
+  对照：pixel(8,8) 给的是 QRgb = 0x "ffc81e1e"
+
+=== 证据② drawArc(0, +90°) 落在哪一侧 ===
+  右上象限着墨 = 161  右下象限着墨 = 3
+  结论请按数字读：**像素数大的那一侧就是正角度去的方向** （y 轴向下让「数学逆时针」的观感很容易记反，所以别背结论，跑一次）。
+
+=== 证据③ QPen/QBrush 默认值 ===
+  默认 QPen：widthF = 1 （qpen.h 60 行） isCosmetic = false （80 行） style 枚举值 = 1 （Qt::SolidLine） cap 枚举值 = 16 （Qt::SquareCap=0x10） join 枚举值 = 64 （Qt::BevelJoin=0x40）
+  提醒：Qt 的默认帽是 SquareCap、默认连接是 BevelJoin，不是 Flat/Miter ——  画细虚线时端头会「长出一截」，第 3 讲用测量证明。
+  QBrush(Qt::Dense3Pattern)：style 枚举值 = 4 ，TexturePattern 的枚举值 = 24（头文件 1163 行显式赋值）
+
+=== 证据④ 同一份逻辑绘制，1x 与 2x 画布 ===
+  1x：物理 400 x 220  devicePixelRatio = 1  着墨 = 88000
+  2x：物理 800 x 440  devicePixelRatio = 1  着墨 = 352000
+  着墨比 = 4 （填充图形主导时接近 4：面积按边长的平方涨。若明显小于 4， 说明细线部分没跟着放大 —— 那正是高 DPI 下「线看起来更细」的原因）
+  给 2x 图 setDevicePixelRatio(2.0) 之后：devicePixelRatio = 2 ，而 size() 仍是 800 x 440 → 它不重采样像素，只改元数据；拿它去 drawImage 才能按逻辑尺寸贴回去。
+
+=== 证据⑤ 控件里的 paintEvent 现场读数 ===
+  paintEvent 已执行次数 = 1 （show() 之后至少 1 次；resize 还会再来一次）
+  devicePixelRatio = 1  logicalDpi = 96 x 96
+  painter.viewport() = QSize(480, 320)  painter.window() = QSize(480, 320) （默认两者相同；不同就是第 2 讲的坐标映射）
+  如果 dpr = 2 而 dpi = 192：同一个 drawRect(140,8,60,40) 在两台机器上 占的物理像素个数不同 —— 这就是「逻辑坐标 / 设备坐标」的全部秘密。
+  调 update() 之后 paintEvent 次数 = 2 （增 1 即证明「update() 只是再次挂号」）
+
+=== 关于「铁律一」必须说的实话 ===
+  在 paintEvent 之外对 QWidget 构造 QPainter，begin() 会**返回 false**， 后续每个 draw* 都变成空操作（isActive() 是 false，不是崩溃）。 上面那五行 qWarning 原文就是本机单独探针跑出来的（见紧邻的注释）； 本讲不放进主路径，是因为换 debug 版 Qt 库时这条路上可能有断言。
+  合法的两个入口只有：① paintEvent 里对 this 画；② 对 QImage/QPixmap 等离屏设备随时画。
+
+=== 结论 ===
+① 三条铁律：只在 paintEvent 里画控件；painter 必须先于设备析构；用 RAII + isActive() 自检。
+② 角度是 1/16 度（drawArc/drawPie/drawChord 全是 int a, int alen）； drawText 的 y 是**基线**不是顶边。这两条是最常犯的两个错。
+③ 逻辑坐标 ≠ 物理像素：dpr/dpi 由设备给（qpaintdevice.h 48~53 行）， 同一份代码在 2x 屏上要出 4 倍的填充像素，细线却不跟着涨。
+④ Qt6 本机的 RenderHint 只有 6 项，没有 HighQualityAntialiasing； BrushStyle 是 HorPattern/VerPattern，不是 Qt4 的 HorizonPattern/VerticalPattern。

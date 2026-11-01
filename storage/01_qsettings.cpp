@@ -11,23 +11,33 @@
 //     2) 三组构造函数与三种作用域的落盘位置差别（本机 qsettings.h 第 94~102 行一共
 //        六条重载，去掉 QT_NO_QOBJECT 那半份，实际可用的是这五类形态）：
 //          · QSettings(Format, Scope, 组织, 应用)  ← 最灵活，能用 setPath 改道
-//          · QSettings(Scope, 组织, 应用) / QSettings(组织, 应用) ← 用 defaultFormat()
+//          · QSettings(Scope, 组织, 应用) / QSettings(组织, 应用) ← ★ **写死 NativeFormat**，
+//            setDefaultFormat() 对它俩**无效**（qsettings.cpp 第 2536~2540 行、第 2561~2563 行
+//            两份构造的第一个参数都是硬编码的 NativeFormat；步骤② 实测打在这两条上）
 //          · QSettings(fileName, Format)          ← **唯一能把文件写到你指定地点的那组**
-//          · QSettings(QObject *parent) / QSettings(Scope, parent) ← 全靠全局名字
+//          · QSettings(QObject *parent) / QSettings(Scope, parent) ← 全靠全局名字，
+//            这两条才真的吃 defaultFormat()（.cpp 第 2661~2683 行：默认构造转手给
+//            QSettings(UserScope, parent)，那条用 globalDefaultFormat）
 //        本讲把 IniFormat + UserScope 用 QSettings::setPath() 改道到系统临时目录，
 //        **不写注册表、不碰真实用户配置目录**（详见下面「运行前须知」）。
 //     3) 层级 key 用 `/` 分隔、beginGroup/endGroup 的配对、group()/allKeys()/
 //        childKeys()/childGroups() 各回答什么问题（第 137~139 行：三个都是 const）。
-//     4) value(key, 默认值) 的**类型自动转换**——这是 QSettings 最反直觉的一处：
-//        第二个参数不只是「缺失时的兜底」，它还**指定了期望类型**；存的类型和读的类型
-//        不一致时，能转就转（int 42 读成 QString "42"），转不动就**默默返回默认值**
-//        （存 "abc" 读成 int、默认 7 → 你拿到 7，一点错误都不报）。本讲四个证据全打上。
+//     4) value(key, 默认值) 的**默认值只在「键不存在」时出场**——这是 Qt6 相对 Qt5
+//        改掉的一处，也是最反直觉的一处：Qt6 的 QSettings **不再做任何类型转换**
+//        （qsettings.cpp 第 3361~3372 行：get() 命中就原样把存的 QVariant 返回，
+//          只有取不到才 return *defaultValue；Qt5 那份签名里的 requiredType/convert
+//          已经整段删掉了）。所以第二个参数**不指定期望类型**，你 Qt5 时代的那套理解
+//        作废。转换是后面你自己调的 QVariant::toInt()/toString() 在做的，
+//        它转不动就默默给 0 / 空串，一声不响（存 "abc" 读 int → 你拿到的是 0，**不是** 7）。
+//        本讲四个证据全打上。
 //     5) setValue 之后 sync() 的时机：QSettings 是「改内存 + 择机刷盘」，析构也会刷。
 //        本讲在 sync 前后各读一次磁盘上的 ini 原文，把字节数打出来。
 //     6) **QSettings 没有任何信号**（本机 qsettings.h 第 27~185 行整份读完：
 //        有 Q_OBJECT、有 protected event()，但一个 Q_SIGNALS 段都没有）。
-//        老代码里说的「监听 QSettingsEvent」是 qsettings.cpp 里的**私有事件类**，
-//        公共头文件里没有它的声明、也没有公开的 QEvent::Type 值，所以：
+//        老代码里说的「监听 QSettingsEvent」在本机 6.12 查无此名：qsettings.cpp 全文 grep   name-ok:QSettingsEvent 有意复述旧错名，本机 0 处
+//        `QSettingsEvent` 是 **0 处**，真实机制朴素得多——第 330 行   name-ok:QSettingsEvent 同上，复述旧错名
+//        `QCoreApplication::postEvent(q, new QEvent(QEvent::UpdateRequest));`，
+//        第 3320 行的 `event()` 自己把它接住。既没有私有事件类，也没有公开的专用 QEvent::Type：
 //          · 本讲装了一个 eventFilter 去**实测**能收到什么，把事件类型分布打出来；
 //          · 结论给得保守：**要靠 QSettings 自己通知你配置变了，此路不通**；
 //            正经做法是自己包一层 setter（本讲给 ConfigStore），或者老实轮询/比对哈希。
@@ -52,10 +62,11 @@
 //     收尾用 QDir::removeRecursively() 删干净并打印删除结果。
 //   · NativeFormat 在 Windows 上就是注册表（HKEY_CURRENT_USER\Software\组织\应用），
 //     本讲**只说明、不构造写它的对象**，理由见上一条。
-//   · 未实测声明：**本文件未在本机实测编译运行**；
-//     已做的是 moc + g++ -fsyntax-only 通过，0 error 0 warning；未链接、未运行。
-//     文中所有「预期」后面是照着本机头文件（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
-//     推出来的，不是跑出来的。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_01_qsettings）。本机这一轮：【硬账】56/56 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -113,7 +124,7 @@ void checkBool(const char *what, bool got, bool want = true)
 } // namespace
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6\QtCore\qsettings.h，Qt 6.12.0）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include\QtCore\qsettings.h，Qt 6.12.0）
 // ============================================================================
 // 类声明（第 26~30 行）：
 //   #ifndef QT_NO_QOBJECT
@@ -419,11 +430,21 @@ int main(int argc, char *argv[])
         auto *sOrg = new QSettings(QStringLiteral("QtCourseOrg"), QStringLiteral("MyApp"));
         qInfo() << "  (c) QSettings(org, app)             ：fileName =[" << humanPath(sOrg->fileName())
                 << "] format =" << int(sOrg->format())
-                << "← 没传 Format，就用 defaultFormat()（步骤① 已设成 IniFormat）";
+                << "｜此刻 defaultFormat() =" << int(QSettings::defaultFormat())
+                << " ← ★ 它**不**跟随 defaultFormat：这条构造在 qsettings.cpp 第 2536~2540 行"
+                   "把格式**写死成 NativeFormat**（=0，所以 fileName 是注册表路径），"
+                   "文档第 2531 行原话：calling setDefaultFormat() before calling this constructor "
+                   "has no effect。同理 QSettings(Scope,org,app)（第 2561~2563 行）也写死 NativeFormat；"
+                   "真正吃 defaultFormat() 的只有默认构造/QSettings(Scope, parent) 那两条（第 2661/2674 行）。";
         check("sFs 用 IniFormat", int(sFs->format()), int(QSettings::IniFormat));
         check("sFs 是 UserScope", int(sFs->scope()), int(QSettings::UserScope));
         check("sFile 用 IniFormat", int(sFile->format()), int(QSettings::IniFormat));
-        check("sOrg 跟随 defaultFormat", int(sOrg->format()), int(QSettings::defaultFormat()));
+        // ★ 原预测「sOrg 跟随 defaultFormat」错在把这条构造想成了 (Format,Scope,org,app) 的糖；
+        //   实测 format=NativeFormat(0)，而此刻 defaultFormat()=IniFormat(1)：两条硬账分开打。
+        check("sOrg(org,app) 恒为 NativeFormat（.cpp 第 2537 行写死）",
+              int(sOrg->format()), int(QSettings::NativeFormat));
+        checkBool("sOrg 与 defaultFormat() 不一致 → setDefaultFormat 对它无效",
+                  int(sOrg->format()) != int(QSettings::defaultFormat()));
 
         qInfo() << "  (d) NativeFormat 在 Windows 上 = 注册表 HKEY_CURRENT_USER\\Software\\<org>\\<app>；"
                    "在 Linux/macOS 上 = ini/XDG。**本讲不构造写它的对象**，免得真写注册表。";
@@ -467,7 +488,7 @@ int main(int argc, char *argv[])
               sFile->value(QStringLiteral("界面/语言")).typeId(), QMetaType::QString);
 
         // ────────────────────────────────────────────────────────────
-        // 步骤④ 存的类型 ≠ 读的类型：能转就转，转不动就默默给默认值
+        // 步骤④ 存的类型 ≠ 读的类型：Qt6 的 QSettings **不做转换**，默认值只在缺键时出场
         // ────────────────────────────────────────────────────────────
         qInfo() << "\n【步骤④】类型不一致时到底发生什么";
         sFile->setValue(QStringLiteral("实验/字符串数字"), QStringLiteral("42"));
@@ -478,26 +499,39 @@ int main(int argc, char *argv[])
         const QVariant asStr = sFile->value(QStringLiteral("实验/整数"),
                                             QStringLiteral("<默认串>"));
         qInfo() << "  存 int 42，用 QString 默认值去读 →" << vdesc(asStr)
-                << "（能转 → **转成了 \"42\"，默认值根本没用上**）";
+                << "（★ 返回的还是**存的那个 int**，QSettings 没转成 QString；"
+                   "上面那句 \"42\" 是代码里 toString() 转的。默认值更没出场——它只在**键不存在**时才回来）";
 
         const QVariant asIntOk = sFile->value(QStringLiteral("实验/字符串数字"), 7);
         qInfo() << "  存 \"42\"，用 int 默认值 7 去读 →" << vdesc(asIntOk)
-                << "（能转 → 7 没用上）";
+                << "（同上：给的还是存的 QString，7 没用上；toInt() 是 QVariant 自己在转）";
 
         const QVariant asIntBad = sFile->value(QStringLiteral("实验/字符串乱码"), 7);
         bool okToInt = false;
         const int rawToInt = sFile->value(QStringLiteral("实验/字符串乱码")).toInt(&okToInt);
         qInfo() << "  存 \"abc\"，用 int 默认值 7 去读 →" << vdesc(asIntBad)
-                << "← **转不动就默默返回默认值，一声不响**";
+                << "← ★ 拿到的**不是 7**，而是存着的那串 \"abc\"：Qt6 的 value() 里根本没有"
+                   "「按默认值的类型去 convert」这一步（qsettings.cpp 第 3361~3372 行：命中键就 "
+                   "原样 return，只有取不到才 return *defaultValue）。"
+                   "默认值掩盖不了任何事，因为它压根没参与。";
+        qInfo() << "     再 toInt() 才是 0 —— 静默失败发生在你自己调的 QVariant::toInt() 上，"
+                   "不是 QSettings 上（原预测「给默认值 7」是把 Qt5 的 requiredType/convert 当成"
+                   "现在的行为了，那份签名在 Qt6 已整段删除）。";
         qInfo() << "     同一份数据单参读回来再 toInt(&ok)：值 =" << rawToInt
                 << " ok =" << okToInt
                 << "（第 613 行的 bool* 出参才是「转换成没成」的真相，**默认值掩盖它**）";
         checkBool("int 42 用 QString 默认值读回 \"42\"",
                   asStr.toString() == QStringLiteral("42"));
+        checkBool("★ 存 int 读出来仍是 int（QSettings 不转换）",
+                  asStr.typeId() == QMetaType::Int);
         bool okGood = false;
         const int goodInt = sFile->value(QStringLiteral("实验/字符串数字")).toInt(&okGood);
         check("字符串 \"42\" 用 int 默认值读回 42", asIntOk.toInt(), 42);
-        check("字符串 \"abc\" 转不动时给默认值 7", asIntBad.toInt(), 7);
+        // ★ 原先这条预测的是 7（Qt5 语义：默认值兼作期望类型，转不动就回默认值）。
+        //   Qt 6.12 实测：默认值不参与，返回存的 QString；toInt() 自己转不动 → 0。
+        check("字符串 \"abc\" 读回来仍是存的 QString（默认值 7 没出场）",
+              asIntBad.typeId(), QMetaType::QString);
+        check("字符串 \"abc\" 转不动 → toInt() 默默给 0（**不是** 7）", asIntBad.toInt(), 0);
         check("裸 toInt(&ok) 对 \"42\" 给出 42", goodInt, 42);
         checkBool("裸 toInt(&ok) 对 \"42\" 的 ok 为 true", okGood);
         check("裸 toInt(&ok) 对 \"abc\" 给 0", rawToInt, 0);
@@ -508,8 +542,10 @@ int main(int argc, char *argv[])
                 << "｜canConvert(QStringList) =" << asList.canConvert<QStringList>()
                 << "（想读列表先 canConvert，别 toXxx 猜）";
         qInfo() << "  → 纪律：**每个配置项固定一种读法**（写 int 就永远按 int 读），"
-                   "并把默认值的类型写成和存储类型一致。类型不一致时 QSettings 不报错，"
-                   "它会给你一个「看起来合理」的兜底值，这才是最难查的那类 bug。";
+                   "并把默认值的类型写成和存储类型一致。★ 但别再指望 QSettings 替你兜底："
+                   "Qt6 的 value() 不做类型转换，键在就原样给你存的 QVariant，"
+                   "「看起来合理」的 0 / 空串是**你自己那句 toInt()/toString() 造出来的**，"
+                   "一句错误都不报——这才是最难查的那类 bug。";
 
         // ────────────────────────────────────────────────────────────
         // 步骤⑤ 缺失项：单参 vs 双参 value()
@@ -641,7 +677,9 @@ int main(int argc, char *argv[])
                 << "｜其中 User 段（QEvent::User=1000 .. QEvent::MaxUser=65535）=" << probe->userRangeHits;
         qInfo() << "  事件类型分布（type 枚举值:次数）：" << probe->histogram();
         qInfo() << "  结论（保守）：qsettings.h 里**没有任何 Q_SIGNALS**，第 180 行只有 "
-                   "protected event()。所谓 QSettingsEvent 是 qsettings.cpp 的**私有类**，"
+                   "protected event()。老资料里的 QSettingsEvent 在本机 6.12 查无此名："
+                   "qsettings.cpp 全文 grep 0 处，真实机制是第 330 行 postEvent 一个普通的 "
+                   "QEvent(QEvent::UpdateRequest)、再由第 3320 行 event() 自己接住 —— "
                    "公共头文件里既没有它的类型值也没有它的声明，所以**不能当成可依赖的 API**"
                    "（本讲实测到的分布只是佐证，别写成产品逻辑）。";
         qInfo() << "     → 真要变更通知，两条正路：① **自己包一层 setter**（下面的 ConfigStore，"
@@ -766,7 +804,8 @@ int main(int argc, char *argv[])
         qInfo() << "\n【本讲可核对的证据】";
         qInfo() << "  ① snapA 的 fileName 在全局改名后不变、snapB 用新名字 → 构造期快照";
         qInfo() << "  ② 三种构造的 fileName/format/scope 已逐项打出（IniFormat=1, UserScope=0）";
-        qInfo() << "  ③ 六个类型写回读回的类型名与值一致；\"abc\" 读成 int 时默默拿到默认值 7";
+        qInfo() << "  ③ 六个类型写回读回的类型名与值一致；\"abc\" 读成 int 时 Qt6 **不给默认值 7**，"
+                   "给的是存的 QString，toInt() 之后才是 0（默认值只在缺键时出场）";
         qInfo() << "  ④ allKeys() 的条数与层级前缀、childKeys/childGroups 的分工已对照";
         qInfo() << "  ⑤ sync 前后磁盘字节数、eventFilter 事件计数、导出件字节数、清理结果";
         qInfo().noquote() << QStringLiteral("\n【硬账】%1/%2 项核对通过 → 退出码 %3")
@@ -809,8 +848,12 @@ int main(int argc, char *argv[])
  *
  * 三、value() 的两个重载 = 两套语义（第 148/149 行）
  *   value(key)          找不到 → **无效 QVariant**（isValid()==false）→ 用来判断「有没有存过」
- *   value(key, 默认值)  找不到 **或 转换失败** → 返回默认值 → 类型也由默认值决定
- *   存与读类型不一致：  能转则转（int 42 ↔ "42"），不能转则**静默**给默认值。
+ *   value(key, 默认值)  ★ Qt6：默认值**只在「键不存在」时**返回（qsettings.cpp 第 3361~3372 行）。
+ *                        键在就原样返回存的 QVariant，类型也是它原来的类型。
+ *   存与读类型不一致：  Qt6 **不再转换**——Qt5 那份 value(key, requiredType, defaultValue)
+ *                        里的 convert 步骤已整段删除，所以 int 42 用 QString 默认值读回来
+ *                        仍然是 int、"abc" 用 int 默认值读回来仍然是 QString。
+ *                        能转（"42"→42）是你自己调 toInt() 的功劳，不能转（"abc"→0）也是。
  *   想知道「转换到底成没成」：单参版读回来 + toInt(&ok) / toDouble(&ok) / canConvert<T>()。
  *
  * 四、什么时候必须 sync()
@@ -823,8 +866,10 @@ int main(int argc, char *argv[])
  *   QSettings **没有信号**（qsettings.h 整份无 Q_SIGNALS）。可选路数只有三条：
  *   ① 自己包一层 setter，值真变了才 emit —— 唯一可靠的，见 ConfigStore；
  *   ② 轮询 allKeys()+value() 拼串比哈希；
- *   ③ eventFilter 接私有 QSettingsEvent —— **公共头文件里没有它的类型值与声明，
- *      别写进产品代码**（待复核：若将来 Qt 公开了这个事件类型再改）。
+ *   ③ eventFilter 接 QEvent::UpdateRequest —— 本机 6.12 的真实机制就这一条：qsettings.cpp
+ *      第 330 行 postEvent 一个 **QEvent(UpdateRequest)**，第 3320 行的 event() 自己接住。
+ *      既没有私有事件类，也没有公开的专用 QEvent::Type，所以它只告诉你「该重读配置了」，
+ *      不告诉你是哪个键变的——**别写进产品代码**，要通知就自己包 setter（见 ConfigStore）。
  *
  * 六、导出/导入的两条路
  *   键级搬运：读 allKeys() → 逐项 setValue 到另一个 QSettings。能过滤、能加版本号、
@@ -837,8 +882,9 @@ int main(int argc, char *argv[])
  * ——— 老师傅的话 ———
  *   徒弟，配置这块东西，写的时候越方便，出事的时候越难查。我的三条规矩：
  *
- *   第一条：**默认值和读取类型必须绑死**。你写 `value("超时", 0)` 和 `value("超时", 5000)`
- *   是两回事——前者连「类型」都定成了 int。别嫌烦，我给每一项配置都留一行注释：
+ *   第一条：**默认值和读取类型必须绑死**。★ Qt6 里默认值**不再**替你定类型（见速查三），
+ *   所以这个绑死只能靠你自己：`value("超时", 0).toInt()` 和 `value("超时", 5000).toInt()`
+ *   只差兜底数字，类型全凭你后面调的那个 toXxx()。别嫌烦，我给每一项配置都留一行注释：
  *   键名、类型、默认值、谁写的。三年后接手的人是你自己。
  *
  *   第二条：**程序里不许出现裸的 QSettings**。所有读写走 ConfigStore 这种门。
@@ -846,7 +892,8 @@ int main(int argc, char *argv[])
  *   门在你手里，信号才在你手里；顺便还能做校验（端口 0 存进去，界面当场抽风）。
  *
  *   第三条：**status() 是必修课**。配置文件被用户手改坏、U 盘拔了、目录只读，
- *   QSettings 都不会崩，它就默默返回默认值，你以为程序「记住」了，其实什么都没写进去。
+ *   QSettings 都不会崩，读不回来的键它就当不存在，默默给你默认值，你以为程序「记住」了，
+ *   其实什么都没写进去。
  *   我在步骤⑦ 把磁盘字节数一行行打出来，就是让你习惯「拿证据说话」这个毛病。
  *   做桌面的人，最后输给你的往往不是算法，是这些「读回来到底是多少」。
  *

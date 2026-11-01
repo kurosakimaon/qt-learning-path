@@ -95,7 +95,7 @@ window.STEPS = [
 
 // 状态变了：请求重画，而不是自己去画
 void Gauge::setValue(double v) { m_value = v; update(); }`,
-    highlight: [2, 3, 11]
+    highlight: [2, 3, 9]
   },
   {
     title: '真正发生的事：画到后备存储，再贴到屏幕',
@@ -141,7 +141,7 @@ drawContent(p);                  // 第二帧：内容
 
 // 改法：状态一起改，一次 update
 void View::setContent(const QPixmap &pm) { m_pm = pm; update(); }`,
-    highlight: [2, 3, 4]
+    highlight: [2, 3, 6]
   },
   {
     title: 'update 与 repaint：合并与立即',
@@ -292,14 +292,14 @@ void Canvas::mousePressEvent(QMouseEvent *e) {
     ms: 7500,
     stage: `
       <svg viewBox="0 0 760 420" role="img" aria-label="QPixmap 与 QImage 的分工及优化要点">
-        <rect class="svg-box-accent" x="25" y="25" width="230" height="130" rx="10"/>
+        <rect class="svg-box-accent" x="25" y="25" width="230" height="140" rx="10"/>
         <text class="svg-title" x="140" y="52" text-anchor="middle">QPixmap</text>
         <text class="svg-small" x="45" y="80">面向屏幕的位图</text>
         <text class="svg-small" x="45" y="104">可能由图形后端加速</text>
         <text class="svg-bad-text" x="45" y="130">只能在 GUI 线程用</text>
         <text class="svg-small" x="45" y="152">适合：缓存、图标、背景</text>
 
-        <rect class="svg-box" x="265" y="25" width="230" height="130" rx="10"/>
+        <rect class="svg-box" x="265" y="25" width="230" height="140" rx="10"/>
         <text class="svg-title" x="380" y="52" text-anchor="middle">QImage</text>
         <text class="svg-small" x="285" y="80">面向像素的位图</text>
         <text class="svg-small" x="285" y="104">可读可写每个像素</text>

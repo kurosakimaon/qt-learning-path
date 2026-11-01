@@ -9,8 +9,9 @@
 //     3) 产物五件套：字符串池 + 元数据数组 + qt_static_metacall + metaObject()/
 //        qt_metacast/qt_metacall + **每个信号一个实现体**
 //     4) SIGNAL()/SLOT() 宏为什么带一个数字前缀（这个坑 99% 的人讲不清楚）
+//        ★ 注意：**带前缀的只有宏的输出串，元对象表的字符串池里没有前缀**（见第 8 节，实测）
 //     5) 名字 → 索引 → switch 的派发链，以及它和直接函数调用的性能差
-//   ★ 下面注释里那段 moc 输出摘录是本模块**唯一在本机实测**的环节。
+//   ★ 本讲两样东西都在本机跑过：moc 产物（第三节摘录，逐字抄）+ 本文件的运行日志（见下）。
 //
 // 对应构建目标名：metaobject_05_moc_anatomy
 //   add_executable(metaobject_05_moc_anatomy 05_moc_anatomy.cpp)
@@ -18,14 +19,43 @@
 //   set(CMAKE_AUTOMOC ON)
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_05_moc_anatomy，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_05_moc_anatomy.log）。
 //   · 只建 QApplication 不显示窗口；结论全部 qInfo()；QTimer 驱动 + 自动 quit()。
-//   · 【唯一需要你动手的地方】第 5 节那行「故意 invokeMethod 一个不存在的方法名」
-//     在 **Debug 构建**下会走 Q_ASSERT 分支（qobjectdefs.h 那套断言）当场断掉。
-//     想看后面的结论，先把那一行注释掉，或者用 Release/-DNDEBUG 跑。
-//   · 本机校验状态（照实说）：本机 Qt 运行时缺符号（启动即 0xC0000139），跑不起来，
-//     所以本讲**没有运行输出**；但下面两件事真跑过（脚本在仓库 _tools/check_syntax.sh）：
-//       moc.exe → 退出码 0、无 stderr、产物 236 行（第三节的摘录就是逐字从它抄的）；
-//       g++.exe -fsyntax-only -std=c++17 -Wall -Wextra → 0 error、0 warning（未链接、未运行）。
+//   · 【曾经写错的一条，现已改对】第 4 节那行「故意 invokeMethod 一个不存在的方法名」
+//     **不会**断言、不会崩，任何构建类型都一样：它只是 qWarning 一句然后返回 false。
+//     依据（本机实测，两条都算）：
+//       ① 源码：qmetaobject.cpp 1715 行「查不到」这条路直接
+//          `return printMethodNotFoundWarning(...)`；该函数体在 1495~1528 行，
+//          只做一件事——qWarning（1523 行）然后 `return false`（1527 行）。
+//          invokeMethodImpl 里唯一的三个 Q_ASSERT（1686~1688 行）断的是
+//          paramCount/parameters/typeNames 这三个**必然成立**的入参，跟「名字找不到」无关。
+//       ② 跑：拿一个只有 `void real()` 槽的类，在**没定义 QT_NO_DEBUG** 的目标文件里
+//          调 invokeMethod("noSuchMethod") →（注意闸门是 QT_NO_DEBUG 而不是 NDEBUG，
+//          本机 qassert.h 第 28~30 行：`#if defined(QT_NO_DEBUG) && !defined(QT_FORCE_ASSERTS)`
+//          才把 Q_ASSERT 展开成空表达式）
+//          打印 `QMetaObject::invokeMethod: No such method Box::noSuchMethod()`、
+//          返回 false、进程退出码 0。
+//     所以这一行**不再注释**，本讲把它当正面证据跑给你看（第 4 节）。
+//     顺手把另一件事分清楚：connect 那条「参数个数关系」的检查**不是运行期断言**——
+//     本机 qobject.h 第 257 行写的是 static_assert，编译期就把你拦下，压根到不了运行期。
+//     运行期真会当场断掉的只有第 2 讲那条 `Qt::UniqueConnection` + lambda 的 Q_ASSERT_X
+//     （qobject.h 第 268 行），而且**只在没定义 QT_NO_DEBUG 的构建里**：本仓库是 Release，
+//     这句被编译掉，改由 qobject.cpp 第 5578~5581 行打一句 qWarning 再返回无效 Connection
+//     ——两种脸第 2 讲第 5 节各跑了一遍，别把它们混成一种。
+//   · 本机校验状态（照实说）：本讲**已在本机编译并运行**，退出码 0
+//     （build 目录是 Release，`cmake --build build --target metaobject_05_moc_anatomy -j 6`；
+//      跑法：`cd build/bin && QT_QPA_PLATFORM=offscreen QT_FORCE_STDERR_LOGGING=1
+//      ./metaobject_05_moc_anatomy.exe 2>&1 | iconv -f GBK -t UTF-8`，Windows 上 Qt 日志是 GBK）。
+//     真跑过的两件事（脚本在仓库 _tools/check_syntax.sh）：
+//       moc.exe → 退出码 0、无 stderr、产物 236 行（第三节的摘录就是逐字从它抄的，
+//                  仓库里那份 05_moc_output.txt 与本次重跑**逐字节相同**，diff 无输出）；
+//       g++.exe -fsyntax-only -std=c++17 -Wall -Wextra → 0 error、0 warning；
+//       并且**已经真实编译、链接、运行**（Qt 6.12.0 + MinGW 13.1.0，offscreen，
+//       ctest 目标 metaobject_05_moc_anatomy 通过、退出码 0，本机那一轮存档
+//       runlogs/metaobject_05_moc_anatomy.log）。
 //     下面这些行号是本机 6.12.0 头文件里 grep 出来的，不是我按记忆写的：
 //       QtCore/qtmetamacros.h        —— QT_META_OBJECT_VARS 124 行；QT_OBJECT_GADGET_COMMON
 //                                     133~136 行；Q_OBJECT 139~152 行（143 行那句
@@ -50,8 +80,18 @@
 //       QtCore/qtmochelpers.h        —— PropertyData 291 行 / EnumData 309 行（332 行把
 //                                     EnumIsScoped or 进 header[2]）/ MethodData 452 行 /
 //                                     SignalData 457 行 / SlotData 462 行
-//     moc 可执行文件：C:/msys64/ucrt64/share/qt6/bin/moc.exe —— "Qt 6.12.0"，自报
-//     "The Qt Meta Object Compiler version 69"。
+//       qtbase 源码（本机 D:/Qt/6.12.0/Src）——
+//                                     src/corelib/kernel/qobject.cpp 2667~2671 行 extract_code、
+//                                     3142 / 3168 行「++signal / ++method  // skip code」
+//                                     （**类型码前缀只活在宏串里**，第 8 节的依据）；
+//                                     4486 行 `signal_index = local_signal_index +
+//                                     QMetaObjectPrivate::signalOffset(m)`（第 5 节「局部索引」的依据）；
+//                                     src/corelib/kernel/qmetaobject.cpp 1690~1715 行
+//                                     invokeMethodImpl 查名字那一段（1702 行拿**裸名**比池子条目）；
+//                                     src/tools/moc/generator.cpp 282~284 行 + 851~854 行
+//                                     （**方法表按类别分组**的依据，见第 3 节）
+//     moc 可执行文件：D:/Qt/6.12.0/mingw_64/bin/moc.exe —— `--version` 自报 "moc 6.12.0"，
+//     产物头部（05_moc_output.txt 第 4 行）写 "The Qt Meta Object Compiler version 69 (Qt 6.12.0)"。
 // ============================================================================
 
 #include <QApplication>
@@ -163,7 +203,10 @@ int main(int argc, char *argv[])
     qInfo() << "  Q_MOC_OUTPUT_REVISION =" << Q_MOC_OUTPUT_REVISION
             << "（qtmetamacros.h 17 行；本机 moc 自报 'version 69 (Qt 6.12.0)'，两边必须相等）";
     // 另一个是**数据格式** revision：qtmocconstants.h 第 33 行 `enum { OutputRevision = 13 }`。
-    // 它给 moc / QMocCreator / QMetaObjectBuilder 用。注意 Qt6 的 QMetaObject 结构体里
+    // 它给 moc / QMetaObjectBuilder 用。★ 勘误：旧稿在这里还列了「QMocCreator」，  name-ok:QMocCreator ★ 勘误段落复述旧错名
+    // 本机 qtbase 全树 grep 是 0 处——moc 自己的类就叫 `Moc : public Parser`
+    // （src/tools/moc/moc.h 225 行），没有 QMocCreator 这个名字。  name-ok:QMocCreator 同上
+    // 注意 Qt6 的 QMetaObject 结构体里
     // **已经没有 revision 字段了**（qobjectdefs.h 614~623 行那个 `struct Data` 七个成员，
     // 第一个是 superdata；Qt5 时代第一个字段是 revision）—— 我在本机对 qobjectdefs.h
     // 跑了 `grep -i revision`：**零命中**，连一个残留字段都没有。别按 Qt5 的记忆去数偏移量。
@@ -174,10 +217,17 @@ int main(int argc, char *argv[])
     qInfo() << "  两者相等？" << (&Lever::staticMetaObject == lever.metaObject() ? "是" : "否")
             << " ← 因为 moc 生成的函数体就一句三元表达式：\n"
             << "     return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;";
-    qInfo() << "  className() =" << lever.metaObject()->className()
-            << " superClass() =" << lever.metaObject()->superClass()->className()
-            << " 再往上 =" << lever.metaObject()->superClass()->superClass()->className()
-            << "（superClass() 到顶返回 nullptr）";
+    // superClass() 沿继承链往上走，**走到 QObject 就返回 nullptr**——所以链第二次必须判空。
+    // （这里原来直接写 mo->superClass()->superClass()->className()，QObject 那一层的
+    //   superClass() 是 nullptr，解引用立刻段错误。反射遍历的通用形状就是 while (mo) 往下挪。）
+    {
+        const QMetaObject *up1 = lever.metaObject()->superClass();
+        const QMetaObject *up2 = up1 ? up1->superClass() : nullptr;
+        qInfo() << "  className() =" << lever.metaObject()->className()
+                << " superClass() =" << (up1 ? up1->className() : "(nullptr)")
+                << " 再往上 =" << (up2 ? up2->className() : "(nullptr，到顶了)")
+                << "（superClass() 到顶返回 nullptr，链之前必须判空）";
+    }
     // 顺带一个 Q_OBJECT 的硬约束（qtmetamacros.h 145~148 行）：它声明的
     // metaObject/qt_metacast/qt_metacall 三个函数是 **virtual** 的。
     // 所以「继承 QObject 但**不写** Q_OBJECT」的类不会重写这三个函数——
@@ -207,20 +257,43 @@ int main(int argc, char *argv[])
     // → 规矩：**永远写枚举名，永远不要把 methodType() 的数字存进配置或数据库**。
     for (int i = mo->methodOffset(); i < mo->methodCount(); ++i) {
         const QMetaMethod mm = mo->method(i);
-        qInfo().noquote() << QStringLiteral("    [%1] %2%3  参数%4个  返回QMetaType::Int=%5  access=%6")
+        qInfo().noquote() << QStringLiteral("    [%1] 局部索引 %2  %3%4  参数%5个  返回QMetaType::Int=%6  access=%7")
                                  .arg(i)
+                                 .arg(i - mo->methodOffset())
                                  .arg(QString::fromLatin1(mm.name()))
                                  .arg(QStringLiteral("（%1）").arg(typeName(mm.methodType())))
                                  .arg(mm.parameterCount())
                                  .arg(mm.returnType() == QMetaType::Int ? "是" : "否")
                                  .arg(mm.access() == QMetaMethod::Public ? "Public" : "其他");
     }
-    // 看上面这段输出对上一节的源码，能得出三条结论（都是 moc 实测输出里能直接印证的）：
-    //   ① 顺序 = 源码里出现的顺序（press 在 reset 之前），**不是**「信号在前、槽在后」；
-    //   ② 无 Q_OBJECT 标记的 plainHelper()/pull()/state() 根本不在表里；
-    //   ③ 信号即使声明在 Q_SIGNALS（=public）区，表里也是「信号」这一类，
-    //      moc 给它的 access 是 Public ——「信号只能由发射方调用」从来不是访问控制，
+    // 【取证：方法表到底是按什么排的】把上面这屏和第二节那段源码对读，逐条核对：
+    //   源码书写顺序是  press(Q_INVOKABLE) → pull → reset → onLevelChanged → 五个 getter
+    //                   → setState → pressedOut → levelChanged → flipped；
+    //   表里的顺序却是   pressedOut 0 / levelChanged 1 / flipped 2
+    //                   / reset 3 … setState 11 / press 12。
+    //   **press 明明写在 reset 前面，却排到 12** —— 所以「顺序 = 源码书写顺序」是错的（我上一版就这么写错）。
+    //   真实规则是 moc **按类别分组**输出，组内才保持源码顺序：
+    //       信号（Q_SIGNALS） → 槽（slots 区里的全部成员） → Q_INVOKABLE（Method） → 构造函数
+    //   依据（本机 moc 源码，不是我推测的）：
+    //     qtbase/src/tools/moc/generator.cpp
+    //       282~284 行：addFunctions(cdef->signalList, "Signal");
+    //                   addFunctions(cdef->slotList,   "Slot");
+    //                   addFunctions(cdef->methodList,  "Method");   ← 三个循环，一段接一段
+    //       851~854 行：methodList += signalList; += slotList; += methodList;
+    //                   （qt_metacall 里那个 `_id -= 13` 的 13 就是这条拼接的总长）
+    //       521~522 行：发射体的第三个实参 = 该信号在 signalList 里的下标
+    //                   （所以信号的「局部索引」既等于组内下标、也等于方法表下标——因为信号那组排最前面）
+    //   解析阶段就把三类塞进三个不同的表：moc.h 202 行
+    //     `QList<FunctionDef> signalList, slotList, methodList, publicList;`
+    // 【这一组结论跟着一起改】
+    //   ① pull()/state-change 之外的普通成员函数（pull()）根本不在表里——没登记就没法反射（见②）；
+    //   ② 表里**没有**「Q_INVOKABLE 是权限」这回事：press 的身份是 Method，
+    //      和它在源码里写在哪一段、是不是 public 无关，只和「有没有那个标记」有关；
+    //   ③ 五个 getter 因为写在 `public Q_SLOTS` 区里，全被登记成**槽**（局部索引 5~10）——
+    //      「槽」只是组名标签，不是特殊调用约定；
+    //   ④ 信号即使声明在 Q_SIGNALS（= public，qtmetamacros.h 49 行）区，access 也是 Public，
     //      第 1 讲那句「槽是普通成员函数」在这里再验一遍。
+    //   ⑤ 推论（很重要）：**别把数字索引写进任何配置**。加一个信号，槽那一批的索引全体后移一位。
 
     qInfo() << "=== 4. 名字 → 索引 → switch：invokeMethod 就是照着这张表查 ===";
     // 这条路和 connect(&Lever::press) 走的**不是**同一条：函数指针版编译期就把调用点定死了，
@@ -231,16 +304,29 @@ int main(int argc, char *argv[])
     qInfo() << "  invokeMethod(\"press\", Q_ARG(int,3)) 成功？" << okPress << " 返回 =" << ret;
     const bool okReset = QMetaObject::invokeMethod(&lever, "reset");
     qInfo() << "  invokeMethod(\"reset\") 成功？" << okReset << " presses() 现在 =" << lever.presses();
-    // 【反面教材·运行期才报错】下面这行在 Debug 下会 Q_ASSERT：
-    //   QMetaObject::invokeMethod(&lever, "noSuchMethod");
-    // 这就是「字符串宏 SIGNAL()/SLOT() 丢失编译期检查」的具体代价（第 2 讲已经埋过一次）。
-    // 想看它长什么样：把注释去掉，编译跑一次，把断言消息抄进你的 code review 笔记。
+    // 【反面教材·运行期才失败，但**不崩**】下面这行是本讲故意留下的失败样本：
+    const bool okNoSuch = QMetaObject::invokeMethod(&lever, "noSuchMethod");
+    qInfo() << "  invokeMethod(\"noSuchMethod\") 成功？" << okNoSuch
+            << " ← 上一行会打出 Qt 自己的 qWarning（No such method + Candidates）";
+    // 实测（本机 Release 跑，退出码 0）：控制台多出一行
+    //   QMetaObject::invokeMethod: No such method Lever::noSuchMethod()
+    // 然后本行返回 false。程序继续往下走，**没有任何断言**。
+    // 我上一版把这里写成「Debug 构建会走 Q_ASSERT 当场断掉」，那是**照 Qt5 博客抄的**，
+    // 在本机 6.12.0 上不成立：qmetaobject.cpp 1715 行查不到就走 printMethodNotFoundWarning，
+    // 那个函数（1495~1528 行）只有 qWarning + return false，里面一个 Q_ASSERT 都没有。
+    // 这就是「字符串宏 SIGNAL()/SLOT() 丢失编译期检查」的具体代价（第 2 讲已经埋过一次）：
+    // 代价是**静默失败**（返回值 false + 一行 warning，很多人不看返回值），不是崩。
     const int pressIdx = mo->indexOfMethod("press(int)");
     qInfo() << "  indexOfMethod(\"press(int)\") =" << pressIdx;
-    // 【读表时的差异，别搞混】字符串池里这条方法存的是 **"0press(int)""**（'0' = QMETHOD_CODE），
-    // 而传给 indexOfMethod 的是**不带**类型码的归一化签名——去码/比较那一步在 QMetaObject
-    // 内部完成。本机只装了头文件、没有 .cpp，所以我**不**讲它内部怎么实现的，
-    // 只把「池子里带码、查表时不带码」这个差异记下来（第 8 讲遍历表时会再撞见一次）。
+    // 【读表时的差异，别搞混——我上一版这里写反了】
+    //   字符串池里存的是**裸名字** `"press"`（第 3.2 节实测摘录 19 号条目就是 `"press"`，
+    //   既没有 `'0'` 前缀，也没有参数表），参数类型另存在条目的类型栏里；
+    //   带类型码前缀（'0'/'1'/'2'）的是 **SIGNAL()/SLOT() 宏拼出来的那根串**（第 8 节）。
+    //   所以查表时你传 `"press(int)"`（归一化签名、无前缀），Qt 内部拿裸名 + 类型表去比：
+    //   qmetaobject.cpp 1702 行那句 `name != stringDataView(meta, m.data.name())` 就是证据——
+    //   它比的是 `data.name()` 指向的**名字条目本身**，压根不看前缀。
+    //   前缀唯一被读出来的地方在 qobject.cpp 2667~2671 行 extract_code()，
+    //   紧接着 3142 / 3168 行两句 `++signal; // skip code`、`++method; // skip code` 就把它丢了。
     int ret2 = -1;
     bool okMeta = false;
     if (pressIdx >= 0) {                        // 查不到就别构造 QMetaMethod，先判负数
@@ -262,21 +348,37 @@ int main(int argc, char *argv[])
     Q_EMIT lever.pressedOut(100, 7);           // 你写的（signals 区是 public，所以外部也能发——
                                                //  这是 Qt6 的既定事实，不是 bug，第 1 讲已核对）
     // 编译器实际看到的：lever.pressedOut(100, 7) → 下面这个由 moc 生成的函数体
-    //   void Lever::pressedOut(int _t1, int _t2) { QMetaObject::activate<void>(this, &staticMetaObject, 2, nullptr, _t1, _t2); }
+    //   void Lever::pressedOut(int _t1, int _t2) { QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1, _t2); }
+    //                                       ↑ 局部索引是 **0**（本机实测产物 05_moc_output.txt 219~223 行）
     // 三个参数分别在说：
     //   &staticMetaObject → 「以**我**这张表为准」；
-    //   局部索引 2        → 不是全局索引！qt_metacall 里那个「减掉父类条数」是它的逆运算；
+    //   局部索引 0        → 不是全局索引！全局索引 = 0 + methodOffset()（本机实测 = 4），
+    //                       也等于「它是本类第一个信号」——因为 moc 把信号那一组排在方法表最前面
+    //                       （依据见第 3 节：generator.cpp 521~522 行取的是 signalList 的下标）。
+    //                       qt_metacall 里那个「减掉父类条数」是它的逆运算；
+    //                       另一头 qobject.cpp 4486 行 `signal_index = local_signal_index
+    //                       + QMetaObjectPrivate::signalOffset(m)` 是它的正向换算。
     //   nullptr           → 返回值槽（信号返回值恒 void，这里给空指针）。
     // 参数怎么送进去的？看 qobjectdefs.h 312~321 行那个变参模板：它把 args 逐个
     // std::addressof 成一个 void* 数组 `_a[]`，再调 309~311 行那个非模板 activate。
     // **_a[0] 放的是返回值地址**——这就是为什么 Qt5 时代「信号带返回值」会在很奇怪的
-    // 地方崩：_a[0] 被元类型系统当成 ret，而 moc 的 switch 里 `case 2: _t->pressedOut(...); break;`
+    // 地方崩：_a[0] 被元类型系统当成 ret，而 moc 的 switch 里 `case 0: _t->pressedOut(...); break;`
     // 直接把返回值丢了。Qt6 依然允许你声明非 void 信号（本机 moc 实测照收不误），
     // 但「值拿不到」，所以 void 是**约定**，不是编译器强制。
     qInfo() << "  命中次数 =" << hits << "（证明 activate 确实遍历了接收者列表）";
     // 对照：无参信号 flipped() 的发射体没有模板实参、也没有尾随参数
-    //   void Lever::flipped() { QMetaObject::activate(this, &staticMetaObject, 4, nullptr); }
+    //   void Lever::flipped() { QMetaObject::activate(this, &staticMetaObject, 2, nullptr); }
     // ——它调的是 qobjectdefs.h 310 行那个 (sender, mo, local_index, argv) 重载。
+    //   flipped 的局部索引是 **2**（三个信号 pressedOut/levelChanged/flipped 里的第三个），
+    //   不是 4：我上一版把「全局索引」和「局部索引」混着写，两处都错过一次。
+    // 把三个信号的局部索引在这里钉成一屏证据（和 05_moc_output.txt 尾部 // SIGNAL 0/1/2 一一对应）：
+    for (int i = mo->methodOffset(); i < mo->methodCount(); ++i) {
+        const QMetaMethod mm = mo->method(i);
+        if (mm.methodType() != QMetaMethod::Signal) continue;
+        qInfo().noquote() << QStringLiteral("    发射体第三个实参（局部索引）= %1  ← %2")
+                                 .arg(i - mo->methodOffset())
+                                 .arg(QString::fromUtf8(mm.methodSignature()));
+    }
 
     qInfo() << "=== 6. qt_metacast 就是 strcmp 串表；qobject_cast 靠它（第 8 讲细说） ===";
     qInfo() << "  qt_metacast(\"Lever\")   →" << (lever.qt_metacast("Lever") != nullptr ? "命中" : "空");
@@ -284,7 +386,9 @@ int main(int argc, char *argv[])
     qInfo() << "  qt_metacast(\"QWidget\") →" << (lever.qt_metacast("QWidget") != nullptr ? "命中" : "空");
     // 生成体（本机实测）就三步：!_clname 返空；strcmp 命中**本类名**就 static_cast<void*>(this)；
     // 否则 return QObject::qt_metacast(_clname) 往父类递。整张表里只放了**一条**类名，
-    // 所以「跨模块的接口类型」cast 不中，那是 Qt7 的 Q_REVISION/QT_REVISION 才管的事。
+    // 所以「跨模块的接口类型」cast 不中。★ 勘误：旧稿在这里写「那是 Qt7 的
+    // Q_REVISION/QT_REVISION 才管的事」——`Q_REVISION` 是真宏（qabstractitemmodel.h 等处在用，  name-ok:QT_REVISION 本行正在说 QT_REVISION 不存在（Q_REVISION 是真名）
+    // 管的是**带版本的信号/槽**，不是 cast），而 `QT_REVISION` 本机 qtbase 全树 grep 是 0 处。  name-ok:QT_REVISION 同上
     // 【注意】qt_metacast 是 Q_OBJECT 声明的 **virtual** 函数（qtmetamacros.h 147 行），
     // 手写一份在类里会跟 moc 生成的重名冲突——别覆写它，想扩展行为去用 Q_DECLARE_INTERFACE/qobject_cast。
 
@@ -301,7 +405,7 @@ int main(int argc, char *argv[])
             << "（第一个 USER=true 的属性；没有就退化成第 0 个属性）";
     const QMetaEnum me = mo->enumerator(mo->indexOfEnumerator("State"));
     qInfo() << "  枚举 State：keyCount =" << me.keyCount() << " isFlag =" << me.isFlag()
-            << " isScoped =" << me.isScoped()      // qmetaobject.h 299 行
+            << " isScoped =" << me.isScoped()      // qmetaobject.h 282 行
             << " valueToKey(1) =" << QString::fromLatin1(me.valueToKey(1));
 
     qInfo() << "=== 8. SIGNAL()/SLOT() 宏的「真身」：一位数字前缀 + 藏起来的文件行号 ===";
@@ -314,14 +418,28 @@ int main(int argc, char *argv[])
     // 而是带一个 '2' 前缀的字节串；后面还跟了个 '\0' 和「文件名:行号」，
     // 供调试器/Qt Creator 的连接视图反查是谁连的（qFlagLocation 声明在 39 行，非 debug 分支
     // 59~60 行就只剩前缀 + 签名，没有位置串）。
-    // 这条前缀正是**元对象表的字符串池里方法签名存的样子**——看下面 moc 实测摘录：
-    //   QtMocHelpers::StringRefStorage qt_stringData{ "Lever", "2levelChanged", "1onLevelChanged", ... }
-    // 两边对得上，这就是「字符串版 connect 为什么能工作」的全部机制：宏拼出
-    // "<类型码><归一化签名>"，然后拿它去池子里比。
-    // 【工程结论】所以**永远用 SIGNAL()/SLOT() 宏去生成这个串，别手搓裸签名**：
+    // 【关键更正：前缀**只在宏串里**，字符串池里没有】我上一版写的是「这条前缀正是元对象表
+    // 字符串池里方法签名存的样子」，并抄了一行 `qt_stringData{ "Lever", "2levelChanged", ... }`
+    // ——**本机产物里根本没有这回事**。逐字看第三节 3.2（05_moc_output.txt 39~64 行）：
+    //   QtMocHelpers::StringRefStorage qt_stringData{ "Lever", "pressedOut", "", "total", "id",
+    //                                                 "levelChanged", "level", "flipped", "reset",
+    //                                                 "onLevelChanged", ... }
+    // 全是**裸名字**，一个数字前缀都没有；连参数表都不在池子里（池子只存名字，类型另存在条目里）。
+    // 那前缀活在哪儿？就活在上面宏展开出来的这根串里，而且**读一眼就被扔掉**：
+    //   qobject.cpp 2667~2671 行 extract_code()   —— 取首字符减 '0' 当类型码；
+    //   qobject.cpp 3142 行 `++signal; // skip code`
+    //   qobject.cpp 3168 行 `++method; // skip code` —— 跳掉首字符，剩下的才是拿去查表的签名。
+    // 所以「字符串版 connect 为什么能工作」的正确说法是：
+    //   宏拼出 "<类型码><签名>" → **extract_code 读类型码（用来区分 SLOT/SIGNAL 两种查法）、
+    //   然后把类型码丢掉** → 拿裸签名去池子边上比对。类型码决定的是「用 indexOfSlot 还是
+    //   indexOfSignal 那条查法」（qobject.cpp 3176~3185 行那个 switch），**不是**池子里的键。
+    // 【工程结论】不变，但理由换了：**永远用 SIGNAL()/SLOT() 宏去生成这个串，别手搓裸签名**：
     //   connect(a, "pressedOut(int,int)", b, "onX(int)")   ← 前缀是你自己猜的，猜错就静默失败
-    // 至于「少一位数字到底是不是一定查不到」，本机只装了头文件、没有 qmetaobject.cpp，
-    // 我看不到 indexOfMethod 的实现，所以这里**不**下断言——规矩就是「要么用宏，要么用函数指针版」。
+    // 为什么一定失败，本机现在有实现可看（不再只能引文档）：qobject.cpp 3132 行
+    // `check_signal_macro(...)` 先验信号侧前缀必须是 '2'，3136 行 `check_method_code(...)`
+    // 验槽侧必须是 '1' 或 '2'，任何一边不对就 qCWarning + 返回**无效 Connection**（3133/3137 行）。
+    // 也就是说裸签名（'p' 开头 → extract_code 算出乱七八糟的码）连查表那一步都进不去。
+    // 规矩照旧：「要么用宏，要么用函数指针版」。
     qInfo().noquote() << "  QByteArray(SIGNAL(pressedOut(int,int))) ="
                       << QByteArray(SIGNAL(pressedOut(int,int)));
     qInfo().noquote() << "  QByteArray(SLOT(onLevelChanged(int)))   ="
@@ -362,9 +480,11 @@ int main(int argc, char *argv[])
 // ============================================================================
 // 三、moc 到底生成了什么（★ 本机实测摘录 ★）
 // ----------------------------------------------------------------------------
-// 命令（在本目录下，和本仓库 _tools/check_syntax.sh 用的是同一个 moc）：
-//   C:/msys64/ucrt64/share/qt6/bin/moc.exe -I ../ -I . 05_moc_anatomy.cpp -o 05_moc_output.txt
-//   → 退出码 0、无 stderr；产物 **236 行**；看完就删（它是生成物，不该进仓库）。
+// 命令（在本目录下；本机可用的 moc 是 Qt 官方 MinGW 套件那一个）：
+//   D:/Qt/6.12.0/mingw_64/bin/moc.exe -I ../ -I . 05_moc_anatomy.cpp -o 05_moc_output.txt
+//   → 退出码 0、无 stderr；产物 **236 行**（`wc -l` 实测，`moc.exe --version` = moc 6.12.0）。
+//   仓库里那份 05_moc_output.txt 我就是用这条命令生成的，再 diff 一次是**零差异**，
+//   所以下面的摘录可以直接当证据用，不需要你重跑。
 // 下面 3.1~3.8 是从那 236 行里**逐字**截出来的（只在行前加 `// `、行尾加注解，
 // 省略处标了 `...`）。我第一版这里凭印象写错过两处（`EnumData<Lever::State>` 和
 // `&Lever->onLevelChanged`），现在这两处都按本机输出改回来了——
@@ -417,7 +537,7 @@ int main(int argc, char *argv[])
 //     };
 //   ↑ Qt6 的全部花样就在这：一个**编译期就能算完**的花括号列表。
 //     Qt5 那套 `struct qt_meta_stringdata_Lever_t { QByteArrayData ...; char qtdt[...]; }`
-//     加 `QT_MOC_LITERAL(0, 0, 5)` 在这版里 grep 不到了——旧书照抄必翻车。
+//     加 `QT_MOC_LITERAL(0, 0, 5)` 在这版里 grep 不到了——旧书照抄必翻车。  name-ok:QT_MOC_LITERAL Qt5 的宏，本行正在说这版 grep 不到
 //
 // ── 3.3 方法表：每条一行模板，(名字下标, 返回类型名下标, 可见性, 返回类型, 参数) ──
 //     QtMocHelpers::UintData qt_methods {
@@ -461,8 +581,26 @@ int main(int argc, char *argv[])
 //         }}),
 //     };
 //   【这一屏里有三个值得停下来的点】
-//   ① 数一下：13 条 = 3 信号 + 9 槽 + 1 Q_INVOKABLE 方法。**顺序就是你写的顺序**
-//      （pressedOut 在你源码里第一个声明，它就排 0）。
+//   ① 数一下：13 条 = 3 信号 + 9 槽 + 1 Q_INVOKABLE 方法。
+//      【更正一条我自己写错的】我上一版在这里写「顺序就是你写的顺序，pressedOut 在你源码里
+//      第一个声明，它就排 0」——**两句都不对**：
+//        · `pressedOut` 在源码里**最后**才声明（它在 Q_SIGNALS 段，那段在整个类的最底下，
+//          见第二节 138~141 行），排 0 跟「写得早」没有关系；
+//        · 真正决定顺序的是 moc 的**分组规则**：先把 signalList 整组写完，再写 slotList
+//          整组，最后写 methodList（Q_INVOKABLE）整组，**组内**才保持源码书写顺序。
+//        · 反例就在这一屏最底下：`Method 'press'` 排 12。`press` 在源码里写在 `reset` **之前**
+//          （109 行 vs 118 行），表里却排在所有槽之后——因为它属于 Q_INVOKABLE 那一组。
+//      依据（本机 moc 源码，不是文档）：
+//        qtbase/src/tools/moc/generator.cpp 282~284 行
+//            addFunctions(cdef->signalList, "Signal");
+//            addFunctions(cdef->slotList,   "Slot");
+//            addFunctions(cdef->methodList, "Method");
+//        qtbase/src/tools/moc/moc.h 202 行
+//            QList<FunctionDef> signalList, slotList, methodList, publicList;  ← 解析期就分开了
+//        qtbase/src/tools/moc/generator.cpp 851~854 行（qt_metacall 用的同一份拼接）
+//            methodList += cdef->signalList; methodList += cdef->slotList; methodList += cdef->methodList;
+//      工程后果：**加一个信号，会让后面所有槽和所有 Q_INVOKABLE 的数字索引全体 +1。**
+//      数字索引绝不能写进配置/数据库/协议（第 8 讲再钉一次）；要稳定标识就用名字。
 //   ② 五个 getter 全被登记成 SlotData<...() const>，连 `const` 都在签名里。
 //      「槽」在这里只是个**身份标签**，不是什么特殊调用约定——第 8 讲读表时你会看到
 //      methodType() 把它们统统报成 Slot。
@@ -630,7 +768,7 @@ int main(int argc, char *argv[])
 // ============================================================================
 // 【两处「和 Qt5 教程不一样」，务必标注清楚，别照着旧书抄】
 //   ① Qt5 的产物长这样：`struct qt_meta_stringdata_Lever_t { QByteArrayData...; char qtdt[...]; }`
-//      + `QT_MOC_LITERAL(0, 0, 5)` 一整套偏移量宏。Qt6 全换了：一个 `StringRefStorage`
+//      + `QT_MOC_LITERAL(0, 0, 5)` 一整套偏移量宏。Qt6 全换了：一个 `StringRefStorage`  name-ok:QT_MOC_LITERAL 同上：描述 Qt5 产物长什么样
 //      花括号初始化列表 + `QtMocHelpers::SignalData<签名>` 模板 + `Q_CONSTINIT` 常量初始化，
 //      编译期就把表算完了。旧书里那些「qt_meta_stringdata_XXX_t」现在 grep 不到。
 //   ② 【更正一条我自己写错的】第一版这里我断言「本机输出里 IndexOfMethod 那行写的是
@@ -654,13 +792,16 @@ int main(int argc, char *argv[])
 //    `<base>_automoc.cpp` 去带它，而 .cpp 里的类**必须**你自己写
 //       #include "05_moc_anatomy.moc"
 //    文件名要**一字不差**等于当前 TU 的文件名 + ".moc"，且放在 TU 的**最后**。
-// 3) 想手动跑（本讲就是这么实测的）：
-//       C:/msys64/ucrt64/share/qt6/bin/moc.exe 05_moc_anatomy.cpp -o 05_moc_output.txt
-//       带宏开关时：moc.exe -DQT_NO_DEBUG -I C:/msys64/ucrt64/include/qt6 xxx.h -o moc_xxx.cpp
+// 3) 想手动跑（本讲就是这么实测的，依据 = 上面第三节开头那条命令 + 零差异 diff）：
+//       D:/Qt/6.12.0/mingw_64/bin/moc.exe 05_moc_anatomy.cpp -o 05_moc_output.txt
+//       带宏开关时：moc.exe -DQT_NO_DEBUG -I D:/Qt/6.12.0/mingw_64/include xxx.h -o moc_xxx.cpp
 //    看到 "Parse error" 别慌，它 99% 是这两类：Q_OBJECT 的关键字写错/漏空格，
 //    或者属性/信号里有 moc 解析不了的模板（moc 的模板解析能力有限，
 //    `Q_PROPERTY(QVector<int> ...)` 这种就属于要先想想的）。
-// 4) 产物不该进版本库。看到仓库里有 moc_*.cpp 或 *.moc，删掉，让 AUTOMOC 生成。
+// 4) **可编译的**产物不该进版本库：看到仓库里有 `moc_*.cpp` 或 `*.moc`，删掉，
+//    让 AUTOMOC 生成（它们一旦和源码不同步就是慢性毒药）。本目录里的
+//    `05_moc_output.txt` 是例外——它是**教学用的文本快照**（`.txt`，不参与编译），
+//    内容 = 上面那条 moc 命令的原始输出，我生成后 diff 过为零差异。
 // ============================================================================
 
 // ——— 老师傅的话 ———
@@ -673,9 +814,13 @@ int main(int argc, char *argv[])
  *   `QMetaObject::activate(...)` 转发（摘录最后那三段）。你不 include 那个 .moc，
  *   链接器就找不到它——这就是第 1 讲那个 `undefined reference to vtable for X` 的全部来历。
  *
- *   「槽是普通成员函数」——看摘录里的 switch：`case 1: _t->onLevelChanged(...)`，
- *   和你手动调一次没有任何区别，moc 不区分「谁在调」。slot 关键字只是给它
- *   在表里挂个 "1" 前缀，让**字符串版** connect 找得到它；函数指针版连这个前缀都不看。
+ *   「槽是普通成员函数」——看摘录里的 switch：`case 4: _t->onLevelChanged(...)`
+ *   （依据：`metaobject/05_moc_output.txt` 第 140 行，逐字），
+ *   和你手动调一次没有任何区别，moc 不区分「谁在调」。`slots` 关键字改变的只有
+ *   **表里那条记录用的模板类型**（`QtMocHelpers::SlotData` vs `MethodData`，见 3.3），
+ *   而 '1'/'2' 那个数字前缀是 SIGNAL()/SLOT() **宏**加在传给 connect 的那根字符串上的编码
+ *   （qobjectdefs.h 41~43 行；元对象字符串池里**没有**这个前缀，3.2 逐字可查）；
+ *   函数指针版连这根字符串都不生成。
  *
  *   「函数指针版有编译期检查」——因为那条路**根本不经过这张表**：编译器直接
  *   对函数签名做了类型检查，运行时用成员指针地址去比。表只在 invokeMethod、
@@ -691,8 +836,10 @@ int main(int argc, char *argv[])
  *    的地方（objectName + connectSlotsByName）才允许出现字符串版。**
  *
  * 最后一条是我自己踩出来的读表姿势，送你：别背字段，**跑一遍 moc**。
- * 一个 30 行的类，moc 出来 240 行，你就有全部答案：顺序怎么排、前缀是什么、
- * switch 里有几个 case、qt_metacall 减掉了几条。看三次就终身不忘，比读十篇博客都管用。
+ * 一个 30 行的类，moc 出来 236 行（`wc -l 05_moc_output.txt` 实测），你就有全部答案：
+ * 顺序怎么排（信号成段、槽成段，段内才按书写顺序）、字符串池里是什么（光秃秃的名字，
+ * 没有数字前缀）、switch 里有几个 case、qt_metacall 减掉了几条。看三次就终身不忘，
+ * 比读十篇博客都管用——本讲我自己就是靠这个把三条凭印象写错的话改回来的。
  */
 
 // ——— 小练习 ———
@@ -701,11 +848,14 @@ int main(int argc, char *argv[])
  *      几条字符串、qt_methods 里有几个条目，然后和本讲第 3 节的运行时输出一一对上：
  *      哪个索引对应哪个成员？pressedOut 的局部索引到底是几？
  *   2. 把 Lever 里的 `Q_INVOKABLE` 删掉再跑 moc：确认 press 从方法表里**整条消失**，
- *      invokeMethod("press") 从此查不到（第 4 节的 okPress 变 false，Debug 下断言）。
+ *      invokeMethod("press") 从此查不到（第 4 节的 okPress 变 false）。
+ *      注意它**不会断言**：qmetaobject.cpp 1715 行一路走到
+ *      printMethodNotFoundWarning()（1495~1528 行，1523 行 qWarning、1527 行 return false），
+ *      Debug/Release 都一样——第 4 节的实测日志就是这句警告 + false + 退出码 0。
  *      由此说明「Q_INVOKABLE 是注册，不是权限」。
  *   3. 把 `void flipped();` 改成 `int flipped();`，跑 moc 看它**照样通过**（本机实测过
- *      同构的探针：moc 不拒绝非 void 信号），再对照摘录里 `case 4: _t->flipped(); break;`
- *      那一行——没有 `_a[0]` 写回。用自己的话写出「信号为什么必须返回 void」的真实原因，
- *      并把它写进你团队的 code review 检查项里。
+ *      同构的探针：moc 不拒绝非 void 信号），再对照摘录里 `case 2: _t->flipped(); break;`
+ *      （05_moc_output.txt 第 138 行）——没有 `_a[0]` 写回。用自己的话写出「信号为什么必须
+ *      返回 void」的真实原因，并把它写进你团队的 code review 检查项里。
  */
 // ============================================================================

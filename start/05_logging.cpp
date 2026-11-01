@@ -19,8 +19,10 @@
 //   · 依赖 Qt6::Widgets（用一个隐形 QApplication 让 qInfo 走标准输出即可；
 //     日志本身属 QtCore/QtGui，Widgets 只是为了和整套课程构建方式一致）。
 //   · qFatal 会**直接终止进程**（abort），本示例默认不调用它，只在注释里讲。
-//   · 本机当前无法编译链接 Qt，本示例**未在本机实测编译**；API 均对本机
-//     QtCore/qlogging.h、qloggingcategory.h、qdebug.h 头文件核对过。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 start_05_logging，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/start_05_logging.log）。
 //   · 无人值守：QTimer 驱动，结束自动 quit()。
 // ============================================================================
 

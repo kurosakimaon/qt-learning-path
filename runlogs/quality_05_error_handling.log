@@ -1,0 +1,73 @@
+================================================================
+quality 第 5 讲 · 错误处理策略（平台 = "offscreen" , Qt = 6.12.0 ）
+  临时目录（结束会清）： "C:/Users/Kuros/AppData/Local/Temp/qt_lf_quality05"
+================================================================
+【证据①】Qt 的 C 风格 API 不抛异常：同一段代码，两种错，两种走法
+  open() 返回 false，error() = 5 （5 = OpenError）｜errorString 是人话，只做日志不做分支
+  → 打不开文件被 try/catch 抓住的次数 = 0 ← 这就是「混用两套风格」的后果：你以为兜住了，其实一句都没进
+      ［对］ ① open() 失败时 catch(...) 一次都没进（失败是返回值，不是异常） → 期望 1，实测 1
+      ［对］ ① open() 失败时 error() 不是 NoError → 期望 1，实测 1
+  std::vector::at(99) 被 catch 抓住的次数 = 1 ｜结论：**边界类/越界类用异常，资源与解析类用返回值**，别指望一个 catch 兜全场
+      ［对］ ① std::vector::at 越界被 catch 抓住 1 次 → 期望 1，实测 1
+  异常已在边界翻译成 Result：code = 501 ｜用户看到的文案 = "程序内部出了意外，已记录，请反馈。"
+  → 翻译过来的异常次数 = 1 ｜上层只见 Result，这样「两套风格」在外面就是一套
+      ［对］ ① 越界异常在层边界翻译成 Result 的次数 → 期望 1，实测 1
+【证据②】一次导入，四类失败，四条 Result 通道
+[op=import_config] code=101 domain=0 at=1ms target=<nope-absent.json> params=stage=read msg=文件不存在
+"  ① 文件不存在｜错误码=101｜可恢复=1｜恢复动作=请确认路径，或从「浏览」重新选一次｜用户文案=找不到配置文件，请重新选择。"
+     上下文：operation = "import_config" at = 1 ms｜target(打码) = "<nope-absent.json>" ｜params = "stage=read"
+      ［对］ ② ① 缺文件 → code 101 FileNotFound → 期望 101，实测 101
+      ［对］ ② ① 缺文件标成「可恢复」（用户能自己重选） → 期望 1，实测 1
+      ［对］ ② ① 日志里的 target 已打码（不含原始路径） → 期望 1，实测 1
+[op=import_config] code=201 domain=1 at=3ms target=<<body>> params=offset=31 parseError=1 msg=JSON 语法错：unterminated object
+"  ② JSON 语法错｜错误码=201｜可恢复=0｜恢复动作=-｜用户文案=配置文件格式有误，检查引号和逗号。"
+     上下文：operation = "import_config" at = 3 ms｜target(打码) = "<<body>>" ｜params = "offset=31 parseError=1"
+      ［对］ ② ② JSON 语法错 → code 201 JsonSyntax → 期望 201，实测 201
+      ［对］ ② ② 语法错不可恢复（重试也没用，得改文件） → 期望 0，实测 0
+[op=import_config] code=302 domain=2 at=4ms target=<serverName> params=expect=String(3) got=2 msg=字段类型不符
+"  ③ 字段类型不符｜错误码=302｜可恢复=0｜恢复动作=-｜用户文案=有一项填的类型不对（比如端口要填数字）。"
+     上下文：operation = "import_config" at = 4 ms｜target(打码) = "<serverName>" ｜params = "expect=String(3) got=2"
+      ［对］ ② ③ serverName 写成数字 → code 302 FieldTypeMismatch → 期望 302，实测 302
+      ［对］ ② ③ 类型不符的日志带着期望/实际类型 → 期望 1，实测 1
+字段 port 是字符串，已按数字转换（该让作者改配置了）
+"  ③′ 端口是字符串（可恢复）｜降级成功：port = 8080｜它的状态是 accepted，不是 rejected——「可恢复」的意思就是「能接着跑，但要记一笔」"
+      ［对］ ② ③′ 端口字符串 "8080" 被降级成数字 8080 → 期望 8080，实测 8080
+[op=save_config] code=401 domain=3 at=7ms target=<backup.json> params=fileError=5 bytes=8 msg=拒绝访问。
+"  ④ 磁盘写入失败｜错误码=401｜可恢复=1｜恢复动作=去掉只读或换个目录再保存｜用户文案=这个位置写不进去，换个目录试试。"
+      ［对］ ② ④ 只读目标写不进去，code 落在 WriteDenied/WriteFailed 上 → 期望 1，实测 1
+      ［对］ ② ④ 写失败也带着「怎么救」的提示 → 期望 1，实测 1
+  → 走通 Result 通道的失败数 = 4 （①②③④ 共 4 条；③′ 是**可恢复降级**，它成功、只多一条 warning，不算失败） ｜日志计数：qWarning 累计 2 次，qCritical 累计 3 次
+      ［对］ ② 走 Result 通道的失败条数（①②③ + 可能的④） → 期望 4，实测 4
+      ［对］ ② ③′ 的可恢复降级次数（成功但留了一条 warning） → 期望 1，实测 1
+【证据③】生产日志别把路径原样打出去
+[op=import_config] target=C:/Users/Kuros/AppData/Local/Temp/qt_lf_quality05/secret-name.json msg=open failed
+[op=import_config] code=102 domain=0 at=7ms target=<secret-name.json> params=size=12 msg=open failed
+"  原始路径特征串 = \"C:/Users/Kuros/AppData/Local/Temp/qt_lf_quality05\"（长度 49）"
+"  反面写法：新增 1 行日志，其中 1 行含原始路径"
+"  正面写法：新增 1 行日志，含原始路径 0 行（target 已打码为 <secret-name.json>）"
+  → 累计泄漏次数 = 2 ｜规矩：**路径/账号/密钥一律打码或不打**；params 里放「大小/偏移/错误号」这种可定位又不涉密的东西
+      ［对］ ③ 反面写法（target 原样进日志）新增日志行数 → 期望 1，实测 1
+      ［对］ ③ 反面写法泄漏原始路径的行数 → 期望 1，实测 1
+      ［对］ ③ 正面写法（describeLog 打码）泄漏行数 → 期望 0，实测 0
+      ［对］ ③ 全流程累计泄漏次数（故意写错的 1 行 + 取证 header 打印特征串的 1 行） → 期望 2，实测 2
+      ［对］ ③ 打码后的 target 不含原始目录 → 期望 1，实测 1
+      ［对］ ③ 打码结果仍点得出文件名（<secret-name.json>） → 期望 1，实测 1
+【证据④】工作线程里的错误怎么回主线程
+  收到上报 = 1 次｜其中在主线程处理 = 1 次｜线程退出 wait() = true
+      "worker-thread｜code=101｜找不到配置文件，请重新选择。｜接收线程=main"
+      ［对］ ④ 工作线程发出的错误上报被主线程收到几次 → 期望 1，实测 1
+      ［对］ ④ 上报在主线程处理（可以碰 UI）的次数 → 期望 1，实测 1
+      ［对］ ④ 子线程 quit() 后 wait() 收得干净 → 期望 1，实测 1
+      ［对］ ④ 收到的报告带着错误码 101（缺文件，与证据②同一条流水） → 期望 1，实测 1
+      ［对］ ④ 接收槽里确认的线程身份是 main → 期望 1，实测 1
+  → 反面教材两条：① 在工作线程里构造/弹出 QMessageBox（跨线程碰 UI，随机崩）；② 用全局变量传错误（没同步、没顺序）。信号带结构体是正解，代价是**必须注册元类型**。
+【总账】日志行数 = 59 ｜qDebug = 0 ｜qInfo = 52 ｜qWarning = 4 ｜qCritical = 3 ｜原始路径泄漏行数 = 2
+【总账】跨线程上报 = 1 次，全部落在主线程 = true ｜全流程耗时 = 342 ms
+【一句话】qFatal 会**当场 abort**（QMessageLogger::fatal 标了QT_MESSAGE_LOGGER_NORETURN + noexcept），进程连退出码都不体面，析构与清理全跳过：只有「继续跑下去更危险」才用它，其它一律 Result + qCritical。
+      ［对］ 【总账】消息处理器确实收进了日志（行数 > 0） → 期望 1，实测 1
+      ［对］ 【总账】不可恢复的错至少 2 条 qCritical → 期望 1，实测 1
+      ［对］ 【总账】可恢复/降级/反面写法加起来至少 3 条 qWarning → 期望 1，实测 1
+      ［对］ 【总账】原始路径泄漏总数（反面写错的 1 行 + 取证 header 打特征串的 1 行） → 期望 2，实测 2
+      ［对］ 【总账】临时目录清理干净 → 期望 1，实测 1
+
+【硬账】32/32 项核对通过 → 退出码 0

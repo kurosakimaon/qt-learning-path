@@ -1,0 +1,31 @@
+=== 1. connect 的返回值 QMetaObject::Connection 是什么 ===
+  三条连接是否都活着： A活 B活 Done活
+  connA 的拷贝指向同一条连接： 活
+  发射 ping(1) → a.hits = 1  b.hits = 1
+=== 2. disconnect(QMetaObject::Connection)：最精确的一把刀 ===
+  第一次断 = true  再断同一条 = false  断完后门票： 死  拷贝的那张也一起失效： 死
+  发射 ping(2) → a.hits = 1  b.hits = 2 （a 不涨了，b 还在涨：句柄断连只影响那一条）
+=== 3. 成员指针式 disconnect：按四元组精确匹配 ===
+  disconnect(&prod,&Producer::ping,&b,&Sink::onPing) = true
+  发射 ping(3) → a.hits = 1  b.hits = 2
+=== 4. 「断掉该信号到某接收者的全部槽」：那个 void** zero 形参 ===
+  disconnect(sender, signal, receiver, nullptr) = true
+  发射 ping(4) → onPing 增量 = 0  onDone 增量 = 0 （两条都被断了，都是 0）
+=== 5. 成员式 disconnect：三个参数全可省，nullptr 是通配符 ===
+  prod.disconnect() = true  之后 receivers(ping(int)) = 0  两条门票： 死 死  done 增量 = 0
+=== 6. QMetaMethod 式 disconnect：反射路径上的写法 ===
+  fromSignal 拿到信号名 = "ping"  槽索引 = 4  QMetaMethod 式断开 = false
+=== 7. 【保命】接收者析构 → 连接自动断开 ===
+  临时接收者活着时 hits = 1  门票： 活
+  delete 之后门票自动变： 死 （Connection 帮你把「接收者已死」显式化了）
+  删掉接收者后再发射，程序没崩；a 增量 = 1 （这就是「自动断连」救命的地方）
+=== 8. 想自己观察连接变化：connectNotify / disconnectNotify ===
+  连一次后 connectNotify 次数 = 0  最后记到的名字 = ""
+  断一次后 disconnectNotify 次数 = 0  最后记到的名字 = ""
+=== 9. 自制 RAII 壳：出作用域自动断开 ===
+  guard 里连接活着吗： 活
+  作用域内 done 增量 = 1
+  出作用域后再 fireDone，增量 = 0 （0 = 已自动断开）
+=== 10. 事件循环里再验一次：断就是断，没断就是没断 ===
+  重连后 done 增量 = 1  连接仍活着吗： 活
+=== 第 3 讲演示结束，自动退出 ===

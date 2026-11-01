@@ -1,0 +1,19 @@
+=== 元信息：信号是 public 的吗？===
+  boiling() 在元对象表里的索引 = 5  methodType==Signal? true  access==Public? true
+=== 1. 一个信号，两个接收者 ===
+  发一次 42℃ → Alarm 次数: 1 Recorder 次数（含中继下游）: 2 Recorder 累计: "84.0"
+  thermo.temperatureChanged 上登记的接收者个数 = 3
+=== 2. 重复 connect 会重复调用（事故高发区）===
+  第二次发射后 Alarm 增量 = 2 （=2 说明重复连接真的会调两遍；想避免请看第 2 讲的 Qt::UniqueConnection）
+=== 3. 槽可以被普通调用 ===
+  直接调槽：次数从 3 变到 4 ，日志最后一行： "Alarm 收到 99.9℃"
+=== 4. 无参信号 + 一个信号被 0 个接收者听 ===
+  开了！Alarm 的 boiling 计数 = 1
+  disconnect 后再开 110℃，Alarm 的 boiling 计数仍 = 1 （发信号给空集合是安全的）
+=== 5. blockSignals：让发射变哑 ===
+  屏蔽期间发射了一次，Alarm 增量 = 0 （0 = 屏蔽成功；注意 Q_EMIT 本身没被禁掉，是 activate 那一步不派发）
+=== 6. 参数类型确实被登记进了元对象表 ===
+  方法签名: "temperatureChanged(double)"  参数个数: 1  第 0 个参数类型名: "double"  返回类型 id: 43
+=== 7. 事件循环里的异步发射 ===
+  由定时器触发的发射：Alarm 增量 = 2
+=== 第 1 讲演示结束，自动退出 ===

@@ -1,0 +1,68 @@
+=== 1. 建树：parent 是构造函数给的，不是 new 之后补的 ===
+  ── 初始：1 个根 + 1 个游离件 ──
+├─ 机器   [Part]  子数=2
+    ├─ 马达1   [Part]  子数=1
+        ├─ 螺丝   [Part]  子数=0
+    ├─ 马达2   [Part]  子数=0
+  machine->children().size() = 2  m1->parent()->objectName() = "机器"  活跃 Part 数 = 5
+  ── 游离件自己就是一棵树 ──
+├─ 游离件   [Part]  子数=0
+=== 2. setParent：归属转移，两边表都要动（Qt6 返回 void！）===
+  转移后：orphan->parent() = "马达2"  m2->children().size() = 1
+  ── orphan 从顶层搬进了 m2 底下 ──
+├─ 机器   [Part]  子数=2
+    ├─ 马达1   [Part]  子数=1
+        ├─ 螺丝   [Part]  子数=0
+    ├─ 马达2   [Part]  子数=1
+        ├─ 游离件   [Part]  子数=0
+  setParent(nullptr) 后 parent 为空？ true  m2 子数 = 0
+=== 3. findChild / findChildren：按名字和按类型各查一次 ===
+  findChild<Part*>("螺丝") → "螺丝"  found->parent()->objectName() = "马达1"
+  findChildren<Part*>() 递归命中数 = 4  名字 = "马达1, 螺丝, 马达2, 游离件"
+  只找直属子（Qt::FindDirectChildrenOnly）命中 = 2  名字 = "马达1, 马达2"
+  findChildren<Part*>(QRegularExpression("^马达")) 命中数 = 2
+  查不存在的名字 → 得到空指针？ true
+=== 4. deleteLater：登记是一行，兑现要等事件循环 ===
+    [槽里] 收到 "自检信号" ，准备 deleteLater()
+    [槽里] deleteLater() 之后对象照样可用，objectName = "延迟子"  QPointer 还没空？ true
+  回到 main：slotHits = 1  活跃 Part 数 = 7  → deleteLater 只登记没兑现，账上这个对象**还活着**
+=== 5. 父析构 = 整棵子树递归删除（用 QPointer 证明）===
+  delete machine 之前活跃数 = 7 之后 = 2 （machine 下面整棵树：机器+马达1+螺丝+马达2+游离件 全没了）
+  boltPtr.isNull() = true  m1Ptr.isNull() = true  orphanPtr.isNull()（挂在 m2 下）= true
+=== 6. destroyed 信号：长期存别人的指针时怎么自保 ===
+  ── delete host 之前 ──
+├─ 宿主   [Part]  子数=1
+    ├─ 负载   [Part]  子数=0
+    destroyed(QObject*) 回调：指针 = QObject(0x2934af58210, name = "负载") （此刻对象已在析构中，只比地址，**别调它的任何成员**）
+  delete host：活跃数 4 → 2  destroyed 回调次数 = 1  payloadPtr.isNull() = true
+=== 7. QObjectCleanupHandler：一批寿命不定的临时对象，一起清 ===
+  登记 3 个，isEmpty() = false
+  delete b 之后，名单里还剩几个？isEmpty() = false （内部靠 destroyed 自动划名，不用你自己维护列表）
+      临时C 的 destroyed 响，它是这轮里第 1 个死的
+      临时A 的 destroyed 响，它是这轮里第 2 个死的
+  clear() 之后活跃 Part 数 = 2  isEmpty() = true （上面两行谁先响，就是 clear() 先删了谁 —— 按 65/104 行，应该是后登记的 C 先死）
+  登记一个「有爹的孩子」，现在 delete 它的爹（传闻这里会双删）：
+    删完爹 cleaner.isEmpty() = true  活跃 Part 数 = 2 （这行能印出来就是没当场崩；本讲整体退出码 0，见 runlogs 同名日志末行）
+=== 8. dumpObjectTree()：调试期最好用的一行「看树」=== 
+Part::根2 
+    Part::子2a 
+    Part::子2b改名 
+OBJECT Part::??2
+  SIGNALS OUT
+        <None>
+  SIGNALS IN
+        <None>
+  复现上面那行 `??`：名字「根2」的本地 8 位字节 = b8 f9 32（3 个字节），按 UTF-8 硬解得 3 个字符，其中替换符 U+FFFD 有 2 个
+    ← 本机正是这一种（locale 是 GBK）：2 个 U+FFFD 就对应上面 `OBJECT Part::??2` 里那几个 ?；把那句改成 qDebug("%s", name.toUtf8().constData()) 就一致了。
+  ── 手工快照（和 dumpObjectTree 那三行对齐） ──
+├─ 根2   [Part]  子数=2
+    ├─ 子2a   [Part]  子数=0
+    ├─ 子2b改名   [Part]  子数=0
+=== 9. 事件循环转过一轮：第 4 节那笔 deleteLater 结清了 ===
+  deferKidPtr.isNull() = true （true = DeferredDelete 已被事件循环兑现，对象真的 delete 了）
+  它爹 deferRoot 还活着： "延迟根"  children().size() = 0  活跃 Part 数 = 1
+  ── 延迟根手下少了一个 ──
+├─ 延迟根   [Part]  子数=0
+=== 10. 收尾：delete deferRoot 看总账 ===
+  活跃数 1 → 0 （deferKid 早在第 9 节就被 deleteLater 结掉了，这里只回收 deferRoot 自己）
+=== 第 7 讲演示结束，自动退出 ===

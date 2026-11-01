@@ -1,0 +1,49 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+================================================================
+model_view 第 2 讲 · 手写 QAbstractTableModel（平台 = "offscreen" , Qt = 6.12.0 ）
+================================================================
+  5000 行结构体已就位：model.rowCount() = 5000 columnCount() = 4
+【证据①】五个必须自己实现的成员：签名与语义
+"  index(row,column,parent) const → QModelIndex   纯虚（第 274 行）\n  parent(child) const            → QModelIndex   纯虚（第 276 行）\n  rowCount(parent) const         → int         纯虚（第 279 行）\n  columnCount(parent) const      → int         纯虚（第 280 行）\n  data(index,role) const         → QVariant    纯虚（第 283 行）"
+  跑一遍：rowCount(根) = 5000 columnCount(根) = 4 ｜columnCount(某真实格) = 4 （列数**不随 parent 变 0**，见代码注释④：表头也拿真实 index 来问）
+  model.index(2,1) →[ "row=2 col=1 internalId=0x27abf3fced0 isValid=true" ] ｜internalPointer 是否 == &m_rows[2] = true （第三个参数是我们自己塞的，框架原样带回来）
+  model.index(2,1, 某个有效 parent) →[ "row=-1 col=-1 internalId=0x0 isValid=false" ] ← 表格里「格子里的格子」不存在，返回无效 index（这是 parent/index 的分工）
+  cell.parent() →[ "row=-1 col=-1 internalId=0x0 isValid=false" ] isValid = false （表格恒无效：上面就是根）
+  越界不崩：index(999999,0) →[ "row=-1 col=-1 internalId=0x0 isValid=false" ] ｜data(越界) 的 isValid = false
+  便利函数：cell.siblingAtColumn(3).column() = 3 ｜sibling(5,0).row() = 5 （同一行换列 / 换行换列，都还是问 index()，不是自己造）
+  data 按角色答（同一格 row=2,col=1）：DisplayRole = "14%" ｜EditRole = 14 ｜UserRole+1(257) = 14 ｜没实现的 FontRole(6).isValid = false ← 默认分支必须 return QVariant()，视图才知道「这个角色我没有」
+  headerData(1, Horizontal, Display) = "巡检进度" ｜headerData(2, Vertical, Display) = 3 （竖表头的行号也是**模型给的**，QTableView 自己不存）
+  roleNames() 给了 8 个角色名，前几个： "display / edit / toolTip / progressValue(257)"
+  默认 flags 里有没有可编辑位：flags(cell).testFlag(Qt::ItemIsEditable) = false ｜有 Selectable 吗 = true ｜有 Enabled 吗 = true （基类 QAbstractTableModel::flags 给的就是这两位，**想编辑得覆写 flags()+setData()，那是第 3 讲**）
+【证据②】5000 行 × 4 列：data() 的真实请求量
+"  规模：5000 行 × 4 列 = 20000 个格子；如果一格一个控件，光控件对象就够把你压死。现在看视图实际问了多少。"
+  setModel 之后（还没 show）：data() 被调用 0 次、headerData 816 次、roleNames 0 次
+     ← **没画的时候几乎不问 data()**：它只在要画、要算尺寸、要表头的时候问。（roleNames 只被问一次就够，它是「翻译表」不是「数据」）
+"  show + 画一轮之后：data() 累计 1064 次；被问到的行有 19 个，区间 [-1, 18]；格子总数却是 20000"
+     角色分布： "DisplayRole(0):152  DecorationRole(1):152  FontRole(6):152  TextAlignmentRole(7):152  BackgroundRole(8):152  ForegroundRole(9):152  CheckStateRole(10):152"
+  → 这就是「视图只问可见的那几个格子」：4977 行**一个字节都没被格式化**。你的模型敢在 data() 里读数据库，读到的也只是看得见的那一小撮——只不过一帧一小撮，滚动起来就是每帧一小撮。
+"  滚 3 大跳之后：data() 3192 次，被问到的行 57 个，区间 [-1, 4901]（区间跟着滚动条走，永远只有一小条）"
+     角色分布： "DisplayRole(0):456  DecorationRole(1):456  FontRole(6):456  TextAlignmentRole(7):456  BackgroundRole(8):456  ForegroundRole(9):456  CheckStateRole(10):456"
+"  appendRows(1000)（走 begin/endInsertRows）耗时 0 ms，现在 6000 行；视图只画得下 57 行 → 剩下的 4000 多行**没被碰过**。"
+     再滚一次看看：
+"       data() 1064 次，问到行区间 [-1, 5000]，角色分布：DisplayRole(0):152  DecorationRole(1):152  FontRole(6):152  TextAlignmentRole(7):152  BackgroundRole(8):152  ForegroundRole(9):152  CheckStateRole(10):152"
+【证据③】internalPointer：塞什么、什么时候咬人
+  造 early = index(0,0)：internalPointer = 0x27ac0f56bb0 ｜当时 vector 的内存块首地址 = 0x27ac0f56bb0 ｜两者相等 = true （因为我们塞的就是 &m_rows[0]，它当然是内存块首地址）
+  做了 reserve(200000)（强制搬一次家）之后：
+     vector 新首地址 = 0x27ac115b040 ｜和旧的 0x27ac0f56bb0 相等吗 = false
+     新造的 index(0,0).internalPointer = 0x27ac115b040 ｜旧 index 里揣着的还是 0x27ac0f56bb0 → **旧 index 的 internalPointer 现在已经指向一块被 vector 释放掉的内存**。本讲只打印地址，一次都没有解引用它，这就是「生命周期风险」四个字的分量。
+  本讲 rowOf() 的取舍：先看 internalPointer，不一致就**按 index.row() 取**： fresh 取到的行首地址 = 0x27ac115b040 ｜新内存块首地址一致 = true ｜期间检查次数 1065 命中 1065 过期 0
+  → 三条纪律：
+     ① 表格模型里 internalPointer **不是必需品**：index.row() 就够定位了，图省事就塞 0（写 nullptr，别写裸 0——两个 createIndex 重载都会犯歧义）。
+     ② 真要塞指针，只能塞「地址在整个模型生命周期里稳定」的东西：堆上 new 出来的节点、或者 std::deque/自己管理的对象池。**vector 的元素地址、map 的迭代器、临时对象的地址都不行**。
+     ③ 树模型才真的离不开它（一格的孩子是谁只能靠指针/索引表回答），第 7 讲 item 模型与树模型会正面用一次。
+  两个 index 的比较走的是四个字段全等（qabstractitemmodel.h 第 149~165 行）： index(0,0) == index(0,0) = true ｜== index(0,1) = false ｜换个模型就不等了（第 1 讲证据⑤已经打过）
+【证据④】data() 里每问一次就拼一个 QString，拼了多少个？
+"  画一轮：data() 532 次，其中**为了 DisplayRole 现拼的 QString 38 个**（进度列拼「42%」、优先级列拼「P3」）"
+  → 三条改法（第 4 讲会用上第一条）：
+     ① DisplayRole 直接返回 int，把「拼成人看的文字」交给委托的 displayText()（qstyleditemdelegate.h 第 53 行 `virtual QString displayText(const QVariant&, const QLocale&) const;`），只在真要显示的时候拼；
+     ② 需要格式化就缓存：把拼好的字符串**存在数据源里**（结构体加一个字段），改数据时更新一次，data() 只读；
+     ③ 别在 data() 里做 locale/数字分组以外的活（读文件、加锁、算正则）。
+     顺带一条：EditRole 返回原始 int、DisplayRole 返回给人看的文字，**排序和过滤读的是 EditRole**（Qt6 没有 SortRole，代理模型默认 sortRole 就是 EditRole），所以别把 EditRole 也拼成字符串，否则「10」会排在「9」前面。
+【收尾】这一讲的取舍记一句话：**视图不认识你的 vector，它只认识 QModelIndex 和 QVariant**。你把「行/列 → 角色 → QVariant」这条翻译表写好，五万个数据照样只画看得见的那十几行。

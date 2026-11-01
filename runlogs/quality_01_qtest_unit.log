@@ -1,0 +1,30 @@
+********* Start testing of TestPricing *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 15.1.0), windows 11
+QINFO  : TestPricing::initTestCase() [¹³×Ó] initTestCase()  ¡ª¡ª Õû¸ö²âÊÔ¶ÔÏóÖ»ÅÜ 1 ´Î£¬ÔÚÈÎºÎ²âÊÔº¯ÊıÖ®Ç°
+PASS   : TestPricing::initTestCase()
+PASS   : TestPricing::lineTotal(normal_3x1990)
+PASS   : TestPricing::lineTotal(edge_zero_qty)
+PASS   : TestPricing::lineTotal(edge_zero_price)
+PASS   : TestPricing::lineTotal(edge_capped)
+PASS   : TestPricing::orderTotal(no_discount)
+PASS   : TestPricing::orderTotal(percent_20)
+PASS   : TestPricing::orderTotal(percent_100)
+PASS   : TestPricing::orderTotal(empty_order)
+PASS   : TestPricing::orderTotal(rounding_199)
+PASS   : TestPricing::priorityScore(normal)
+PASS   : TestPricing::priorityScore(done_zero)
+PASS   : TestPricing::priorityScore(negative_due_zero)
+PASS   : TestPricing::priorityScore(overdue_capped)
+PASS   : TestPricing::rejectsBadArguments()
+PASS   : TestPricing::discountComesFromInjectedSource()
+PASS   : TestPricing::badConfigWarnsAndFallsBack()
+PASS   : TestPricing::roundingShouldBeHalfUp(exact)
+XFAIL  : TestPricing::roundingShouldBeHalfUp(halfUp) å·²çŸ¥ç¼ºé™· QTBUG-XXXXï¼šæŠ˜æ‰£ç”¨äº†æ•´é™¤ï¼ŒåŠä½è¢«èˆæ‰
+C:\Users\Kuros\Documents\Qoder\2026-10-31\c6d4ea7f\qt-learning-path\quality\01_qtest_unit.cpp(371) : failure location
+PASS   : TestPricing::roundingShouldBeHalfUp(halfUp)
+PASS   : TestPricing::capIsAppliedOnce()
+QINFO  : TestPricing::cleanupTestCase() [¹³×Ó] cleanupTestCase() ¡ª¡ª Ö»ÅÜ 1 ´Î£¬ÔÚËùÓĞ²âÊÔº¯ÊıÖ®ºó£» ±¾ÂÖ init()/cleanup() ¸÷ÅÜÁË 19 ´Î
+QINFO  : TestPricing::cleanupTestCase() [¹³×Ó] ÍêÕûË³Ğò£¨Í· 6 Ïî£©£º QList("initTestCase", "init", "cleanup", "init", "cleanup", "init")
+PASS   : TestPricing::cleanupTestCase()
+Totals: 21 passed, 0 failed, 0 skipped, 0 blacklisted, 5ms
+********* Finished testing of TestPricing *********

@@ -36,17 +36,24 @@
       每一讲都是完整示例，<strong>自己置标志、自己取证据、自己吐结论</strong>，跑完就退出，不留后台线程。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。8 个目标（<code>threads_01_thread_basics</code> …
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>。8 个目标（<code>threads_01_thread_basics</code> …
       <code>threads_08_local_ipc</code>）已在顶层 <code>CMakeLists.txt</code> 的「第柒阶段 · 并发与线程（threads/）」一节登记；
       第 5、8 讲分别多链了 <code>Qt6::Concurrent</code> 与 <code>Qt6::Network</code>。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级）。本模块示例
-      <strong>未链接、未运行</strong>；但每个 .cpp 都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
-      的编译期核对（零 error、零 warning）。文中每一个类、函数、枚举值都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
-      示例里出现的「预期」都是推理，不是实测数字；凡是依赖调度时序的结论，文中一律标成<strong>概率</strong>或<strong>关系</strong>，不冒充实测。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 8 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 73/73 里；
+      硬账条数各讲自己报：第 2 讲 <strong>15/15</strong>、第 4 讲 <strong>核对 24 项 / 不符 0</strong>、
+      第 5 讲 <strong>13/13</strong>、第 6 讲 <strong>核对 36 项 / 不符 0 / 整节作废 0</strong>。
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      每一个类、函数、枚举值都对着 <code>D:\Qt\6.12.0\mingw_64\include</code> 逐字核对过。
+      ★ 但并发这件事<strong>天生看机器脸色</strong>，所以正文只把「关系」写成硬账，把「毫秒」写成存档：
+      例如第 5 讲实测「开池就 <code>setMaxThreadCount(2)</code> 的私有池，峰值并发恰好 2」是硬的，
+      而「先起池、事后再把全局池压到 2」峰值会<strong>冲到 3</strong>——那是 Qt 自己那本
+      <code>activeThreads</code> 账的滞后（Src <code>qthreadpool.cpp</code> 第 130/160~164/232~242 行），
+      换一台核数不同的机器数字就可能变。原始输出存档在 <code>runlogs/&lt;目标名&gt;.log</code>
+      （重跑：<code>bash _tools/run_all.sh '^threads'</code>，同机多跑几轮看稳定性）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
@@ -121,7 +128,7 @@
       <div class="card-step">第 5 步</div>
       <div class="card-icon">⚡</div>
       <div class="card-title">05 · QtConcurrent</div>
-      <div class="card-desc">「活交出去、结果拿回来、线程我不管」。run 的四条签名与 Q_NODISCARD（不要结果就别用 run，去第 6 讲）；参数被拷贝进 tuple；QFutureWatcher 每个回调打印所在线程（watcher 活在哪条线程，信号就在哪发）；result() 会阻塞而 isFinished() 不会；mapped / mappedReduced / filtered 是命名空间自由函数、不是 QFuture 成员；filter 原地改容器这一坑。</div>
+      <div class="card-desc">「活交出去、结果拿回来、线程我不管」。run 的五个签名与 <code>QTCONCURRENT_RUN_NODISCARD</code>（本体是 <code>Q_NODISCARD_X("Use QThreadPool::start(Callable&amp;&amp;) …")</code>，挂在 qtconcurrentrun.h 的 43/53/62/71/80 行；Qt 里<b>没有</b>叫 <code>Q_NODISCARD</code> 的宏，构造函数那个叫 <code>Q_NODISCARD_CTOR</code>。不要结果就别用 run，去第 6 讲）；参数被拷贝进 tuple；QFutureWatcher 每个回调打印所在线程（watcher 活在哪条线程，信号就在哪发）；result() 会阻塞而 isFinished() 不会；mapped / mappedReduced / filtered 是命名空间自由函数、不是 QFuture 成员；filter 原地改容器这一坑。★ 证据⑤本机实测推翻了一句常见口头禅：把<b>全局池</b> maxThreadCount 压到 2 之后立刻突发提交，峰值是 2 或 3（上限慢半拍，因为账面由工人线程自己加），而<b>私有池</b>开池即 max=2 恒为 2 —— 要确定的并行度就自己建池。</div>
       <div class="card-meta"><span class="tag elementary">进阶入门</span><span class="tag framework">框架机制</span></div>
     </a>
 
@@ -158,7 +165,7 @@
       <li><strong>跨线程只传值</strong>：信号参数按值拷贝，所以传引用/指针等于把别人的内存地址递出去。真要共享，先回到第 4 讲那四个字的顺序：封闭 → 消息 → 原子 → 锁。</li>
       <li><strong>把「跑通」和「写对」分开</strong>：第 4 讲故意先用手工交错把错演出来，就是因为并发 bug 只靠「跑一次没崩」发现不了。你改代码时也要保留这套取证习惯。</li>
       <li><strong>所有等待都带期限</strong>：<code>wait(3000)</code>、<code>QSignalSpy::wait(2000)</code>、<code>waitForDone(5000)</code>。没有期限的等待，在别人的机器上就是一次挂死。</li>
-      <li><strong>记住「未链接未运行」</strong>：本机此刻编不动 Qt 运行时；换到能链接的环境按注释里的目标名构建（<code>-platform offscreen</code> 可无头跑），再和你抄下的线程 id 对一遍。</li>
+      <li><strong>先跑再看结论</strong>：这 8 个目标本机都已编译、链接、无头跑过（<code>ctest -R threads</code>，或 <code>bash _tools/run_all.sh '^threads'</code>），输出存档在 <code>runlogs/</code>。线程 id、进入次数、加锁顺序都打印在结论行里；<strong>并发下的「这次没出错」不等于「写对了」</strong>，同一份代码多跑几轮、把交错演示那一段先看懂，再相信你抄下的那一行。</li>
     </ul>
   </div>
 

@@ -1,0 +1,52 @@
+================================================================
+threads 第 5 讲 · QtConcurrent（Qt = 6.12.0 , 主线程 = QThread(0x2060cd460b0, name = "Qt mainThread") ）
+================================================================
+【证据①】QtConcurrent::run：参数怎么进去、结果怎么出来
+  run 立刻返回 future：isFinished = false isRunning = true （**这里没有阻塞**：调的是 isFinished）
+【证据②c】QPromise 报进度（setProgressRange/Value/Text）→ watcher 收到
+    [watcher] started()  在主线程回调？ QThread(0x2060cd460b0, name = "Qt mainThread")
+    [watcher] progressRangeChanged( 0 , 0 )
+    [watcher] progressRangeChanged( 0 , 100 )
+  进度事件：range 2 次、value 3 次、resultReadyAt 1 次（去重下标 1 个）；最后 progressValue = 60 ，文本 =「 "累加到 15" 」
+【证据②】mapped / mappedReduced：并行映射与折叠
+  mapped 的 future 类型 = QFuture<long long>：**结果类型是 map 的返回值**，不是容器元素 Block（QtPrivate::MapResultType 推的）
+  mapped 分块数 = 12 ｜各块相加 = -195 ｜串行基准 = -195 ｜相等吗 = true
+  （并行总和由 watcher 的 finished 槽再打一次，进度事件计数见证据②c）
+      ［对］ ② mapped 结果条数 = 分块数 → 期望 12，实测 12
+      ［对］ ② mapped 各块相加 = 串行基准 → 期望 1，实测 1
+    [watcher] started()  在主线程回调？ QThread(0x2060cd460b0, name = "Qt mainThread")
+    [watcher] progressRangeChanged( 0 , 12 )
+【证据②b】并行求和（mappedReduced）算完：总和 = -195 ｜串行基准 = -195 ｜相等吗 = true
+  过程事件：progressValueChanged 6 次、resultReadyAt 2 次（**全在主线程**： QThread(0x2060cd460b0, name = "Qt mainThread") ）
+      ［对］ ②b mappedReduced 总和 = 串行基准 → 期望 1，实测 1
+【证据③】阻塞语义：isFinished 不阻塞，result() 阻塞（量给你看）
+  刚 run 完：isFinished = false ｜isResultReadyAt(0) = false ｜resultCount = 0 ｜这三个都不阻塞，此刻耗时 0 ms
+  result() 返回 42 ，调用者被卡了 261 ms ← **这发生在主线程，GUI 就是在这冻住的**
+      ［对］ ③ result() 拿到 42 → 期望 42，实测 42
+      ［对］ ③ result() 至少被卡 200ms（任务 sleep 260ms） → 期望 1，实测 1
+      ［对］ ③ result() 返回后 future 已结束 → 期望 1，实测 1
+  同一 future 第二次 result() 耗时 =
+      0 ms（结果已在包里，几乎为 0）→ 「等」只在第一次
+  纪律：主线程**只在 finished 信号之后**读结果；想提前读，就用 isResultReadyAt(i) 判一下（第 113 行），它不阻塞。
+【证据④】filtered 与 filter：一个是「给你新的」，一个是「改你的」
+  filtered(整除 3) → 结果 1000 个，第一个 = 0 ｜原容器 size = 3000 没被动过 ← filtered **返回新序列**（qtconcurrentfilter.h 334/342 行）
+  filter 刚提交：future 是 QFuture<void>（拿不到返回值）｜此刻 inPlace.size = 3000 （还没收敛，别读它）
+  waitForFinished 之后 inPlace.size = 1000 ｜和 filtered 的 1000 对得上吗 = true  ← filter()（36 行）**原地改你传进去的容器**：并发期间读写同一个容器，所以 Qt6 只给它 QFuture<void>，任何「边跑边看」都是数据竞争。
+      ［对］ ④ filtered 留下 1000 个（0..2999 里 3 的倍数） → 期望 1000，实测 1000
+      ［对］ ④ filtered 没动原容器 → 期望 3000，实测 3000
+      ［对］ ④ filter 原地改完也是 1000 个 → 期望 1000，实测 1000
+【证据⑤】并行度的天花板是池的 maxThreadCount —— 但压**全局池**不会立刻生效
+"  idealThreadCount = 16 ｜ 全局池 maxThreadCount = 16 ｜ activeThreadCount = 0 ｜ expiryTimeout = 30000 ms｜ 上限 16 是 run 不带池参数时借用的池"
+  ⑤A 全局池原样（max=16） → 12 个任务实测**同时在场**的线程峰值 = 12
+  ⑤B 全局池压到 2、立刻开跑 → 12 个任务实测**同时在场**的线程峰值 = 3
+  ⑤C 私有池、开池即 max=2 → 12 个任务实测**同时在场**的线程峰值 = 2
+"      B 与 C 的差别不是「谁更快」，是**账面由谁加**：B 的天花板慢半拍（本机 8 次里 3 次看到 3），C 的天花板由调度侧当场扣住（本机每次都是 2）。\n      → 工程结论：压 maxThreadCount 之后**别马上指望**并行度掉下来；要确定的上限，用私有池（或先等 expiryTimeout 过期）。"
+  已把全局池恢复为 maxThreadCount = 16
+      ［对］ ⑤ 默认池确实并行（峰值 ≥ 1） → 期望 1，实测 1
+      ［对］ ⑤ 压全局池到 2：峰值被压住（≥2），但可能冲破新上限（本机 2~3） → 期望 1，实测 1
+      ［对］ ⑤ 私有池开池即 max=2：峰值恰好等于上限（天花板精确） → 期望 2，实测 2
+      ［对］ ⑤ 全局池已恢复原值 → 期望 16，实测 16
+  → 结论：QtConcurrent::run 不做任何线程调度决策，它只是往池里塞任务；并行度不够先去查池，别去改你的算法。（第 6 讲把池自己建起来）
+【收尾】一句话记住这讲：**run 给你 future，watcher 给你线程边界**，谁都不给你「免费的正确」——在主线程读 result() 的人，卡的是自己的界面。
+
+【硬账】13/13 项核对通过 → 退出码 0

@@ -27,17 +27,18 @@
       这类问题，就不再是猜了。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
       每一章都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>
       （<code>QTimer::singleShot</code> 排脚本 + <code>qInfo()</code> 吐结论 + <code>quit()</code>）。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库不全），8 个示例
-      <strong>都未在本机实测编译</strong>；文中每一个类、函数、重载都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过，并在注释里写明了文件名与行号。
-      唯一的实测例外：<strong>第 5、6、7、8 讲的 moc 产物是本机真跑出来的</strong>
-      （<code>C:\msys64\ucrt64\share\qt6\bin\moc.exe</code>，自报 "The Qt Meta Object Compiler version 69 (Qt 6.12.0)"）。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 8 个示例<strong>都已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Release 与 Debug 两套构建配置都过，退出码全为 0），全部包含在顶层 <code>ctest</code> 的 75/75 绿里；
+      文中每一个类、函数、重载都对着本机 <code>D:\Qt\6.12.0\mingw_64\include</code> 里的真实头文件核对过，
+      并在注释里写明了文件名与行号。<strong>moc 产物同样是本机真跑出来的</strong>
+      （<code>D:\Qt\6.12.0\mingw_64\bin\moc.exe</code>，自报 "The Qt Meta Object Compiler version 69 (Qt 6.12.0)"）。
+      完整输出存档在 <code>runlogs/metaobject_0N_*.log</code>（UTF-8；重跑：<code>bash _tools/run_all.sh '^metaobject'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -134,7 +135,7 @@
       <div class="card-step">第 8 步</div>
       <div class="card-icon">🔎</div>
       <div class="card-title">08 · 元反射：读那张表，也用它写回</div>
-      <div class="card-desc">methodOffset/propertyOffset 是分水岭；QMetaMethod 的 name/parameterTypes/invoke、QMetaProperty 的 read/write/reset/notifySignal；查不到一律 -1（别拿 -1 去构造表条目）；Q_ENUM/Q_FLAG 让枚举能按名字读写；qobject_cast 比 dynamic_cast 更合适的三条真实理由。</div>
+      <div class="card-desc">methodOffset/propertyOffset 是分水岭；QMetaMethod 的 name/parameterTypes/invoke、QMetaProperty 的 read/write/reset/notifySignal；查不到一律 -1（别拿 -1 去构造表条目）；<strong>枚举要声明在类里（<code>Q_ENUM</code>）或带 <code>Q_NAMESPACE</code> 的命名空间里（<code>Q_ENUM_NS</code>）才能按名字读写</strong>——全局枚举配类内 <code>Q_ENUM</code>，moc 收下却不登记，表是空的、编译器一个字都不说（本讲把空表的计数打出来给你看）；qobject_cast 比 dynamic_cast 更合适的三条真实理由。</div>
       <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
     </a>
   </div>
@@ -146,8 +147,8 @@
       <li><strong>每个示例都要跑</strong>：8 个示例都是无人值守的——<code>QTimer::singleShot</code> 排好脚本、<code>qInfo()</code> 打结论、最后自动 <code>quit()</code>。先跑一遍看输出，再回过头读注释，效率比倒过来高得多。</li>
       <li><strong>亲手跑一次 moc</strong>：第 5 步的注释里有完整命令（<code>moc.exe 05_moc_anatomy.cpp -o out.txt</code>）。一个 30 行的类能生成两百多行表 + switch，看三次就终身不忘，比读十篇博客管用。</li>
       <li><strong>第 4 步的规矩要变成肌肉记忆</strong>：写带 lambda 的 connect 时<strong>永远传 context object</strong>。这条规矩的价值要到你踩第二次「界面偶发崩溃」时才显出来，但别等到那时。</li>
-      <li><strong>第 6~8 步的错误都在运行期</strong>：属性名拼错、枚举没写 <code>Q_ENUM</code>、<code>indexOfMethod</code> 返回 -1 还拿去用——编译器一个字都不说。所以这三讲的每个示例都刻意把「失败长什么样」打出来给你看。</li>
-      <li><strong>记住「未在本机实测编译」</strong>：本机运行时不全，示例暂无可执行产物；但 API 全部对着真实头文件核对过，注释里连行号都给了。换到能编译的环境，按每讲顶部注释块里的 CMake 目标名构建即可。</li>
+      <li><strong>第 6~8 步的错误都在运行期</strong>：属性名拼错、枚举没写 <code>Q_ENUM</code>（<strong>或写了但枚举本体在全局，moc 默默不登记</strong>）、<code>indexOfMethod</code> 返回 -1 还拿去用——编译器一个字都不说。所以这三讲的每个示例都刻意把「失败长什么样」打出来给你看。</li>
+      <li><strong>这 8 个目标本机都跑起来了</strong>：顶层 <code>ctest -R metaobject</code> 是它们的无人值守入口，输出存档在 <code>runlogs/metaobject_0N_*.log</code>（重跑：<code>bash _tools/run_all.sh '^metaobject'</code>）。想自己看一眼 moc 到底生成什么，注释里有完整命令（<code>moc.exe 05_moc_anatomy.cpp -o out.txt</code>）——那是本机真跑过的产物，不是抄文档。</li>
     </ul>
   </div>
 

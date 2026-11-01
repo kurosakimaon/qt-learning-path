@@ -16,9 +16,13 @@
 
 这 5 讲就是把上面每一条，变成你亲手能打出来的证据。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。目标名 `network_0N_xxx`，已在顶层 `CMakeLists.txt` 登记，本组额外链 `Qt6::Network`。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。目标名 `network_0N_xxx`，已在顶层 `CMakeLists.txt` 登记，本组额外链 `Qt6::Network`。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，5 个示例**都未在本机实测运行**。每个类、函数、枚举、重载都对着本机 `C:\msys64\ucrt64\include\qt6` 里真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。真实网络的对方行为不可预知，文中凡是「服务器会怎么答」都写成条件句。
+> 实测口径：**5 个示例都在本机真实编译、链接、无头运行过**（Qt 6.12.0 + MinGW 13.1.0，`QT_QPA_PLATFORM=offscreen`；`ctest -R "^network_"` → 5/5 绿，退出码全 0，完整输出存档 `runlogs/network_0N_*.log`；原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。这一组的台账比讲义硬：本机那一轮五张账分别是 **67/67**（第 1 讲【硬账】）、**29/29**（第 2 讲合账）、**25 项一致 25、差 0**（第 3 讲合账）、**44/44**（第 4 讲【硬账】）、**36 项对上 36、不符 0、整节作废 0**（第 5 讲硬账）；账不符的示例会把退出码变成非 0，所以「打印出来的结论」是被 ctest 盯着的，不是背出来的。每个类、函数、枚举、重载都对着本机 `D:\Qt\6.12.0\mingw_64\include` 里真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。
+>
+> **「对方行为不可预知」这条不因能编译而作废**：本机这 5 轮一次也没出网，全部只连回环（自建 `QTcpServer` + `LocalHost`，端口现拿），所以「公网服务器会怎么答、证书链谁签的、DNS 给几个地址」仍然是条件句，不是实测结论。第 5 讲那节标题就写着「离线、全同步的五个事实」——它是**故意设计成不依赖网络也能立住**的；联网时才成立的部分（外网 DNS、真实站点证书）留在「可选实验」里，请你自己跑一次把数字补进去。
+>
+> 顺带一条本轮改掉的真实缺陷：第 1、2 讲原来在 `finished` 里**无条件** `reply->readAll()`，超时/abort 收尾的那两条 reply 设备已经关了，于是控制台各冒一条 `QIODevice::read (QNetworkReplyHttpImpl): device not open`。结果碰巧对（读回来是空的），过程在喊疼。第 2 讲现在读前先 `isOpen()`；第 1 讲**故意保留**这一次读取并先把 `isOpen()`/`bytesAvailable()` 打出来，因为「finished 一定到、正文不一定有」这句话需要那条警告当证人——它是**预期内**的，不是示例坏了。
 >
 > **联网规矩**：涉及真实网络的示例只连本地回环（`QHostAddress::LocalHost`），端口 `listen(LocalHost, 0)` 现拿，临时文件放在 `QStandardPaths::TempLocation` 且用完就删，所有等待都带期限。DNS/TLS 那讲写成了「离线也成立的能力探测 + 联网时的可选实验」。
 
@@ -66,26 +70,61 @@
           disconnected/errorOccurred/stateChanged 都是信号）；
           listen(QHostAddress::LocalHost, 0) + serverPort() 现拿端口；
           ★ listen 的默认地址是 QHostAddress::Any（qtcpserver.h 第 29 行），
-          不写地址就是监听所有网卡；connectToHost 返回 void（第 136/137 行），
-          连不上只能等 errorOccurred；
+          不写地址就是监听所有网卡；connectToHost 返回 void（qabstractsocket.h
+          第 136/137 行，别和上面的 qtcpserver.h 混成同一个文件），
+          连不上只能等 errorOccurred——
+          ★ 本机实测给这句补一刀：Windows 回环上连一个**刚 close() 的死端口**，
+            可能几秒内既不 connected 也不 errorOccurred。
+            「只能等」是对的，「一定等得到」是错的：每一个等待都要自己挂兜底定时器，
+            不然整条状态机停在第 N 步不动，还不报错（本讲第一版就这么卡的）。
+          ★ 复用同一个 QTcpSocket 前必须先 abort()（qabstractsocket.h 第 154 行）：
+            它还在 ConnectingState 时再调 connectToHost，只会同步收到一个
+            errorOccurred(SocketResourceError=19)，然后**什么都不做**——
+            不是重试，不是排队，是静默失效；这一条也是上面那次卡死的真凶。
           一次 readyRead ≠ 一条消息：一帧切 3 次 write（半包）、2 帧塞 1 次 write（粘包），
           并排打印「服务端 readyRead 次数」；
           长度前缀的解帧循环（缓冲区 + 已解析偏移）；
           坏帧防御：长度字段是对端说的，声称超大的帧必须拒并断开
-    诚实标注：本讲只在 127.0.0.1 上跑，不连公网；出错顺序依赖本机协议栈，以打印为准
+    诚实标注：本讲只在 127.0.0.1 上跑，不连公网；出错顺序依赖本机协议栈，以打印为准；
+              21 项硬账本机连跑全绿，其中「死端口到底给不给 errorOccurred」那条
+              按实测改成「给几次就记几次」，不假设协议栈的行为
 
   04_download_and_progress.cpp    ← 下载任务的状态机
     重点：downloadProgress(bytesReceived, bytesTotal) 三分支：
           >0 正常算百分比；== -1 长度未知（服务器没发 Content-Length，用关闭连接划线），
           别拿它做除法；== 0 是空文件，当 100% 完成而不是除零事故；
+          ★ 上面那句要加两条本机（Qt 6.12.0 / MinGW / Windows）实测出来的前提：
+          ① 进度信号**被节流到最快每 100ms 一次**（qnetworkreply.cpp:15
+             `progressSignalInterval = 100`，发送点 qnetworkreplyhttpimpl.cpp:1252~1257）。
+             回环上 1 MiB 一坨到手、100ms 内就结束 → **中途那次 -1 根本不存在**，
+             demo 的服务器必须按 10ms/64KiB 限速滴发，`-1` 分支才真的走得到；
+          ② **收尾那一帧 Qt 会改口**：qnetworkreplyhttpimpl.cpp:2240~2244，
+             totalSize==-1 时发 `downloadProgress(received, received)`，
+             最后一帧的 total 等于已收，不是 -1。UI 不能死等 -1，也不能指望它保持 -1；
           熟头 header(ContentTypeHeader/ContentLengthHeader/LastModifiedHeader) 与
           生头 rawHeader/rawHeaderList/rawHeaderPairs 的分工——
           Content-Range / Accept-Ranges 只在生头里；
+          ★ rawHeaderList() 吐出来的名字是**全小写**（`content-range`），
+            hasRawHeader()/rawHeader() 却大小写不敏感——按驼峰 contains 一定 false；
           断点续传 = Range 头 + 206 + Content-Range 回显，两段拼起来与整段逐字节比对；
           边下边写：readyRead → reply->read(chunk) → QSaveFile::write，绝不 readAll 攒内存；
-          取消用 abort()（abort 后仍会 finished，注意区分「被取消」与「失败」）
+          ★ 但实测给这句加了限定：**边下边写 ≠ 一定省内存**。/file 的 1 MiB 在回环上
+            一次进齐，第一次 readyRead 时 bytesAvailable() 峰值 = 1048576 = 正文全长；
+            同一套 while 排空写法换成限速的 8 MiB 流，峰值只有 65536。
+            压住驻留靠「数据来得慢」或 setReadBufferSize，不靠 read() 这个动作本身。
+          ★ 一次 readyRead 只 read(64KiB) 会**把下载截断**（1 MiB 只落 65536 字节）：
+            Qt 在数据到手结束时只发一次 readyRead 就转 finished，
+            必须 while 读到空、finished 之后再兜底排空一次；
+          取消用 abort()（abort 后仍会 finished，注意区分「被取消」与「失败」）；
+          ★ 错误码是 **OperationCanceledError = 5**，不是常被引用的 41
+            （qnetworkreply.h:33~48 数出来的：1~99 网络层 / 101~ 代理 / 201~ 内容 /
+             301~ 协议 / 401~ 服务器，41 这个号不存在）；
+          ★ **abort() 是同步的**：errorOccurred → finished → 你的收尾槽全部在它返回
+            之前跑完。所以状态要「先记账再 abort」，用返回值往外传必然读到旧值；
+            reply 已经不 running 时 abort() 是**空操作**，取消按钮点了个寂寞还不报错
     诚实标注：本讲对着本机回环上的静态服务端做，可控制慢速与断流；
-              真实 CDN 的分段与压缩行为不在承诺范围
+              真实 CDN 的分段与压缩行为不在承诺范围；
+              44 项硬账本机 4 连跑全绿，限速相关读数会随机器抖动，判定都留了余量
 
   05_dns_and_ssl.cpp              ← 名字与加密
     重点：QHostInfo 同步（fromName，堵线程）与异步（lookupHost + lookupId 对结果）两套；

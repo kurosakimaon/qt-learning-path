@@ -402,15 +402,20 @@
   <section class="notice">
     <h2>⚠️ 先读这一段：这份资料的边界</h2>
     <p>
-      写作环境是 <strong>Qt 6.12.0 + Windows + MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）+ CMake ≥ 3.21 + Ninja + C++17</strong>。
-      但本机 <strong>Qt 运行库正在升级，当前链接不出可执行文件</strong>（链接产物会以 <code>0xC0000139</code> 退出）。
-      所以：<strong>73 个示例全部通过了 <code>moc</code> + <code>g++ -fsyntax-only -Wall -Wextra</code>（0 error / 0 warning），但没有一个在本机链接、运行过</strong>。
-      文中出现的「预期输出」「预期顺序」「预期耗时」都是<strong>按 Qt 语义推出来的</strong>，不是实测数字。
+      写作环境是 <strong>Qt 6.12.0 + Windows + MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）+ CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles + C++17</strong>。
+      这一套不是「写完没跑」：<strong>73 个示例全部 <code>moc</code> + 编译（0 error / 0 warning）、全部链接成功、全部无头跑完</strong>，
+      <code>ctest --test-dir build</code> 本机那一轮 <strong>75/75 全过</strong>（含实战项目的单元测试）；
+      <code>build_deploy/</code> 的 5 个工程与 <code>projects/todo_desktop</code> 也各自真实构建并运行过。
+      每个示例自己打的证据行都存进仓库：<code>runlogs/&lt;target&gt;.log</code>（UTF-8，75 份），
+      <code>runlogs/summary.txt</code> 只记失败与超时——<strong>全过那一轮它是空的，别当成「没跑」</strong>。
     </p>
     <p>
-      每个类、函数、枚举值、重载都对着本机 <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，
-      注释里常标着头文件名与行号；<strong>核对不上的一律不写</strong>——这比写错一个 API 更值。
-      等你在能链接的机器上跑起来，如果哪个数字和注释里的「预期」不一致，
+      每个类、函数、枚举值、重载都对着本机 <code>D:\Qt\6.12.0\mingw_64\include</code>（声明）与
+      <code>D:\Qt\6.12.0\Src\qtbase\src</code>（实现）逐字核对过，注释里标着头文件名与行号；
+      <strong>核对不上的一律不写</strong>——这比写错一个 API 更值。
+      两条边界要留个心：① <strong>行号只对得住本机这一份 6.12.0</strong>，换个小版本 <code>qobject.cpp</code> 就整体漂移，
+      按行号找不到时改用函数名搜；② 凡是只写「预期」而没有「本机实测」字样的数字，都是<strong>会随版本 / 驱动 / 字体 / 磁盘变</strong>的那一类
+      （定时器精度、字体度量、<code>execBatch</code> 的驱动支持）。跑出不一样的结果，
       <strong>以你打印出来的为准</strong>，并以那份差异为准回来修订注释：证据优先于权威。
     </p>
   </section>
@@ -923,7 +928,7 @@
     <a class="vcard" href="visuals/model_view.html">
       <div class="vstage">第陆阶段 · 模型视图</div>
       <h3>模型/视图：数据流的四个角色</h3>
-      <p>一屏格子零个子控件、每个角色问一次 <code>data()</code>、只问可见的几十格、一次写回经过哪几站。</p>
+      <p>一屏格子零个「格子控件」（结构子控件实测 8 个，跟行列数无关）、每个角色问一次 <code>data()</code>、只问可见的几十格、一次写回经过哪几站。</p>
     </a>
     <a class="vcard" href="visuals/delegate_lifecycle.html">
       <div class="vstage">第陆阶段 · 模型视图</div>
@@ -1059,9 +1064,9 @@
 <span class="p">$</span> bash _tools/check_syntax.sh events/01_event_loop.cpp</pre>
       </li>
       <li>
-        <strong>在装了 Qt 的机器上配置工程。</strong> Qt 6.12 的路径按你自己的安装改；MSYS2 用户直接写 <code>C:/msys64/ucrt64</code>。
+        <strong>在装了 Qt 的机器上配置工程。</strong> Qt 6.12 的路径按你自己的安装改；MSYS2 用户直接写 <code>D:/Qt/6.12.0/mingw_64</code>。
         <pre><span class="c"># 配置（找不到 Qt 时不会失败，只会打印一段「你该装什么」）</span>
-<span class="p">$</span> cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+<span class="p">$</span> cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64
 
 <span class="c"># 只编一个示例，先确认工具链通了</span>
 <span class="p">$</span> cmake --build build --target start_01_hello_window

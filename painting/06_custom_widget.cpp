@@ -8,8 +8,9 @@
 //        配 sizePolicy；把同一个控件塞进三种尺寸的容器，把 sizeHint / minimumSizeHint /
 //        size / geometry 四组数字并排打出来 —— sizeHint 是「愿望」，size 是「结果」；
 //     2) 颜色从哪来：一律 palette().color(QPalette::…)（Window/Button/ButtonText/Text/
-//        Highlight/Mid），**不硬编码 QColor**；换 palette 就换整套外观，本讲实测换色前后
-//        同一个像素的取值；
+//        Highlight/Mid），**不硬编码 QColor**；换 palette 就换整套外观。本讲按 paintGauge()
+//        的几何公式**算出四个采样点**，每个点标明它由哪个 ColorRole 涂，把那四个 role 全改掉，
+//        再逐点打印「换前/换后/该 role 的新色」；另附一条「取 palette vs 写死 QColor」的对照组。
 //     3) 什么时候重绘：update() / update(QRect) / repaint()。
 //        本讲核心证据：**连着调 update() 一万次，paintEvent 只跑有限次**，
 //        把「update 只是提请求、合并发生在事件循环里」这件事**数出来**；
@@ -21,7 +22,10 @@
 //     5) 鼠标怎么接：setMouseTracking(true) + mousePressEvent/mouseMoveEvent/
 //        mouseReleaseEvent/wheelEvent/enterEvent/leaveEvent + setCursor/unsetCursor。
 //        本讲**用手工构造的 QMouseEvent / QEnterEvent 经 QApplication::sendEvent 投给控件**，
-//        无人值守也能把「交互 → 状态 → 信号 → 重绘请求」整条链跑通，并数出信号发了几次。
+//        无人值守也能把「交互 → 状态 → 信号 → 重绘请求」整条链跑通。
+//        信号不是只数一个总数：**按下 / 拖动 / 抬起 逐步各数一次**，因为「一次拖动发几个
+//        valueChanged」这件事只有拆开才判得出来（本机实测 +0/+1/+1/+0，见证据⑥）；
+//        QEnterEvent 也把它收到的 local/scene/global 三个点原样打出来对答案。
 //
 // 对应构建目标名：painting_06_custom_widget
 //   find_package(Qt6 REQUIRED COMPONENTS Widgets Svg)   # 本组统一链 Svg（第 8 讲要用），本讲只用到 Widgets
@@ -33,6 +37,10 @@
 //   `moc 06_custom_widget.cpp -o 06_custom_widget.moc`，再让 g++ 能找到它（-I 到产物目录）。
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_06_custom_widget，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_06_custom_widget.log）。
 //   · 会往当前工作目录写：painting_06_custom_widget.png（QWidget::render() 抓出来的控件像素）、
 //     painting_06_offscreen_same_code.png（同一份 paintGauge() 直接画进 QImage）。
 //   · 无人值守：QTimer::singleShot 排一串动作（resize → 压力测试 → 投鼠标 → 存图 → 打印
@@ -42,10 +50,13 @@
 //     所以「重绘次数」这组数在 CI 里也是有效的。
 //   · 「一万次 update() 合并成几次」：头文件能证明的只有 update() 是 public Q_SLOTS、
 //     不带同步语义（qwidget.h 470 行）；**合并发生在事件循环里，次数取决于你的机器与
-//     这段时间里事件循环被喂了几次**，预期 1 次，但请以你跑出来的数字为准。
-//   · 未实测声明：本机当前无法编译链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；文中「预期」全是推理，PNG 与数字都还没有任何机器产出过。
+//     这段时间里事件循环被喂了几次**，本机实测 10000 次只换来个位数次重绘，
+//     但请以你自己跑出来的数字为准。
+//   · 实测状态：本示例已在 **Qt 6.12.0 / MinGW-w64 GCC 13.1.0 / Windows 11** 上
+//     编译通过并**无头跑通**（`QT_QPA_PLATFORM=offscreen`，退出码 0），两张 PNG 与
+//     下面每个「预期」都对着本机日志核过。头文件在 `D:\Qt\6.12.0\mingw_64\include`，
+//     Qt 源码在 `D:\Qt\6.12.0\Src\qtbase\src`。Windows 上 Qt 日志按本地代码页 GBK
+//     输出，重定向到文件时要 `| iconv -f GBK -t UTF-8` 才不乱码。
 //   · 一条重要纠错（这就是「写代码前先核头文件」的原因）：
 //     **QWidget 没有 setUpdateInterval()**。本机 QtWidgets 整个目录 grep 这个名字，
 //     唯一命中的是 QtCore/qtimeline.h 里的 QTimeLine::setUpdateInterval()（那是动画时间轴
@@ -56,9 +67,19 @@
 //       ③ 自己拿 QTimer + dirty 标志合闸（本讲的 Throttle 类）；
 //       ④ WA_StaticContents（qnamespace.h 311 行，静态底只在扩大的那块重画）。
 //   · Qt5 → Qt6 差异本讲涉及三处：enterEvent 的参数在 Qt6 是 QEnterEvent*；
-//     QMouseEvent 的 globalPos() 在 Qt6 走 globalPosition()（返回 QPointF）；
-//     QWidget::devicePixelRatioF() 在本机 qwidget.h 里搜不到（读 DPR 用继承自 QPaintDevice 的
-//     devicePixelRatio()，qpaintdevice.h 52 行）。
+//     QMouseEvent 取全局坐标在 Qt6 用 globalPosition()（返回 QPointF，qevent.h 124 行）；
+//     devicePixelRatioF() **没有**消失，它和 devicePixelRatio() 都定义在
+//     QPaintDevice（qpaintdevice.h 52/53 行），而 `class QWidget : public QObject,
+//     public QPaintDevice`（qwidget.h 98 行）是**公有继承**，所以 `widget->devicePixelRatioF()`
+//     在 Qt6 照样能调（在 qwidget.h 里 grep 不到这个名字是正常的，见下一条方法论）。
+//   · 方法论（本讲踩过的坑，比上面那条更值钱）：
+//     **在派生类的头文件里 grep 不到某个名字 ≠ 不能调用它**。C++ 的公有继承会把基类的
+//     公开成员一并带过来，名字不在派生类头文件里恰恰说明「它是基类的」。正确的查法是
+//     先看类声明那一行的继承列表（`qwidget.h` 98 行 → QObject + QPaintDevice），
+//     再去基类头文件里找定义（`qpaintdevice.h` 52/53 行）。
+//     反面教材就是上一条：只 grep `qwidget.h` 就断言「Qt6 删了 devicePixelRatioF」，
+//     结论正好说反了。反过来，「头文件里查得到」也确实不等于该名字在你所处的类里可用——
+//     还得看它是 public 还是 protected/private。总之一句话：**沿继承链查到定义为止**。
 //   · 图解配套：../visuals/painting_pipeline.html（update() → 事件循环 → paintEvent →
 //     后备存储 → 平台合成 的分步动画，页面由图解同事补，链接先放着）。
 // ============================================================================
@@ -95,7 +116,7 @@
 #include <QDebug>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，全部带行号；对不上的一律不用）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0，全部带行号；对不上的一律不用）
 // ============================================================================
 // QtWidgets/qwidget.h
 //   第 119 行  Q_PROPERTY(QSizePolicy sizePolicy READ sizePolicy WRITE setSizePolicy)
@@ -132,15 +153,43 @@
 //   第 1180~1198 行 enum CursorShape { ..., CrossCursor, SizeAllCursor, BlankCursor,
 //                  PointingHandCursor, OpenHandCursor, ... }
 // QtGui/qpalette.h
-//   enum ColorRole { Window, Base, Text, Button, ButtonText, Highlight, HighlightedText, Mid, ... }
-//   QColor color(ColorRole r) const;  void setBrush(ColorGroup, ColorRole, const QBrush &);
+//   第 53~61 行  enum ColorRole { WindowText, Button, Light, Midlight, Dark, Mid,
+//                  Text, BrightText, ButtonText, Base, Window, Shadow,
+//                  Highlight, HighlightedText, Link, LinkVisited, AlternateBase, NoRole,
+//                  ToolTipBase, ToolTipText, PlaceholderText, Accent }
+//                ← 注意**声明顺序不是你以为的 Window 打头**，第一是 WindowText；
+//                  本讲用到 Button / Mid / ButtonText / Highlight 四个。
+//   第 83 行  inline const QColor &color(ColorRole cr) const   ← 取色
+//   第 76 行  void setBrush(ColorGroup cg, ColorRole cr, const QBrush &brush)  ← 改色
 // QtGui/qevent.h
-//   QPaintEvent : const QRect &rect() const;  const QRegion ®ion() const;
-//   QMouseEvent : QMouseEvent(Type, const QPointF &localPos, const QPointF &globalPos,
-//                             Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers);
-//                 QPointF position() const; QPoint pos() const;
-//   QEnterEvent : QEnterEvent(const QPointF &localPos, const QPointF &globalPos,
-//                             const QPointF &screenPos);
+//   QPaintEvent : 第 494/495 行 inline const QRect &rect() const;
+//                 inline const QRegion &region() const;
+//                 ← 本讲统计脏区就靠 region()（旧注释里那个 `®ion` 是 &reg; 排版事故）
+//   QMouseEvent : 本机有两个可用重载 ——
+//                 第 207~210 行 QMouseEvent(Type, const QPointF &localPos, const QPointF &globalPos,
+//                              Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers,
+//                              const QPointingDevice *device = primaryPointingDevice());
+//                 第 211~214 行 QMouseEvent(Type, const QPointF &localPos, const QPointF &scenePos,
+//                              const QPointF &globalPos, Qt::MouseButton, Qt::MouseButtons,
+//                              Qt::KeyboardModifiers, const QPointingDevice *device = ...);
+//   QEnterEvent : 第 170~171 行 **QEnterEvent(const QPointF &localPos, const QPointF &scenePos,
+//                              const QPointF &globalPos,
+//                              const QPointingDevice *device = QPointingDevice::primaryPointingDevice())**
+//                 ← 三个点的次序是 **local → scene → global**，和 QMouseEvent 的七参数版一致；
+//                   **不是** Qt5 文档里常见的 (local, global, screen)。第四个实参在 Qt6 是
+//                   `const QPointingDevice*`（Qt5 那里才是 `qreal device = 0`）。
+//                 三者的口径见 qevent.cpp 第 73~75 行的原话：
+//                   localPos = 「relative to the receiving widget or item」（接收事件的控件/图元）
+//                   scenePos = 「relative to the window」（窗口）
+//                   globalPos = 「relative to the screen or desktop」（屏幕/桌面）
+//                 证据：qevent.h 第 190~191 行的弃用别名 `windowPos()` 就是
+//                   `return scenePosition();` —— scene 在 Qt6 的点位事件里**就等于窗口坐标**，
+//                   不是 QGraphicsView 的那个「场景」；别望文生义。
+//                 普通顶层控件没有「场景」这一层，Qt 自己派发 enter 时 scenePos 与 localPos
+//                 往往只差一个窗口原点；手工构造时把 scene 填成窗口内坐标、global 填成
+//                 mapToGlobal 的结果即可（本讲就是这么写的）。
+//   取值口子在基类 QSinglePointEvent：第 120~125 行 position()/scenePosition()/globalPosition()
+//                 都返回 QPointF。
 //   QWheelEvent : QPoint angleDelta() const; QPoint pixelDelta() const;
 // QtGui/qregion.h
 //   QRegion(const QRect &); QRect boundingRect() const; int rectCount() const;
@@ -252,6 +301,10 @@ public:
 
     double value() const { return m_value; }
     bool isHovering() const { return m_hover; }
+    // 最近一次 enterEvent 收到的三个点（证据⑥ 用来验证 QEnterEvent 构造函数的实参次序）
+    QPointF enterLocal() const { return m_enterLocal; }
+    QPointF enterScene() const { return m_enterScene; }
+    QPointF enterGlobal() const { return m_enterGlobal; }
 
     // ── ① 尺寸：覆写两个 virtual（522/523 行） ────────────────────
     QSize sizeHint() const override { return QSize(220, 140); }
@@ -337,8 +390,13 @@ protected:
         event->accept();
     }
 
-    void enterEvent(QEnterEvent *) override                 // Qt6：参数是 QEnterEvent*
+    void enterEvent(QEnterEvent *event) override            // Qt6：参数是 QEnterEvent*
     {
+        // 把事件里三个坐标**原样记下来**，证据⑥ 要打印它们对答案：
+        // 只有打印了才知道构造函数的第 2 个实参到底落进了 scenePosition() 还是 globalPosition()。
+        m_enterLocal = event->position();                   // qevent.h 120 行
+        m_enterScene = event->scenePosition();              // 122 行（Qt6 里 = 窗口坐标）
+        m_enterGlobal = event->globalPosition();            // 124 行
         if (m_hover)
             return;
         m_hover = true;
@@ -376,6 +434,9 @@ private:
     double m_value = 0.35;
     bool m_hover = false;
     bool m_dragging = false;
+    QPointF m_enterLocal;
+    QPointF m_enterScene;
+    QPointF m_enterGlobal;
     int m_paints = 0;
     int m_fullPaints = 0;
     int m_partialPaints = 0;
@@ -442,21 +503,45 @@ static qint64 countOpaque(const QImage &src)
     return n;
 }
 
-// 手工投一次「按下-拖动-抬起」：无人值守也能跑通交互链（sendEvent 不阻塞）
-static void synthDrag(QWidget *top, GaugeWidget *gauge, const QPointF &local)
+// 手工投一次「按下-拖动-抬起」：无人值守也能跑通交互链（sendEvent 不阻塞）。
+// 这里**故意拆成三个单步函数**：证据⑥ 要逐步数 valueChanged 的次数，
+// 才能说清「一次拖动到底发了几个信号」——拆开了才知道那 2 个是从哪一步来的。
+// 用的都是 qevent.h 第 207~210 行那个 (type, localPos, globalPos, button, buttons, modifiers)
+// 重载：没有 scenePos 参数，Qt 内部把 scene 填成与 local 同值（顶层控件本来就没有「场景」层）。
+static void synthPress(QWidget *top, GaugeWidget *gauge, const QPointF &local)
 {
     const QPoint global = top->mapToGlobal(local.toPoint());
     QMouseEvent press(QEvent::MouseButtonPress, local, QPointF(global),
                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QMouseEvent move(QEvent::MouseMove, local + QPointF(6, 0),
-                     QPointF(global) + QPointF(6, 0),
-                     Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
-    QMouseEvent release(QEvent::MouseButtonRelease, local + QPointF(6, 0),
-                        QPointF(global) + QPointF(6, 0),
-                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(gauge, &press);
+}
+
+static void synthMove(QWidget *top, GaugeWidget *gauge, const QPointF &local)
+{
+    const QPoint global = top->mapToGlobal(local.toPoint());
+    QMouseEvent move(QEvent::MouseMove, local, QPointF(global),
+                     Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     QApplication::sendEvent(gauge, &move);
+}
+
+static void synthRelease(QWidget *top, GaugeWidget *gauge, const QPointF &local)
+{
+    const QPoint global = top->mapToGlobal(local.toPoint());
+    QMouseEvent release(QEvent::MouseButtonRelease, local, QPointF(global),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     QApplication::sendEvent(gauge, &release);
+}
+
+// 一次完整的拖动 = 按下 local → 拖到 local+(6,0) → 在那儿抬起。
+// 关键：**路径上有两个不同的取值点**，所以它天生就是两次 setValue()。
+// 返回值 = 拖动停下时的局部坐标，证据⑥ 拿它做「同一点再投一遍」的对照。
+static QPointF synthDrag(QWidget *top, GaugeWidget *gauge, const QPointF &local)
+{
+    synthPress(top, gauge, local);
+    const QPointF end = local + QPointF(6, 0);
+    synthMove(top, gauge, end);
+    synthRelease(top, gauge, end);
+    return end;
 }
 
 // ============================================================================
@@ -623,33 +708,119 @@ int main(int argc, char *argv[])
         const int sigBefore = changeSignals;
         const int paintsBefore = gauge->paints();
         const QPointF local(gauge->width() * 0.75, gauge->height() * 0.25);
+        const QPointF end = local + QPointF(6, 0);     // 拖动**停下时**的那个点
+
+        // ① 一次完整拖动：先看总数
         synthDrag(&window, gauge, local);
         qInfo() << "  按下/拖动/抬起 之后：value" << before << "->" << gauge->value()
                 << "valueChanged 信号次数 +" << (changeSignals - sigBefore)
-                << "paintEvent 增量 +" << (gauge->paints() - paintsBefore);
-        QEnterEvent enter(QPointF(10, 10), QPointF(window.mapToGlobal(QPoint(10, 10))),
-                          QPointF(window.mapToGlobal(QPoint(10, 10))));
+                << "paintEvent 增量 +" << (gauge->paints() - paintsBefore)
+                << "（本机实测 **+2**，不是 +1；为什么下面②逐步拆开数）";
+
+        // ② 把那个「2」拆开数：这是唯一能分清「重复派发 / release 多发 / 路径本来有两个点」的办法。
+        //    起点选在上一次拖动停下的 end，于是第一步是「同一点再按下」。
+        const int s0 = changeSignals;
+        synthPress(&window, gauge, end);
+        const int s1 = changeSignals;
+        synthMove(&window, gauge, local);
+        const int s2 = changeSignals;
+        synthMove(&window, gauge, end);
+        const int s3 = changeSignals;
+        synthRelease(&window, gauge, end);
+        const int s4 = changeSignals;
+        qInfo() << "  逐步归因（起点 = 上一次停下的 end）：同点按下 +" << (s1 - s0)
+                << " 拖回 local +" << (s2 - s1) << " 再拖回 end +" << (s3 - s2)
+                << " 抬起 +" << (s4 - s3)
+                << "（判定 **+0 / +1 / +1 / +0**）";
+        qInfo() << "  → 结论：一次拖动的路径上有 local 与 end **两个**取值点，"
+                   "mousePressEvent 和 mouseMoveEvent 各自把点交给 updateFromPoint() 一次，"
+                   "两点算出的 value 不同，于是各发一个 valueChanged；mouseReleaseEvent 压根不改 "
+                   "value，所以 +0。**多出来的那一个既不是事件重复派发，也不是 release 替 press 补发的，"
+                   "而是「按下点 ≠ 抬起点」——拖动本来就不是幂等操作。**";
+        qInfo() << "  → 上面那个 **+0（同点按下）就是 setValue() 里 qFuzzyCompare 那道门在起作用**，"
+                   "门没坏；旧版本报 +2 是因为它拿一条**折返路径**（停在 end，又从 local 重新按下）"
+                   "当「同一点再点一次」的实验，中间 value 真的变了两回。";
+
+        // qevent.h 170~171 行：QEnterEvent(localPos, scenePos, globalPos, device=默认主指点设备)
+        //   local  = 相对**接收事件的控件**；scene = 相对**窗口**；global = 相对**屏幕**。
+        // gauge 是 window 的客户区铺满子控件（布局 margins/spacing 都是 0），
+        // 所以这里 local 与 scene 数值相同；global 才需要 mapToGlobal。
+        // 旧写法把 mapToGlobal 当成了第 2 个实参（scene），语义错位，靠下面这行打印才暴露出来。
+        const QPointF enterLocal(10, 10);
+        QEnterEvent enter(enterLocal,                          // local  = 控件内 (10,10)
+                          QPointF(gauge->mapTo(&window, enterLocal.toPoint())),  // scene = 窗口内
+                          QPointF(window.mapToGlobal(enterLocal.toPoint())));    // global= 屏幕
         QApplication::sendEvent(gauge, &enter);
         qInfo() << "  投 QEvent::Enter（QEnterEvent）后 isHovering =" << gauge->isHovering()
                 << "（enterEvent 在 Qt6 的参数类型就是 QEnterEvent*）";
+        qInfo() << "  事件里读回三点：local =" << gauge->enterLocal()
+                << "scene(=窗口) =" << gauge->enterScene()
+                << "global(=屏幕) =" << gauge->enterGlobal()
+                << "；window.mapToGlobal(10,10) =" << window.mapToGlobal(QPoint(10, 10))
+                << " → 第 3 个实参才是 global，对得上就说明构造次序是 local/scene/global。";
         QEvent leave(QEvent::Leave);
         QApplication::sendEvent(gauge, &leave);
         qInfo() << "  投 Leave 后 isHovering =" << gauge->isHovering();
-        // 同一处再点一次：value 没变 → setValue 里的 qFuzzyCompare 应当拦掉，不再提重绘
+
+        // 真正的「同一点再点一次」：此时 value 就对应 end，所以整串都投在 end 上。
+        // 判幂等必须**同一步、同一个点**地投，不能拿一条折返路径当幂等实验（见上面②）。
         const int paintsAfterFirst = gauge->paints();
         const int sigAfterFirst = changeSignals;
-        synthDrag(&window, gauge, local);
-        qInfo() << "  同一点再点一次：value =" << gauge->value()
+        synthPress(&window, gauge, end);            // 落在上一次停下的那个点上
+        synthMove(&window, gauge, end);             // 原地移动：坐标没变
+        synthRelease(&window, gauge, end);
+        qInfo() << "  同一点（拖动终点 end）再投一遍：value =" << gauge->value()
                 << "信号增量 =" << (changeSignals - sigAfterFirst)
                 << "paintEvent 增量 =" << (gauge->paints() - paintsAfterFirst)
-                << "（两个增量都应为 0：没变就不提请求）";
+                << "（判定：两个增量都必须是 **0**，否则 setValue() 里那道 qFuzzyCompare 就是坏的）";
+        // 再补一条最直接的门闩测试：拿当前值原样回灌，一个信号都不许发。
+        const int sigGate = changeSignals;
+        gauge->setValue(gauge->value());
+        qInfo() << "  setValue(当前值) 直灌：信号增量 =" << (changeSignals - sigGate)
+                << "（判定：**0** —— 这就是 qFuzzyCompare 那道门本身，和事件派发无关）";
     });
 
     // ── ⑦ 取色：换 palette 前后同一像素的取值 ───────────────────────────
     QTimer::singleShot(600, [gauge]() {
         qInfo() << "【证据⑦】颜色从 palette 来，不从代码里来";
+
+        // ── 采样点必须是**算出来的**，不能拍脑袋 ─────────────────────────
+        // 旧版在这里取 (width()/2, 8)，换色前后都是 #ffb8b8b8，就写成「证明颜色来自 palette」。
+        // 复盘：(45,8) 正好落在**环形槽 groove** 那 8 像素宽的笔画上，用的是 QPalette::Mid，
+        // 而旧版只改了 Highlight 和 Button —— 采样点根本不在被改的那个 role 上，
+        // 前后相同是**必然**的，它既证不了「吃 palette」，也证不了「写死颜色」，是一张废证据。
+        // 现在：按 paintGauge() 的同一套几何公式复算出四个点，每个点标注它由哪个 ColorRole 涂，
+        // 并且把那四个 role **全都**改掉，实验才有判定力。
+        const QRectF box = QRectF(QRect(QPoint(0, 0), gauge->size())).adjusted(4, 4, -4, -4);
+        const qreal d = qMin(box.width(), box.height()) * 0.78;             // paintGauge 里同一个式子
+        const QPointF rc(box.center().x(), box.center().y() - 4.0);         // ring.center()
+        const double v = gauge->value();
+        // 角度口径同 drawArc：0°=3 点方向、正角=逆时针；屏幕 y 轴向下，所以取 -sin
+        const auto onRing = [&](qreal deg, qreal r) {
+            const qreal a = deg * M_PI / 180.0;
+            return rc + QPointF(qCos(a), -qSin(a)) * r;
+        };
+        const qreal accentEnd = 225.0 + v * 270.0;                          // 数值弧扫到哪儿
+        const QPointF sAccent = onRing(225.0 + v * 135.0, d / 2.0);          // Highlight：数值弧中段
+        const QPointF sGroove = onRing(accentEnd + (495.0 - accentEnd) / 2.0, d / 2.0);
+                                                                            // Mid：槽里没被数值弧盖住的中段
+        const qreal needleLen = d / 2.0 - 12.0;                              // 指针长度（同 paintGauge）
+        const QPointF sNeedle = onRing(225.0 - v * 270.0, needleLen * 0.6);  // ButtonText：指针线上
+        const QPointF sFill(box.left() + 5.0, box.top() + 5.0);              // Button：圆角矩形底
+
+        struct Sample { const char *what; QPalette::ColorRole role; QPointF pt; };
+        const Sample samples[] = {
+            { "数值弧",  QPalette::Highlight, sAccent },
+            { "环形槽",  QPalette::Mid,       sGroove },
+            { "指针",    QPalette::ButtonText,sNeedle },
+            { "圆角底",  QPalette::Button,    sFill   },
+        };
+
         QPalette pal = gauge->palette();
-        qInfo() << "  换前: Button =" << pal.color(QPalette::Button).name()
+        qInfo() << "  换前四个 role："
+                << "Button =" << pal.color(QPalette::Button).name()
+                << "Mid =" << pal.color(QPalette::Mid).name()
+                << "ButtonText =" << pal.color(QPalette::ButtonText).name()
                 << "Highlight =" << pal.color(QPalette::Highlight).name();
         QImage a(gauge->size(), QImage::Format_ARGB32_Premultiplied);
         a.fill(QColor(0, 0, 0, 0));
@@ -658,21 +829,65 @@ int main(int argc, char *argv[])
         QPalette next = pal;
         next.setBrush(QPalette::Highlight, QColor(255, 40, 40));
         next.setBrush(QPalette::Button, QColor(30, 32, 40));
+        next.setBrush(QPalette::Mid, QColor(200, 0, 200));
+        next.setBrush(QPalette::ButtonText, QColor(0, 220, 0));
         gauge->setPalette(next);                              // 317 行
         b.fill(QColor(0, 0, 0, 0));
         gauge->render(&b);
-        const QPoint sample(gauge->width() / 2, 8);
-        qInfo() << "  同一像素(" << sample << ")：换前 =" << a.pixelColor(sample).name(QColor::HexArgb)
-                << "换后 =" << b.pixelColor(sample).name(QColor::HexArgb);
-        qInfo() << "  → 如果代码里写死 QColor(0,120,215)，这一换就什么也不会变；"
-                   "自定义控件必须吃 palette，否则用户的深色模式跟你无关。";
+
+        int changed = 0;
+        for (const Sample &s : samples) {
+            const QPoint pt = s.pt.toPoint();
+            const QColor before = a.pixelColor(pt);
+            const QColor after  = b.pixelColor(pt);
+            const QColor expect = next.color(s.role);         // 这个点**应当**等于该 role 的新色
+            const bool ok = (after.rgb() == expect.rgb());
+            if (after != before)
+                ++changed;
+            qInfo().noquote() << QString::asprintf(
+                "  %-8s(%3d,%3d) role=%-10s 换前=%s 换后=%s 该 role 新色=%s 判定=%s",
+                s.what, pt.x(), pt.y(),
+                s.role == QPalette::Highlight  ? "Highlight" :
+                s.role == QPalette::Mid        ? "Mid" :
+                s.role == QPalette::ButtonText ? "ButtonText" : "Button",
+                before.name(QColor::HexArgb).toUtf8().constData(),
+                after.name(QColor::HexArgb).toUtf8().constData(),
+                expect.name(QColor::HexArgb).toUtf8().constData(),
+                ok ? "符合" : "不符");
+        }
+        qInfo() << "  判定：四个采样点**逐个**等于对应 ColorRole 的新色，且 changed =" << changed
+                << "（应为 4）。上一版只有 1 个点、且落在没改的 Mid 上，所以它给不出任何判定。";
+
+        // ── 对照组：把「写死颜色就不随 palette 变」也做成可判定的实验 ──────────
+        // 同一张 40x20 的条子：左半边从 palette 取 Highlight，右半边写死 QColor(0,120,215)。
+        QImage strip(40, 20, QImage::Format_ARGB32_Premultiplied);
+        const auto renderStrip = [&strip](const QPalette &p) {
+            strip.fill(QColor(0, 0, 0, 0));
+            QPainter q(&strip);
+            q.fillRect(0, 0, 20, 20, p.color(QPalette::Highlight));    // 吃 palette
+            q.fillRect(20, 0, 20, 20, QColor(0, 120, 215));            // 写死
+            q.end();
+        };
+        renderStrip(pal);
+        const QColor dynBefore = strip.pixelColor(5, 5);
+        const QColor fixBefore = strip.pixelColor(30, 5);
+        renderStrip(next);
+        const QColor dynAfter  = strip.pixelColor(5, 5);
+        const QColor fixAfter  = strip.pixelColor(30, 5);
+        qInfo() << "  对照组·取 palette 的半边：" << dynBefore.name(QColor::HexArgb) << "->"
+                << dynAfter.name(QColor::HexArgb) << " 变了 =" << (dynBefore != dynAfter)
+                << "；对照组·写死的半边：" << fixBefore.name(QColor::HexArgb) << "->"
+                << fixAfter.name(QColor::HexArgb) << " 变了 =" << (fixBefore != fixAfter)
+                << "（判定：前者 true、后者 false —— 这才是「写死颜色就不跟着 palette 走」的证据）";
+        qInfo() << "  → 纪律：自定义控件必须吃 palette，否则用户的深色模式跟你无关；"
+                   "而做这种「换 palette 看变不变」的实验时，**采样点必须落在你改的那个 role 上**，"
+                   "并把每个点的归属一起打出来，否则证据会自己骗你。";
         a.save(QStringLiteral("painting_06_custom_widget.png"));
         QImage off(gauge->size(), QImage::Format_ARGB32_Premultiplied);
         off.fill(QColor(0, 0, 0, 0));
         {
             QPainter p(&off);                                 // 离屏设备：随时可画（第 1 讲铁律一）
-            paintGauge(p, QRectF(QRect(QPoint(0, 0), gauge->size())).adjusted(4, 4, -4, -4),
-                       next, 0.72, false);
+            paintGauge(p, box, next, 0.72, false);
         }
         off.save(QStringLiteral("painting_06_offscreen_same_code.png"));
         qInfo() << "  两张 PNG 已写盘：" << a.size() << "非透明像素 render 版 ="
@@ -711,6 +926,10 @@ int main(int argc, char *argv[])
  *   整窗透明              WA_TranslucentBackground（顶层）                   425 行
  *   静态底               WA_StaticContents（变大只补新区域）                311 行
  *   拿控件的像素          render(QPaintDevice*) / grab()                     348 行
+ *   读控件的 DPR          devicePixelRatio() / devicePixelRatioF()  ← **定义在基类**
+ *                        qpaintdevice.h 52/53 行；qwidget.h 98 行 `class QWidget :
+ *                        public QObject, public QPaintDevice` 是公有继承，所以 widget 上直接能调
+ *   手工造 enter 事件     QEnterEvent(local, scene, global, device=默认)     qevent.h 170~171 行
  *
  * 二、update() 与 repaint() 的关系（一句话）
  *   update() 是「登记」，repaint() 是「现在就去画」。登记会被事件循环合并，
@@ -741,10 +960,31 @@ int main(int argc, char *argv[])
  *   查不到就不用它，改用 QTimer + dirty 标志自己合闸 —— 多写十行，但它是真的。
  *   以后你也这样：别人告诉你的 API，先去头文件见一面。
  *
+ *   第二件半，这条更阴：grep 到了「没有」，也别急着下结论。
+ *   本讲旧版在 `qwidget.h` 里搜 `devicePixelRatioF` 搜不到，就写成「Qt6 删了它，别照抄」——
+ *   **结论正好说反**。名字不在派生类头文件里，通常是因为它是**基类的**：
+ *   qwidget.h 98 行 `class QWidget : public QObject, public QPaintDevice`，
+ *   而 devicePixelRatio()/devicePixelRatioF() 在 qpaintdevice.h 52/53 行，公有继承过来，照调不误。
+ *   所以规矩要补全成两步：**先在声明类里 grep；搜不到就去看它的继承列表，沿链往上查到定义为止**。
+ *   「搜不到」本身不携带任何结论，它只携带一个问题：这个名字到底在哪一层？
+ *
  *   第三件：Q_OBJECT 在这讲是**为了发信号**（valueChanged 要给外面用），
  *   不是为了画。别养出「自定义控件必须写 Q_OBJECT」的错觉——
  *   第 1 讲到第 5 讲那些只覆写 paintEvent 的类一个都没写。
  *   要 Q_OBJECT 的三个理由：自定义信号槽、qobject_cast、property 系统。缺一不用加。
+ *
+ *   第三件半，取证的两条手艺，本讲都踩过反面：
+ *   ① **一个数字要归因到一步**。旧版说「同一点再点一次，信号增量应为 0」，实测 +2，
+ *      就有人怀疑事件被重复派发。把按下/拖动/抬起**分开数**以后真相很清楚：+0/+1/+1/+0。
+ *      一次拖动路径上有按下点和抬起点**两个**坐标，mousePressEvent 和 mouseMoveEvent 各换算
+ *      一次 value，两个点不同就各发一个信号；抬起不改 value，所以 +0。
+ *      所谓「多发」，是**拿一条折返路径当幂等实验**造成的——拖动本来就不幂等。
+ *      想验幂等，就把每一步都投在同一个点上（本讲验了，确实是 0）。
+ *   ② **采样点必须落在你改的那个东西上**。旧版在证据⑦ 取 (width()/2, 8)，换 palette 前后
+ *      都是 #ffb8b8b8，就当成「颜色写死」的表现——其实那个像素是**环形槽**用 QPalette::Mid
+ *      涂的，而那实验只改了 Highlight 和 Button，Mid 当然不动。这叫废证据。
+ *      现在的写法：采样点按 paintGauge() 的几何公式**算**出来，四个 role 全改掉，
+ *      每个点把「它归哪个 role 涂」一起打印，实验才有判定力。
  *
  *   最后：交互那一段我用 sendEvent 手工投事件，是因为这套资料必须能在 CI 里跑完。
  *   你也该养成这个习惯：**任何交互都在代码里能造出来**，别一没鼠标就宣称「测不了」。

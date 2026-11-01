@@ -1,0 +1,147 @@
+================================================================
+storage 第 5 讲 · Qt SQL（Qt = 6.12.0 ）
+================================================================
+  库文件将写在 = "C:/Users/Kuros/AppData/Local/Temp/qtc_storage05/demo.db"
+【证据①】驱动与连接：先把「能不能跑」判断清楚
+  QSqlDatabase::drivers() = QList("QIBASE", "QSQLITE", "QMIMER", "QOCI", "QODBC", "QPSQL") （本机可用的驱动插件名）
+  isDriverAvailable("QSQLITE") = true
+      ［对］ QSQLITE 驱动插件可用（缺它这一讲无法核对） → 期望 1，实测 1
+  addDatabase 后：driverName = "QSQLITE" ｜connectionName = "storage05.main" ｜databaseName = "C:/Users/Kuros/AppData/Local/Temp/qtc_storage05/demo.db"
+  还没 open：isOpen = false ｜isValid = true ｜isOpenError = false （isValid 说的是「这个名字有连接且驱动在手」，跟开没开是两码事）
+  contains(默认名) = false ｜connectionNames() = QList("storage05.main") ← 我只注册了带自己名字的连接，**没碰默认连接**
+      ［对］ ① 连接的 driverName 是 QSQLITE → 期望 1，实测 1
+      ［对］ ① 连接名就是我给的那个（没落到默认名上） → 期望 1，实测 1
+      ［对］ ① 默认连接 qt_sql_default_connection 没有被创建 → 期望 0，实测 0
+      ［对］ ① connectionNames() 里只有 1 个连接 → 期望 1，实测 1
+      ［对］ ① addDatabase 之后还没 open → 期望 0，实测 0
+      ［对］ ① 没 open 也 isValid（名字在、驱动在手） → 期望 1，实测 1
+  拷贝一个 QSqlDatabase 再在副本上 setConnectOptions，原件可见吗 = true ｜副本的连接名 = "storage05.main" → **拷贝不是新连接**，是同一连接的第二个句柄（要新连接就 cloneDatabase/addDatabase 新名字）
+      ［对］ ① 在副本上 setConnectOptions，原件立刻可见（同一连接） → 期望 1，实测 1
+      ［对］ ① 副本的连接名与原件相同 → 期望 1，实测 1
+      ［对］ ① 拷贝之后连接数没变（没有新连接） → 期望 1，实测 1
+  open 成功：isOpen = true ｜线程归属 thread() 是否为空 = false ｜驱动特性：Transactions = true PreparedQueries = true NamedPlaceholders = true LastInsertId = true BatchOperations = false QuerySize = false
+  dbmsType() = SQLite 吗 = true （要写跨库代码，方言判断走这里，别猜）
+      ［对］ ① open 成功 → 期望 1，实测 1
+      ［对］ ① 方言判断 dbmsType() 是 SQLite → 期望 1，实测 1
+      ［对］ ① 连接的宿主线程就是当前（主）线程 → 期望 1，实测 1
+      ［对］ ① 有 Transactions 特性（否则事务那一段只能靠返回值赌） → 期望 1，实测 1
+      ［对］ ① 有 PreparedQueries 特性（绑定值靠它才有准备语句语义） → 期望 1，实测 1
+【证据②】建表：语句本身也是「方言」，先看本机 SQLite 认什么
+  CREATE TABLE IF NOT EXISTS ... = true ｜numRowsAffected() = 0 （DDL 的受影响行数各家驱动都可能给 0 或 -1，**别拿它当成功判据**，成功判据是返回值）
+      ［对］ ② 建表语句 exec 成功 → 期望 1，实测 1
+  db.tables(QSql::Tables) = QList("accounts", "sqlite_sequence") ｜里面含 accounts = true （这是**跨库的表清单**入口，别拼 "SELECT name FROM sqlite_master" 那种方言 SQL）
+  db.record(表名)：字段数 = 4 ｜字段名 = QList("id", "name", "qty", "note") （跨库写 DDL/映射的正规信息来源）
+  primaryIndex：字段 = QList("id") （第 6 讲 QSqlTableModel 能不能改数据就看它）
+      ［对］ ② tables() 里有 accounts → 期望 1，实测 1
+      ［对］ ② record() 读到的字段数 → 期望 4，实测 4
+      ［对］ ② record() 的字段名顺序与建表一致 → 期望 1，实测 1
+      ［对］ ② primaryIndex 只有一个字段 → 期望 1，实测 1
+      ［对］ ② 主键是 id → 期望 1，实测 1
+  escapeIdentifier(TableName) 把脏标识符变成 = "\"acc\"ount; DROP TABLE accounts;--\"" ｜再交给 record() 问它存在吗 = false → 结论：**值用 bindValue，标识符用 escapeIdentifier + 白名单**，两条不能互换。
+  ★ 但别把 escapeIdentifier 当成安全栏：本驱动（QSQLITE）的实现只是**首尾各加一个双引号**，标识符**原有的双引号一个都没翻倍**（qtbase/src/plugins/sqldrivers/sqlite/qsql_sqlite.cpp 第 994~1011 行：`return u'"' + identifier + u'"';`，中间没有任何 replace）；基类 QSqlDriver::escapeIdentifier 更是原样返回（sql/kernel/qsqldriver.cpp 第 377~380 行）。所以这串东西转义完仍然是「提前闭合引号 + 尾巴挂在语句里」的形状——**这正是 SQL 里 \"\" 才算转义、而它没做的那件事**。标识符只能来自白名单，没有第二条。
+      ［对］ ② escapeIdentifier 用双引号把标识符整个包住 → 期望 1，实测 1
+      ［对］ ② ★ 实测：转义 = 原样首尾加引号（内部一字未改） → 期望 1，实测 1
+      ［对］ ② ★ 实测：原有的双引号**没有**被翻倍（"" 这种 SQL 转义它没做） → 期望 0，实测 0
+      ［对］ ② 脏标识符没有被当成一张真实存在的表 → 期望 0，实测 0
+【证据③】准备语句 + 绑定值：插入三行，把每行的 id 与 affected rows 打出来
+  prepare 后 executedQuery（还没执行）= false （true=还没执行；空不空决定于驱动，别拿它当日志依据，日志用 lastQuery()）
+      ［对］ ③ prepare 返回 true → 期望 1，实测 1
+"  插入 alice（qty=7, note=有）：exec=1｜numRowsAffected=1｜lastInsertId=1"
+      ［对］ ③ numRowsAffected = 1（一条 INSERT 只影响一行） → 期望 1，实测 1
+      ［对］ ③ lastInsertId 是连续自增的 1/2/3 → 期望 1，实测 1
+"  插入 bob（qty=42, note=NULL）：exec=1｜numRowsAffected=1｜lastInsertId=2"
+      ［对］ ③ numRowsAffected = 1（一条 INSERT 只影响一行） → 期望 1，实测 1
+      ［对］ ③ lastInsertId 是连续自增的 1/2/3 → 期望 2，实测 2
+"  插入 carol（qty=13, note=有）：exec=1｜numRowsAffected=1｜lastInsertId=3"
+      ［对］ ③ numRowsAffected = 1（一条 INSERT 只影响一行） → 期望 1，实测 1
+      ［对］ ③ lastInsertId 是连续自增的 1/2/3 → 期望 3，实测 3
+  绑定值本身可回读：boundValueNames() = QList(":name", ":qty", ":note") ｜boundValue(":qty") = "13" （QSql::ParamType 默认 In，第 101~104 行；Out/InOut 只有支持的驱动才有意义）
+  全表行数 = 3 （预期 3）
+      ［对］ ③ 三行种子插入后全表行数 → 期望 3，实测 3
+      ［对］ ③ 绑定值能按名字回读（:qty 仍是最后一次绑的 13） → 期望 1，实测 1
+      ［对］ ③ boundValueNames 里带着 :name/:qty/:note 三个名字 → 期望 1，实测 1
+  本驱动 hasFeature(BatchOperations)==false → 批量段落**跳过**；后面的期望行数一律按现场 countAllRows() 算，不写死数字
+      ［对］ ③ 跳过批量后全表行数仍是 3 → 期望 3，实测 3
+【证据④】故意撞 UNIQUE：错误的四个面（type / nativeErrorCode / driverText / databaseText）
+  exec() 返回 = false （false 才是失败；**true 也别以为写进去了**，看下一条）
+  lastError： "type=ConnectionError｜nativeErrorCode=2067｜driverText=Unable to fetch row｜databaseText=UNIQUE constraint failed: accounts.name｜text=UNIQUE constraint failed: accounts.name Unable to fetch row｜isValid=1"
+  【注意】 本版本 QSqlError **没有 number()**（qsqlerror.h 第 42~47 行里没有它），对应的是返回 QString 的 nativeErrorCode()。照抄 Qt5 代码里 `err.number()` 的一律编不过。
+  【注意】 看仔细 type= 那一项：撞的是 UNIQUE（明明是一条**语句**的事），type 却是 ConnectionError(1) 而不是 StatementError(2)。**这不是你用错了，是驱动写死的**：qsql_sqlite.cpp 第 334~341 行把 `SQLITE_CONSTRAINT` 和 `SQLITE_ERROR` 并进同一个 case，然后 `qMakeError(..., "Unable to fetch row", QSqlError::ConnectionError, res)`。所以纪律是：**type() 只能用来分「连接级还是别的」，判失败原因要看返回值 + databaseText() + nativeErrorCode()，别拿 type() 当分类依据**。
+  失败之后 numRowsAffected() = -1 ｜isActive = false ｜isValid = false ｜lastInsertId() = "" （失败的语句拿不到有效 id：QVariant 是空的，**先判 isValid/返回值，再取值**）
+  全表行数没变 = 3 （撞 UNIQUE 的这条没写进去）
+  逐条取错误的正规路：QSqlQuery::lastError()；**不要**去 query.result()->lastError()——qsqlresult.h 里那批成员在 protected 段（第 32~42 行），只有驱动子类能用。多条语句（nextResult()）时也是逐条读 lastError()。
+      ［对］ ④ 撞 UNIQUE 的 INSERT：exec() 返回 false → 期望 0，实测 0
+      ［对］ ④ lastError().isValid() 为真（失败一定有错对象） → 期望 1，实测 1
+      ［对］ ④ 错误类型实测是 ConnectionError（驱动把 CONSTRAINT 归到这里，别拿来分类） → 期望 1，实测 1
+      ［对］ ④ databaseText 里写着 UNIQUE（判失败原因靠它，不靠 type()） → 期望 1，实测 1
+      ［对］ ④ nativeErrorCode 非空（Qt6 用它替代 Qt5 的 number()） → 期望 1，实测 1
+      ［对］ ④ databaseText 非空（数据库自己说的话） → 期望 1，实测 1
+      ［对］ ④ 失败的语句 isActive() = false → 期望 0，实测 0
+      ［对］ ④ 全表行数一行没变 → 期望 3，实测 3
+【证据⑤】同一段脏输入，拼接泄露全表、绑定守住语义
+  拼接：exec = true ｜命中行数 = 3 ｜真正送出去的语句 = "SELECT id, name FROM accounts WHERE name = 'alice' OR '1'='1'" ← 用户输入被当成 **SQL 语法**执行了，'1'='1' 恒真，全表泄露（这里全表才 3 行，换成 500 万行客户数据就是拖库）
+  绑定：exec = true ｜命中行数 = 0 ｜boundValue(:who) 原样回读 = "alice' OR '1'='1" ← 那串东西被当成**一个字符串值**去比较，查不到就是查不到，**这才是正确结果**
+  一句话记住：绑定不是「更安全一点的拼接」，是**换了一层语义**；任何一处 `+ userInput` 拼进 SQL 都是漏洞，包括「内部系统的」「不会有人乱输的」那些。
+  位置绑定也行：addBindValue（第 104 行）按顺序塞，配合 setForwardOnly(true) 更省内存
+  位置绑定命中 = 2 ｜exec = true （? 还是 :name 看驱动：NamedPlaceholders 已在证据①打过）
+      ［对］ ⑤ 拼接写法 exec 成功（SQL 语法本身没错——错的是语义） → 期望 1，实测 1
+      ［对］ ⑤ 拼接注入命中全表（命中行数 = 全表行数） → 期望 3，实测 3
+      ［对］ ⑤ 绑定写法 exec 成功 → 期望 1，实测 1
+      ［对］ ⑤ 绑定写法把脏输入当字符串，命中 0 行 → 期望 0，实测 0
+      ［对］ ⑤ boundValue(:who) 原样存着那句注入串（值就是值） → 期望 1，实测 1
+      ［对］ ⑤ 位置绑定 exec 成功 → 期望 1，实测 1
+      ［对］ ⑤ 位置绑定 qty>10 命中 2 行（bob 42 / carol 13） → 期望 2，实测 2
+【证据⑥】事务：transaction → 插两行 → rollback → 行数一根毛都没动
+  事务前行数 = 3
+  hasFeature(Transactions) = true （没这特性的驱动，这三个函数只是「试着发语句」，成败一律看返回值）
+  db.transaction() = true ｜若失败，lastError = "type=NoError｜nativeErrorCode=(空)｜driverText=｜databaseText=｜text=｜isValid=0"
+      ［对］ ⑥ db.transaction() 成功 → 期望 1，实测 1
+  事务内两次 exec = true true ｜事务内行数 = 5 ｜numRowsAffected 本条 = 1 （SQLite 在事务里就看得见这两行——别把「看得见」当成「已落盘」）
+  db.rollback() = true ｜回滚后行数 = 3 ｜事务前 = 3 ｜相等吗 = true
+      ［对］ ⑥ 事务内两次 INSERT 都成功 → 期望 2，实测 2
+      ［对］ ⑥ 事务内就能看见这两行（未提交也可见） → 期望 5，实测 5
+      ［对］ ⑥ db.rollback() 返回 true → 期望 1，实测 1
+      ［对］ ⑥ 回滚之后行数回到事务前 → 期望 3，实测 3
+  第二段：transaction= true 插一行= true commit= true ｜现在全表行数 = 4 （预期 4 ）
+  【注意】 SQLite 别嵌套 transaction()：第二个 BEGIN 会直接报错，Qt 这层没有 SAVEPOINT 封装。要做嵌套就在自己的代码里计数（只有最外层真开事务），或者一条事务走完。
+      ［对］ ⑥ 第二段 transaction() 成功 → 期望 1，实测 1
+      ［对］ ⑥ 第二段 INSERT 成功 → 期望 1，实测 1
+      ［对］ ⑥ 第二段 commit() 成功 → 期望 1，实测 1
+      ［对］ ⑥ commit 之后行数 = 事务前 + 1 → 期望 4，实测 4
+【证据⑦】查询：游标逐行、按名字取值、字段元信息
+  record()：字段数 = 4 ｜名:QMetaType 编号 = QList("id:int", "name:QString", "qty:int", "note:QString") ｜indexOf("qty") = 2 （**列号从 record 查，别在代码里写死 0/1/2/3**——SELECT 顺序一改就全错）
+  size() = -1 ｜QuerySize 特性 = false （SQLite 不给行数，size() 常是 -1：**别靠 size() 判有没有数据**，靠 next()）
+      ［对］ ⑦ record() 的字段数（SELECT 四列） → 期望 4，实测 4
+      ［对］ ⑦ indexOf("qty") 指向第 3 列（下标 2） → 期望 2，实测 2
+      ［对］ ⑦ size() 与 QuerySize 特性一致（没特性就必须是 -1） → 期望 1，实测 1
+"  行 0: id=2 name=bob qty=42 note 为 NULL=1"
+"  行 1: id=3 name=carol qty=13 note 为 NULL=0"
+"  行 2: id=1 name=alice qty=7 note 为 NULL=0"
+"  行 3: id=4 name=tx-committed qty=5 note 为 NULL=0"
+  逐行取完：命中行数 = 4 ｜其中 note 为 NULL 的 = 1 ｜q.isValid() 游标当前位置 = false （next() 走完返回 false，此时 isValid=false，**值只能在 next() 为真时取**）
+  游标可以倒回去：q.first() = true ｜再取 name = "bob" ｜此刻 q.isValid() = true （同一个游标、同一个函数，**换个时刻问就是换个答案**——这就是取证要卡位置的理由；前提不是 forwardOnly；证据⑤那条设了 setForwardOnly(true)，就退不回去了）
+  数值精度策略（第 95/96 行）当前 = 4 （HighPrecision=0 是默认；大整数溢出成 int 的那种坑就是这里调）
+      ［对］ ⑦ qty>4 命中 4 行 → 期望 4，实测 4
+      ［对］ ⑦ 其中 note 为 NULL 的 1 行（bob） → 期望 1，实测 1
+      ［对］ ⑦ next() 走完之后游标不再有效（不能再取值） → 期望 0，实测 0
+      ［对］ ⑦ q.first() 能把游标倒回第一行 → 期望 1，实测 1
+      ［对］ ⑦ ★ 倒回之后 isValid() 重新为 true（取证必须卡在对的时刻） → 期望 1，实测 1
+      ［对］ ⑦ 倒回第一行后取到的 name 是 bob → 期望 1，实测 1
+【收尾】连接与文件的离场顺序
+  先建一个「工作线程用的新连接名」演示 clone 的用法（本进程没真开线程，只验 API 形状）： cloneDatabase(...,"storage05.worker") 后 connectionNames = "尚未存在"
+  close() 之后：isOpen = false ｜isValid（名字还在） = true
+      ［对］ 收尾 关连接之前它是开着的 → 期望 1，实测 1
+      ［对］ 收尾 close() 之后 isOpen = false → 期望 0，实测 0
+      ［对］ 收尾 close() 之后连接名还在（isValid 仍为真） → 期望 1，实测 1
+qt.sql.qsqldatabase: QSqlDatabasePrivate::removeDatabase: connection 'storage05.main' is still in use, all queries will cease to work.
+  removeDatabase 之后：contains(本讲连接名) = false ｜connectionNames() = QList() ← 连接的生死跟着**名字**走，不跟着某个 QSqlDatabase 变量走
+      ［对］ 收尾 removeDatabase 之后 contains = false → 期望 0，实测 0
+      ［对］ 收尾连接表被清空 → 期望 0，实测 0
+  删掉的库相关文件 = QList("demo.db") ｜临时目录 "C:/Users/Kuros/AppData/Local/Temp/qtc_storage05" 整体删除成功 = true ｜还在吗 = false （-journal/-wal/-shm 是 SQLite 的附属文件，**关连接之后才删得干净**，顺序别反）
+      ［对］ 收尾 库文件确实落过盘（不是内存库） → 期望 1，实测 1
+      ［对］ 收尾 库文件已删除 → 期望 0，实测 0
+      ［对］ 收尾 临时目录整体删除干净 → 期望 1，实测 1
+【收尾】五句话带走：① addDatabase 必带连接名，线程各用各的；② QSqlDatabase 拷贝是同一连接的第二个句柄，QSqlQuery 才不能拷；③ 值一律 bindValue，标识符一律 escapeIdentifier + 白名单；④ exec 返回值 + numRowsAffected + lastError 三样都要看，QSqlError 只有 nativeErrorCode 没有 number；⑤ 事务三个函数都要判返回值，SQLite 不能嵌套。
+
+【硬账】77/77 项核对通过 → 退出码 0
+（事件循环正常退出，rc = 0 ）

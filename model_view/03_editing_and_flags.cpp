@@ -38,9 +38,10 @@
 //   · 可以无头跑：`model_view_03_editing_and_flags -platform offscreen`。
 //   · 数据现造（不读文件、不联网），两个模型实例各 200 行，够演示了。
 //   · 图解页面：../visuals/model_view.html（第 1 讲的五角色图；本讲看「回路」那一段）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；文中所有「预期」后面是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_03_editing_and_flags，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_03_editing_and_flags.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -69,7 +70,7 @@
 #include <vector>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtCore/qabstractitemmodel.h
 //   第 283 行 virtual QVariant data(const QModelIndex &index,
@@ -371,14 +372,21 @@ public:
         if (parent.isValid() || count <= 0 || row < 0 || row > int(m_rows.size()))
             return false;
         beginInsertRows(QModelIndex(), row, row + count - 1);
+        // 一次预留 + 一次区间插入：原来在循环里逐条 insert，每条都会把整张 vector
+        // 搬一遍（count 次重分配）。语义一样，但少了一串「搬到一半时地址全是新的」的窗口。
+        std::vector<TaskRow> fresh;
+        fresh.reserve(size_t(count));
         for (int k = 0; k < count; ++k) {
             TaskRow r;
             r.title = QStringLiteral("插入的任务 %1").arg(row + k + 1);
             r.progress = 0;
             r.owner = QStringLiteral("（新）");
             r.done = false;
-            m_rows.insert(m_rows.begin() + row, r);   // 注意：vector 插入会搬地址（第 2 讲证据③）
+            fresh.push_back(std::move(r));
         }
+        m_rows.insert(m_rows.begin() + row,               // 注意：vector 插入会搬地址（第 2 讲证据③）
+                      std::make_move_iterator(fresh.begin()),
+                      std::make_move_iterator(fresh.end()));
         endInsertRows();
         Trace::add(QStringLiteral("insertRows(%1,%2) 走完 begin/end").arg(row).arg(count));
         return true;
@@ -811,7 +819,15 @@ static void evidenceResetVsInsert(TaskModel &model, ListeningView &view)
 {
     qInfo() << "【证据⑤】beginResetModel/endResetModel 的代价：视图失忆";
 
-    view.setModel(&model);
+    // 上一节（证据④）已经把 view 和 model 接上了，这里**不要再 setModel 一次**。
+    // 对同一个视图重复 setModel 同一个模型不是空操作：视图会先拆掉旧的连接、
+    // 把旧的 selectionModel 走 deleteLater() 排队，再建一张新的。于是
+    //   · 你之前从 view.selectionModel() 拿到的那个对象指针当场作废；
+    //   · 事件循环一转，旧对象真被析构。
+    // 「想把视图恢复到干净的观察状态」应该用 reset（本节乙段的 reloadEverything），
+    // 而不是重挂模型。
+    if (view.model() != &model)
+        view.setModel(&model);
     view.show();
     flushEvents();
 

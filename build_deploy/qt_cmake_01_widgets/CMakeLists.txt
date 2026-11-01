@@ -12,7 +12,7 @@
 #   target_link_libraries(hello_widgets PRIVATE Qt6::Widgets)
 #
 # 怎么构建（在本目录下，不要在上层目录）：
-#   cmake -G Ninja -B build -S .
+#   cmake -G "MinGW Makefiles" -B build -S .
 #   cmake --build build
 #   ./build/hello_widgets            # Windows: build\hello_widgets.exe
 #

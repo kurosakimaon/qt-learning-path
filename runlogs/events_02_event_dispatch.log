@@ -1,0 +1,330 @@
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=33 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=203 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=34 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=34 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=13 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=14 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=17 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=183 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=183 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=17 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=主窗(元对象类=QWidget) type=26 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=调基类子(元对象类=QWidget) type=21 spontaneous=false(程序投递) isAccepted=true
+  层2 调基类子::event() 第 1 次进入，type=21
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QWidget) type=15 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=吞事件子(元对象类=QWidget) type=21 spontaneous=false(程序投递) isAccepted=true
+  层2 吞事件子::event() 第 1 次进入，type=21
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=78 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+  层2 正常Gate::event() 第 1 次进入，type=74
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+  层2 正常Gate::event() 第 2 次进入，type=75
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=不调基类(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+  层2 不调基类::event() 第 1 次进入，type=74
+层1 notify → 接收者=不调基类(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+  层2 不调基类::event() 第 2 次进入，type=75
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=调基类子(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+  层2 调基类子::event() 第 2 次进入，type=75
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=69 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=吞事件子(元对象类=QWidget) type=75 spontaneous=false(程序投递) isAccepted=true
+  层2 吞事件子::event() 第 2 次进入，type=75
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=69 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=调基类子(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+  层2 调基类子::event() 第 3 次进入，type=74
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=吞事件子(元对象类=QWidget) type=74 spontaneous=false(程序投递) isAccepted=true
+  层2 吞事件子::event() 第 3 次进入，type=74
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=77 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QApplication) type=121 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QApplication) type=214 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=8 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=24 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=99 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=14 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=13 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=206 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=12 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=12 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=(元对象类=QApplication) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=10 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=10 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=1 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+
+=== 演示① 正常路径：notify → event() → mousePressEvent ===
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=2 spontaneous=false(程序投递) isAccepted=true
+  层2 正常Gate::event() 第 3 次进入，type=2
+    层3 正常Gate::mousePressEvent 被调用
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+演示① 结果：层2 进入 3 次，层3 mousePressEvent 1 次
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=1 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+
+=== 演示② 在 event() 里截下 Paint，不交给基类 ===
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=203 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=34 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=34 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=13 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=14 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=17 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=183 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=183 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=17 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=26 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+演示② 说明：update() 只是投一次重绘请求；真正调用层3 要等事件循环派发。
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=23 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=9 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=8 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=24 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=99 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=25 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=99 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=14 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=13 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=206 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=12 spontaneous=true(来自窗口系统) isAccepted=true
+  层2 "截Paint" ::event() 截下 Paint，没交给基类 → 层3 不会发生
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=12 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=10 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=10 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=78 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=77 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=12 spontaneous=true(来自窗口系统) isAccepted=true
+  层2 "截Paint" ::event() 截下 Paint，没交给基类 → 层3 不会发生
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=1 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+演示② 结果（此刻）：正常Gate 已重绘 0 次，截Paint 已重绘 0 次 → 后者明显少（预期为 0），因为 Paint 在层2 就被截了。
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+
+=== 演示③ 子控件是否调基类，决定父控件能不能接住事件 ===
+层1 notify → 接收者=吞事件子(元对象类=QWidget) type=2 spontaneous=false(程序投递) isAccepted=true
+  层2 吞事件子::event() 第 4 次进入，type=2
+    层3 "吞事件子" ::mousePressEvent 自定义处理，**不调基类**
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+给「吞事件子」按下之后：父控件收到 0 次
+层1 notify → 接收者=调基类子(元对象类=QWidget) type=2 spontaneous=false(程序投递) isAccepted=true
+  层2 调基类子::event() 第 4 次进入，type=2
+    层3 "调基类子" ::mousePressEvent 自定义处理后**调基类**
+      -> 父控件 Tray父 竟然收到了鼠标事件（子控件没要它）第 1 次
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+给「调基类子」按下之后：父控件累计收到 1 次
+演示③ 结果：期望 tray 计数 =1（只有 pass 那次上抛）。 若你机器上是别的数，请把 notify 日志翻回去看 isAccepted 那一列—— 「上抛」的唯一条件是事件仍处于 ignored 状态。
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+
+=== 演示④ 键盘事件穿过同一套三层链 ===
+层1 notify → 接收者=(元对象类=QApplication) type=68 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+合成键盘事件：key = 65 text = "a" modifiers = 67108864 isAutoRepeat = false
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=6 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=51 spontaneous=false(程序投递) isAccepted=false
+  层2 正常Gate::event() 第 4 次进入，type=51
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+  层2 正常Gate::event() 第 5 次进入，type=6
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+演示④ 结果：层2/层3 日志见上（Gate 没重写 keyPressEvent， 基类 QWidget::keyPressEvent 会把它 ignore，于是 Qt 交给父控件/快捷键系统）。
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QSingleShotTimer) type=1 spontaneous=false(程序投递) isAccepted=true
+
+=== 结论 ===
+整场经过 notify 的事件总数 = 110
+正常Gate：层2 5 次 / 层3 paint 0 次 / 层3 mouse 1 次
+截Paint ：层2 17 次 / 层3 paint 0 次（预期 0）
+父 Tray 从子控件接到 1 次
+一句话：**notify 是总闸，event() 是闸门，handler 是房间； 闸门不往基类传，房间就永远不会开。**
+层1 notify → 接收者=(元对象类=QApplication) type=20 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=19 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=19 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=25 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=99 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=18 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=18 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=27 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=203 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=19 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=19 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=18 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=false
+层1 notify → 接收者=主窗(元对象类=QWidget) type=18 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=27 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=217 spontaneous=false(程序投递) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=203 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=(元对象类=QEventDispatcherWin32) type=71 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=14 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截PaintWindow(元对象类=QWidgetWindow) type=206 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=10 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=10 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=14 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗Window(元对象类=QWidgetWindow) type=206 spontaneous=true(来自窗口系统) isAccepted=true
+层1 notify ← 返回 true（Qt 认为这个事件被处理了）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=调基类子(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=吞事件子(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=Tray父(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=不调基类(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=截Paint(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=正常Gate(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true
+层1 notify → 接收者=主窗(元对象类=QWidget) type=16 spontaneous=false(程序投递) isAccepted=true
+层1 notify ← 返回 false（没人要这个事件）｜同一个事件此刻 isAccepted=true

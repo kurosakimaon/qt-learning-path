@@ -87,7 +87,7 @@ btn->setParent(window);                 // 挂进树，但没人会替你摆位�
 // QWidget 通常直接在构造时给父，顺带交给布局
 auto *edit = new QTextEdit(window);
 layout->addWidget(edit);                // 摆位置是布局的事`,
-    highlight: [1, 2]
+    highlight: [1, 4]
   },
   {
     title: '析构：父对象会替你把整棵树拆掉',
@@ -111,12 +111,12 @@ layout->addWidget(edit);                // 摆位置是布局的事`,
 
         <rect class="svg-field" x="30" y="255" width="700" height="145" rx="10"/>
         <text class="svg-small" x="50" y="283">由此得到三条工程规矩：</text>
-        <text class="svg-text" x="50" y="311">① 有 parent 的对象，你<strong>不要再 delete</strong> —— 二次释放是崩溃，不是泄漏。</text>
+        <text class="svg-text" x="50" y="311">① 有 parent 的对象别自己 delete —— 实测不会二次释放，但你手里那把成了悬垂指针。</text>
         <text class="svg-text" x="50" y="337">② 没 parent 的对象（栈上、或堆上裸的），必须自己管；否则就是泄漏。</text>
         <text class="svg-small" x="50" y="363">③ 「析构函数体先跑、再删子对象」意味着：你的成员已经没了，但子对象还活着 ——</text>
         <text class="svg-small" x="50" y="385">   所以子对象的析构函数里别回头访问父对象的成员。</text>
       </svg>`,
-    caption: '父对象析构时，<code>~QObject</code> 会把 <code>children()</code> 里每个子对象 <strong>先脱父、再 delete</strong>，子树跟着一起没。于是得到两条铁律：<strong>有 parent 的不要再 delete</strong>（二次释放）；<strong>没 parent 的必须自己管</strong>（否则泄漏）。另外注意顺序——<strong>你的析构函数体先跑完，子对象才被删</strong>，所以子对象析构里别回头访问父的成员。',
+    caption: '父对象析构时 <code>~QObject</code> 会调 <code>deleteChildren()</code>（<code>qobject.cpp</code> 第 2282~2297 行）。它的做法<strong>不是</strong>「先把孩子脱父再删」，而是<strong>把 children 列表里那一格先置成 <code>nullptr</code>，再 <code>delete</code> 这个孩子</strong>；源码注释还说明了为什么不能用 <code>qDeleteAll</code>——「孩子的析构可能会删掉它的兄弟」，所以循环每轮重新读 <code>children.at(i)</code>。孩子自己的 <code>~QObject</code> 会回头走 <code>setParent_helper</code>，那里发现 <code>currentChildBeingDeleted == q</code> 就<strong>什么都不做</strong>（第 2320~2325 行），避免去踩已经置空的格子。删除顺序 = <strong>成为孩子的顺序</strong>（下标 0→n），不是反序。<strong>但「有父还自己 delete 会二次释放崩掉」这个常见说法，本机实测不成立</strong>：父还活着时 <code>delete</code> 孩子，孩子会在自己析构里被父的列表 <code>removeAt</code> 摘掉（实测 <code>window-&gt;children()</code> 从 1 变 0，进程正常退出）；真正会崩的是<strong>反过来</strong>——先删父（孩子已被父带走），之后再去碰那个孩子的裸指针。<strong>更阴的一档</strong>：把悬垂的 <code>QObject*</code> 直接交给 <code>qInfo()</code> 就段错误（退出码 139），因为 <code>qobject.h</code> 第 481 行那个 <code>operator&lt;&lt;(QDebug, const QObject *)</code> 在 <code>qobject.cpp</code> 第 4797~4798 行会 <code>QObjectPrivate::get(o)</code> 解引用它；同一个指针改成 <code>const void*</code> 打印就安然无事（实测 exit 0）。所以「我就打印一下看个地址」在悬垂场景里<strong>不是无害操作</strong>。最后注意顺序：<strong>你的析构函数体先跑完，子对象才被删</strong>（<code>deleteChildren()</code> 在基类 <code>~QObject</code> 里，第 1189~1190 行），所以子对象析构里别回头访问父的成员。',
     code: `// 正确：交给父
 auto *btn = new QPushButton("确定", window);   // 不用 delete
 
@@ -125,10 +125,14 @@ auto *tmp = new QFile(path);                   // 没有父
 /* … */
 delete tmp;
 
-// 错误：交给父之后又自己删
+// 「有父还自己 delete」——本机实测：不会当场崩
 auto *label = new QLabel("hi", window);
-delete label;        // 崩溃：window 之后还会再删一次`,
-    highlight: [1, 4, 9]
+delete label;      // label 的 ~QObject 把自己从 window 的 children 里摘掉了
+                   // 实测 window->children() 由 1 变 0，进程正常退出
+// 真正会崩的是反过来：
+delete window;     // window 析构时已经把 label 删了
+qInfo() << label;  // ← 段错误(139)：QDebug 的 QObject 重载会解引用它`,
+    highlight: [1, 4, 10, 13, 14]
   },
   {
     title: 'children() 的语义：能拿到什么、拿不到什么',
@@ -177,7 +181,7 @@ const auto edits = window->findChildren<QLineEdit *>();`,
     ms: 7000,
     stage: `
       <svg viewBox="0 0 760 420" role="img" aria-label="deleteLater 投递 DeferredDelete 事件">
-        <rect class="svg-box-good" x="30" y="30" width="300" height="110" rx="10"/>
+        <rect class="svg-box-good" x="30" y="30" width="300" height="114" rx="10"/>
         <text class="svg-mono" x="48" y="58">void Page::onOkClicked() {</text>
         <text class="svg-mono" x="48" y="82">    dialog-&gt;deleteLater();</text>
         <text class="svg-mono" x="48" y="106">}   // 立刻返回，对象还活着</text>
@@ -194,24 +198,25 @@ const auto edits = window->findChildren<QLineEdit *>();`,
         <text class="svg-small" x="695" y="72" text-anchor="middle">事件循环</text>
         <text class="svg-small" x="695" y="96" text-anchor="middle">取到 → delete</text>
 
-        <rect class="svg-box-bad" x="30" y="165" width="340" height="105" rx="10"/>
+        <rect class="svg-box-bad" x="30" y="165" width="340" height="112" rx="10"/>
         <text class="svg-bad-text" x="48" y="192">直接 delete 的两种死法</text>
         <text class="svg-small" x="48" y="218">① 它是 sender：activate 还在遍历连接表，</text>
         <text class="svg-small" x="48" y="240">   对象已经没了 → 访问已释放内存</text>
         <text class="svg-small" x="48" y="262">② 同一个信号还有别的槽要跑 → 同上</text>
 
-        <rect class="svg-box-good" x="390" y="165" width="340" height="105" rx="10"/>
+        <rect class="svg-box-good" x="390" y="165" width="340" height="112" rx="10"/>
         <text class="svg-good-text" x="408" y="192">deleteLater 的保证</text>
         <text class="svg-small" x="408" y="218">· 返回值立刻可用，对象仍可访问</text>
         <text class="svg-small" x="408" y="240">· 重复调用是安全的（只会删一次）</text>
         <text class="svg-small" x="408" y="262">· 退出前未处理的事件会被清掉</text>
 
         <rect class="svg-field" x="30" y="290" width="700" height="110" rx="10"/>
-        <text class="svg-small" x="50" y="318">唯一的陷阱：删除发生在<strong>「下一个」事件循环轮次</strong>，不是现在。</text>
-        <text class="svg-text" x="50" y="346">所以「deleteLater 之后还用指针」在当轮是合法的，但下一轮就悬垂 —— 别把它当「已经删了」。</text>
-        <text class="svg-small" x="50" y="372">要立刻确认已删：QPointer 观察它是否变空（下一轮再查）。</text>
+        <text class="svg-small" x="50" y="316">唯一的陷阱：删除发生在<strong>「下一个」事件循环轮次</strong>，不是现在。</text>
+        <text class="svg-text" x="50" y="340">所以「deleteLater 之后还用指针」在当轮是合法的，但下一轮就悬垂 —— 别把它当「已经删了」。</text>
+        <text class="svg-small" x="50" y="362">要立刻确认已删：QPointer 观察它是否变空（下一轮再查）。</text>
+        <text class="svg-bad-text" x="50" y="386">★ 更狠的一档：目标线程的循环没在跑 → 这发 DeferredDelete 根本没人取。</text>
       </svg>`,
-    caption: '<code>deleteLater()</code> 只是<strong>投递一个 <code>QEvent::DeferredDelete</code></strong>（值 52），真正删除发生在<strong>事件循环下一轮</strong>。这解决了「槽把 sender 删了，但 activate 还在遍历连接表」的经典崩溃。它能重复调用（只删一次），但<strong>不是「立即删除」</strong>——当轮指针还合法，下一轮就悬垂。',
+    caption: '<code>deleteLater()</code> 只是<strong>投递一个 <code>QEvent::DeferredDelete</code></strong>（值 52），真正删除发生在<strong>事件循环下一轮</strong>。这解决了「槽把 sender 删了，但 activate 还在遍历连接表」的经典崩溃。它能重复调用（只删一次），但<strong>不是「立即删除」</strong>——当轮指针还合法，下一轮就悬垂。<strong>而「下一轮」是个前提，不是 guarantee</strong>，本机两个局面都量过：<strong>A</strong> 重写 <code>run()</code> 且从不 <code>exec()</code> 的线程里 <code>deleteLater()</code>，睡 200ms 后析构计数仍是 <strong>0</strong>，直到这条线程结束才补删（计数变 1）；<strong>B</strong> 对象户口在某条<strong>已经 <code>quit()</code>+<code>wait()</code></strong> 的线程上，再从主线程对它 <code>deleteLater()</code>，等 250ms 计数 <strong>0</strong>，连 <code>QThread</code> 对象析构之后还是 <strong>0</strong>——这发事件躺在一条死线程的队列里，<strong>对象就这么漏掉了</strong>。顺带另一条实测：忘 <code>quit()</code> 就让 <code>QThread</code> 出作用域，会得到 <code>QThread: Destroyed while thread &#39;&#39; is still running</code> 并把进程打断（退出码 127）。',
     code: `// 槽里删掉发起者：必须推迟
 void Page::onOkClicked()
 {
@@ -220,8 +225,13 @@ void Page::onOkClicked()
 }
 
 // 想确认真的删了：下一轮用 QPointer 观察
-QPointer<QDialog> guard(d);   // d 被删后 guard.isNull() == true`,
-    highlight: [4, 8]
+QPointer<QDialog> guard(d);   // d 被删后 guard.isNull() == true
+
+// 前提塌了的两种样子（本机实测）：
+worker->deleteLater();  // ① 这条线程的 run() 从不 exec() → 线程结束前没人删它
+thread->quit(); thread->wait();
+obj->deleteLater();     // ② 循环已经死了 → 这发事件永远没人取，对象泄漏`,
+    highlight: [4, 8, 11, 12, 13]
   },
   {
     title: 'QPointer：不阻止销毁，只告诉你「它没了」',
@@ -250,11 +260,11 @@ QPointer<QDialog> guard(d);   // d 被删后 guard.isNull() == true`,
         <path class="svg-arrow" d="M400 120 L400 170"/>
         <rect class="svg-field" x="40" y="270" width="690" height="130" rx="10"/>
         <text class="svg-small" x="60" y="298">它能做和不能做的：</text>
-        <text class="svg-good-text" x="60" y="326">能：isNull() 判断；operator-&gt; 判空前访问；跨轮次观察 deleteLater 的结果</text>
-        <text class="svg-bad-text" x="60" y="352">不能：阻止对象销毁（它不是 shared_ptr）；不能保证「判空之后到下一条语句之间」不被删</text>
-        <text class="svg-small" x="60" y="378">★ 所以 QPointer 是「诊断工具与防守」，不是「线程安全的弱引用」。</text>
+        <text class="svg-good-text" x="60" y="324">能：isNull() / operator bool 判空；跨轮次观察 deleteLater 的结果</text>
+        <text class="svg-bad-text" x="60" y="350">不能：阻止对象销毁（它不是 shared_ptr）；也不能保证「判空之后」不被删</text>
+        <text class="svg-bad-text" x="60" y="376">也不能：指望 operator-&gt; 帮你判空 —— 它只是 return data()，空的也照样给</text>
       </svg>`,
-    caption: '<code>QPointer</code> 在对象销毁时<strong>自动变空</strong>——这是「我持有别人的指针，但不想管它的生死」时的正确工具。它<strong>不阻止销毁</strong>（不是 <code>shared_ptr</code>），也<strong>不是线程安全的</strong>弱引用：<code>isNull()</code> 通过之后对象仍可能被别的线程删掉。它的正确用法是判断与诊断，不是加锁。',
+    caption: '<code>QPointer</code> 在对象销毁时<strong>自动变空</strong>——这是「我持有别人的指针，但不想管它的生死」时的正确工具。它<strong>不阻止销毁</strong>（不是 <code>shared_ptr</code>），也<strong>不是线程安全的</strong>弱引用：<code>isNull()</code> 通过之后对象仍可能被别的线程删掉。<strong>还有一个容易想当然的点：它的 <code>operator-&gt;</code> 不判空</strong>——本机 <code>qpointer.h</code> 第 79~80 行整句就是 <code>{ return data(); }</code>，对象没了它就返回 <code>nullptr</code>，你接着 <code>-&gt;</code> 下去就是空指针解引用；<code>operator*</code>（第 81~82 行 <code>return *data();</code>）同理。所以「安全」这件事永远是<strong>你自己</strong>先用 <code>isNull()</code>（第 86 行）或 <code>operator bool</code>（第 88 行）判一遍，而不是交给智能指针的箭头。它的正确用法是判断与诊断，不是加锁。',
     code: `QPointer<QDialog> guard = dialog;   // 观察，不持有
 
 dialog->deleteLater();
@@ -263,9 +273,12 @@ dialog->deleteLater();
 if (guard.isNull()) {
     qInfo() << "确实已经销毁";
 } else {
-    guard->raise();                // 还活着，可以安全使用
-}`,
-    highlight: [1, 5]
+    guard->raise();                 // 判过空才敢用 —— 保护你的是这个 if，不是 ->
+}
+
+// 反例：operator-> 不替你判空（本机 qpointer.h 第 79~80 行就是 return data();）
+guard->raise();                     // 对象没了 → data() == nullptr → 空指针解引用`,
+    highlight: [5, 8, 11, 12]
   },
   {
     title: '实战判断：这个对象该归谁',
@@ -273,7 +286,7 @@ if (guard.isNull()) {
     ms: 7000,
     stage: `
       <svg viewBox="0 0 760 420" role="img" aria-label="对象归属判断流程">
-        <rect class="svg-box-accent" x="280" y="20" width="200" height="56" rx="10"/>
+        <rect class="svg-box-accent" x="270" y="20" width="220" height="56" rx="10"/>
         <text class="svg-small" x="380" y="54" text-anchor="middle">这个对象需要一个「寿命更长的锚」吗？</text>
 
         <path class="svg-arrow" d="M330 76 L200 76 L200 105"/>
@@ -301,10 +314,10 @@ if (guard.isNull()) {
 
         <rect class="svg-box-warn" x="30" y="320" width="700" height="82" rx="10"/>
         <text class="svg-small" x="50" y="346">三个最常见的踩坑组合：</text>
-        <text class="svg-small" x="50" y="370">① 有 parent 又 delete —— 二次释放；② 无 parent 又忘了删 —— 泄漏；</text>
+        <text class="svg-small" x="50" y="370">① 有 parent 还自己 delete —— 不崩，但手里留了把悬垂指针；② 无 parent 又忘删 —— 泄漏；</text>
         <text class="svg-small" x="50" y="392">③ 把「数据对象」挂到窗口下 —— 换个窗口就得重建数据，纯属自找麻烦。</text>
       </svg>`,
-    caption: '归属判断只问一句：<strong>这个对象是否天然属于某块界面</strong>。是 → 给 parent，随它一起死；不是（领域对象、数据记录、临时对象）→ 自己管。<strong>给了 parent 就等于把寿命绑在界面上</strong>——把数据对象挂到窗口下，换个窗口就得重建数据。三个高频坑：有 parent 又 delete、无 parent 又忘了删、数据对象挂窗口。',
+    caption: '归属判断只问一句：<strong>这个对象是否天然属于某块界面</strong>。是 → 给 parent，随它一起死；不是（领域对象、数据记录、临时对象）→ 自己管。<strong>给了 parent 就等于把寿命绑在界面上</strong>——把数据对象挂到窗口下，换个窗口就得重建数据。三个高频坑的<strong>真实后果</strong>（本机实测，见上一节）：① 有 parent 还自己 delete，不会二次释放、也不会当场崩——<code>~QObject</code> 先把自己从父的 <code>children</code> 里摘掉了，危险的是<strong>你手里那把指针从此悬垂</strong>，尤其反过来先 <code>delete</code> 父再碰子；② 无 parent 又忘删——泄漏；③ 数据对象挂窗口——换窗口就得重建数据。',
     code: `// 属于界面 → 给 parent
 auto *timer = new QTimer(this);           // this 是窗口
 auto *model = new TodoModel(this);        // 随窗口一起死

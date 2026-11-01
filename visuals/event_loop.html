@@ -267,7 +267,7 @@ if (dlg.exec() == QDialog::Accepted) save();
 dlg.open();
 connect(&dlg, &QDialog::accepted, this, &Page::save);
 connect(&dlg, &QDialog::finished, this, &Page::onDlgClosed);`,
-    highlight: [1, 2, 6, 8]
+    highlight: [1, 2, 5, 7]
   },
   {
     title: 'quit 与 exit：怎么让循环停下来',
@@ -277,7 +277,7 @@ connect(&dlg, &QDialog::finished, this, &Page::onDlgClosed);`,
       <svg viewBox="0 0 760 420" role="img" aria-label="退出事件循环的几种方式">
         <rect class="svg-box" x="30" y="30" width="220" height="80" rx="10"/>
         <text class="svg-mono" x="48" y="58">QCoreApplication::quit()</text>
-        <text class="svg-small" x="48" y="84">等价于 exit(0)</text>
+        <text class="svg-small" x="48" y="84">发一个 Quit 事件给 qApp</text>
 
         <rect class="svg-box" x="30" y="125" width="220" height="80" rx="10"/>
         <text class="svg-mono" x="48" y="153">QCoreApplication::exit(n)</text>
@@ -312,7 +312,7 @@ connect(&dlg, &QDialog::finished, this, &Page::onDlgClosed);`,
         <text class="svg-mono" x="50" y="372">QTimer::singleShot(3000, &amp;app, &amp;QCoreApplication::quit);</text>
         <text class="svg-small" x="50" y="394">（本仓库所有无人值守示例都靠这一行收尾）</text>
       </svg>`,
-    caption: '<code>quit()</code> 等于 <code>exit(0)</code>，作用是<strong>让 <code>exec()</code> 返回</strong>——它不析构任何对象。事件循环没在跑时调 <code>quit</code> 是个哑弹（Qt 会打警告）。局部的 <code>QEventLoop::quit()</code> 只退出那一个嵌套循环。开发时最实用的一招：<code>QTimer::singleShot(3000, &amp;app, &amp;QCoreApplication::quit)</code>。',
+    caption: '<code>quit()</code> 与 <code>exit(0)</code> <strong>不是同一个东西</strong>，别再写「等价」——Src <code>qcoreapplication.cpp</code> 第 2165~2185 行里 <code>quit()</code> 是给 qApp <strong>送/贴一个 <code>QEvent::Quit</code></strong>（在主线程 <code>sendEvent</code>，别的线程 <code>postEvent</code>），走的是事件通道；第 1549~1569 行的 <code>exit(n)</code> 则直接 <code>emit aboutToQuit</code>、置 <code>quitNow</code>，并<strong>把该线程所有嵌套的 <code>QEventLoop</code> 一起退掉</strong>，还带回返回值 <code>n</code>。共同点只有一个：<strong>让 <code>exec()</code> 返回</strong>，都不析构任何对象。事件循环没在跑时调 <code>quit()</code> 是个<strong>静默</strong>哑弹（源码里 <code>if (!self->d_func()->in_exec) return;</code>，一句警告都不打）。局部的 <code>QEventLoop::quit()</code> 只退出那一个嵌套循环。开发时最实用的一招：<code>QTimer::singleShot(3000, &amp;app, &amp;QCoreApplication::quit)</code>。',
     code: `int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);

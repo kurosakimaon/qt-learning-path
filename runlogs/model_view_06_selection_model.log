@@ -1,0 +1,74 @@
+================ 第 6 讲 · QItemSelectionModel / QItemSelection ================
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① 选择是**模型侧**的状态，不是视图的附属品
+  对 sm 选 2..4 行之后：selectedIndexes=18（手算 3 行 × 6 列 = 18）
+  viewA.selectionModel() 就是 sm ? true（视图只是它的读写面板）
+  此刻 viewB 自己造的那个 smB：selectedIndexes=0（**空的**，另一个对象）、指针 1b11e9c03c0 vs 1b11e99d740
+  viewB->setSelectionModel(sm) 之后：viewB=18 格、viewA=18 格 → 两边同步（切换视图选择还在，就是因为共用同一个对象）
+  新视图 viewC.setModel(&model) → 它的 selectionModel 是另一个对象，selectedIndexes=0；把 sm 也给它 → 18
+  smB（被 viewB 换掉的那个）**没被 delete**：model() 仍指向 &model（读得出来就证明它还活着）
+  文档原话提醒：先 setSelectionModel 再 setModel，视图会换成它自己造的新选择模型 → 这就是「重挂模型后选择没了」的机制（不是数据丢了）。
+② SelectionFlag 逐个打印真值（抄自 qitemselectionmodel.h 第 107~118 行）
+  NoUpdate = 0x0000
+  Clear = 0x0001
+  Select = 0x0002
+  Deselect = 0x0004
+  Toggle = 0x0008
+  Current = 0x0010
+  Rows = 0x0020
+  Columns = 0x0040
+  SelectCurrent = 0x0012
+  ToggleCurrent = 0x0018
+  ClearAndSelect = 0x0003
+  组合值核对：ClearAndSelect == Clear|Select ? true，SelectCurrent == Select|Current ? true
+  【注意】 本机 6.12 的头文件里**没有 CommandMask**（Qt5 有，值 0x00FF）。要「命令语义」就显式写 Select/Deselect/Toggle，别去抄老代码。
+  【注意】 Rows/Columns 是「方式位」，Select/Toggle/Clear 是「命令位」，它们用 | 拼成一个 SelectionFlags 传进 select()。
+③ 程序化写出「鼠标选了 2..4 行，再 Ctrl 点第 3 列」的等价操作
+  步骤1 ClearAndSelect|Rows(2..4) → 格子数=18（推理 3×6=18），本次 selectionChanged hits=0，selected 范围数=-1
+  步骤2 Toggle|Columns(第 2 列整列) → 格子数=62，手算应为 18 - 3 + (50 - 3) = 62
+  范围列表（QItemSelection 就是 QList<QItemSelectionRange>）：[2,0 → 4,1] [2,3 → 4,5] [0,2 → 1,2] [5,2 → 49,2]
+  记录器：selectionChanged 共 1 次，最后一次 selected 范围=2 / deselected 范围=1 / selected 格子=47
+  对照 viewA->selectRow(7)（ExtendedSelection 下按「整行 + 不清旧选择?」由视图内部算 flags）→ 格子数=6，第 7 行整行选中=true
+  第 2 列是否与选择集相交=true，第 2 行相交=false，第 2 行是否**全部**选中=false
+  selectedRows(0).size()=1，selectedColumns(ColName).size()=0（这两个只给「一个代表格」，别拿它们当全量遍历）
+④ QItemSelectionRange：矩形 + 两个角是**持久**索引
+  范围数=1，摘要=[10,1 → 12,3]
+  topLeft=(10,1) bottomRight=(12,3)，width=3 height=3，面积=9，indexes().size()=9
+  contains(11,2)=true，contains(20,2)=false（按矩形判断，不是逐格比对）
+  model.insertRows(0,1) 之后：范围左上角行号 10 → 11（**+1 自动跟随**），该格值 R10C1 → R10C1（值没换，说明跟着数据走）
+  原因就在头文件第 39/40 行：topLeft()/bottomRight() 的返回类型是 const QPersistentModelIndex & —— 范围天生是活的引用。
+⑤ QModelIndex vs QPersistentModelIndex：什么时候必须用后者
+  建立两个快照：plain=(row 5,col 0) 显示=R4C0；guard=(row 5) 显示=R4C0
+  insertRows(0,1) 之后：
+    plain.row()=5（**没变，还是老坐标**），plain.data()=R3C0 → 已经指到新插入的那一行，数据换人了
+    guard.row()=6（自己 +1 了），guard.data()=R4C0 → 仍指向同一份数据
+    模型侧标签对照：第5行=R3，第6行=R4
+  sizeof(QModelIndex)=24 字节，sizeof(QPersistentModelIndex)=8 字节（前者是坐标快照，后者还要在模型里登记）
+  删掉 guard 指向的那一行之后：guard.isValid()=false，plain.isValid()=true（plain 一直「有效」，只是指向别的东西——这才是最阴的）
+  代价对照：造 51 个 QModelIndex 用时 0 ms；造 51 个 QPersistentModelIndex 用时 0 ms；带着 51 个活登记再做一次 insertRows 用时 0 ms
+  插入后仍有效的登记项=51/51（插入不会让索引失效，只是行号整体后移）
+  经验：一次调用之内用 QModelIndex 就好；要跨增删/跨事件（异步回调里「用户当时选的那一行」）才升级为 QPersistentModelIndex。
+⑥ 两个槽的分工与「命令从哪来」
+  clear() → 格子数=0，currentIndex.isValid()=false（clear 把选择和当前都清）
+  setCurrentIndex(9,3, NoUpdate) → 格子数=2（选择**没动**，NoUpdate=0x0000 就是「只改当前、不碰选择」），current=(9,3)
+  setCurrentIndex(20,0, SelectCurrent) → 格子数=1，第 20 行第 0 列 isSelected=true
+  期间记录器收到的事件（注意每条都**没有**命令参数）：
+  #1 selected 范围数=1(格=2), deselected 范围数=0
+  currentChanged: (9,3) ← (-1,-1)，valid=Y/N
+  #2 selected 范围数=1(格=1), deselected 范围数=1
+  currentChanged: (20,0) ← (9,3)，valid=Y/Y
+  → 想知道「这次是 Ctrl 还是 Shift」，信号里没有；视图是用 protected virtual selectionCommand(index, event)（qabstractitemview.h 第 275 行）把按键状态翻译成 flags 的。
+  clearSelection() → 格子数=0，current 仍有效=true（它不动当前索引）
+  clearCurrentIndex() → current.isValid()=false，格子数=0（反向：只动当前）
+  累计：本讲对 sm 的 selectionChanged 一共记到 9 次，currentChanged 6 次
+⑦ 挂上视图：选择如何影响绘制（以及第 5 讲的坐标系问题）
+  选中 3..6 行 → selectedRows(0).size()=4，selectedIndexes=24，hasSelection=true，viewB 看到的格子数=24
+  视图画每一格时是回到同一个 sm->isSelected(index) 问「该不该涂选中色」，所以共用 sm 的两个视图高亮必然一致。
+  （提醒）视图挂**代理**时，selection 里存的是代理坐标，落到源数据必须 mapSelectionToSource —— 见 ../model_view/05 证据⑥。
+⑧ 收尾自检：三个「一定能复现」的事实
+  1) viewA.selectionModel() == viewB.selectionModel() ? true（同一个对象才叫共用）
+  2) sm->model() == &model ? true → 选择模型认的是**模型**，不是视图
+  3) 起始格子数=24；selectAll → selectedRows=52（应等于行数 52）；clear → 格子数=0
+  全程 sm 上记录到的事件：selectionChanged 12 次 / currentChanged 6 次
+（事件循环正常退出，rc=0）

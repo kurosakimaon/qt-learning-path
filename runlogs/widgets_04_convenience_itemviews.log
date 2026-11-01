@@ -1,0 +1,56 @@
+① addItems/addItem 之后 count = 4 ；item(3) 的文本 = "第 4 项（我自己 new 的）" ；checkState 枚举值 = 1 （1=PartiallyChecked：三态在 list 里也是靠 Qt::CheckStateRole 存的）
+① row(item) 反查： 3 ；itemFromIndex(indexFromItem(item)) 是否回到同一个对象 = true
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+② setItemWidget 之后 itemWidget(item(2)) 是同一个对象 = true ；**但 model 的第 2 行 data(DisplayRole) 并不知道有个按钮**：文字与按钮是两套渲染路径（按钮是子控件，不是 role 数据）
+③ setHeaderLabels 之后 headerItem()->text(1) = "状态" ；topLevelItemCount = 2 ；topA 的 childCount 走 child/indexOfChild： 1 ；childA2->parent() 是否等于 topA = true
+④ item(3,2) 是否为空指针 = true ；item(0,0)->text() = "写第 4 讲" ；row()/column() 自解释 = 0 0
+④ 表头也是 item：horizontalHeaderItem(1)->text() = "负责人"
+
+=== ⑤ 便利类内部到底是什么（用公开 API 读出来的证据）===
+    QListWidget  → model 运行时类名 = QListModel ；rowCount = 4  columnCount = 1 ；model 的父对象 = QListWidget(0x1f1d593e580) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "第 1 项（QString 版 addItem）" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+    QTreeWidget  → model 运行时类名 = QTreeModel ；rowCount = 2  columnCount = 3 ；model 的父对象 = QTreeWidget(0x1f1d7533c90) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "项目 A" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+    QTableWidget  → model 运行时类名 = QTableModel ；rowCount = 4  columnCount = 3 ；model 的父对象 = QTableWidget(0x1f1d7543aa0) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "写第 4 讲" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+   selectionModel 也在同一层：list->selectionModel() 非空 = true （便利类的 setSelected()/currentRow 其实都在操作这个 QItemSelectionModel）
+⑥ setSortingEnabled(true) 之后 item(0) = "banana" （**立刻重排**，不是「下次添加时才排」）
+⑥ 再 addItem("apricot") 之后 item(1) = "apple"  count = 4  → 陷阱在这里：开着排序时，**你手里的 item 指针仍然有效，但 row 变了**；凡是「拿 index 记住一行」的写法（itemClicked 之后按 index 去改）都会错行。正规做法：全程用 QListWidgetItem* 作为身份，需要 index 时用 list->row(item) 现算。
+This plugin does not support propagateSizeHints()
+① currentRowChanged → 0
+① itemSelectionChanged：当前选中数 = 1
+① currentRowChanged → 1
+① setCurrentRow(1, Select) 之后 currentRow = 1 ；item(1)->isSelected() = true ；ownItem->isSelected() = false
+① itemChanged → "第 1 项（程序改过）" （**注意 setText / setCheckState / setFlags 都会发它，程序改也算**）
+① takeItem(3) 之后 count = 3 ；取回来的 item 文本 = "第 4 项（我自己 new 的）"  → 它现在**归你**：忘了 delete 就是泄漏，忘了判断空指针就是崩
+① delete 之后 count = 3
+② removeItemWidget 之后 itemWidget(item(2)) = QWidget(0x0) ；摘下来的按钮仍然归你管（这里 deleteLater 回收——它是 QPushButton，是**真 QObject**，所以能用 deleteLater）
+③ itemExpanded → "项目 A"
+③ currentItemChanged： "(无)"  →  "  子文件 a2"
+③ setExpanded(true) 之后 isExpanded = true ；currentItem()->text(2) = "9 KB" ；childA2 在第 0 列的 checkState 枚举值 = 2
+③ 摘之前看一眼：topB 还允许被选中吗（Qt::ItemIsEnabled）= false （上面用 setFlags 把它从 flags 里减掉了，界面上就是灰的、点不动）
+③ takeTopLevelItem(1) 之后 topLevelItemCount = 1 ；被摘下来的项文本 = "项目 B"  → **摘下来的 item 也归你 delete**（下面直接 delete 回收）
+④ itemSelectionChanged：selectedItems 数 = 1
+④ setCurrentCell(1,1) 之后 currentCell 的 item 文本 = "老师傅" ；item(2,0) 空不空 = true （**我没 setItem 过 (2,0)，它就必须是 nullptr**）
+④ 现在补一个 (2,0) 的 item，并记住：UserType = 1000 以上留给应用自己用（qtablewidget.h 第 55~59 行的 ItemType 与 ctor）
+④ cellChanged(row = 2 , col = 0 )
+   补完再读 item(2,0) = "新补的任务"
+④ sortItems(0) 之后第 0 行 = "写第 4 讲" / "3"  → 行与行**整体换位**：你原先记下的 row 数字全部作废，item 指针仍然有效。再加上第 3 行是空行，排序后空行可能跑到最前面——**这就是「读之前必须判空」的第二个理由**。
+
+=== ⑤ 第二次读 model 证据（程序改过内容之后）===
+    QListWidget  → model 运行时类名 = QListModel ；rowCount = 3  columnCount = 1 ；model 的父对象 = QListWidget(0x1f1d593e580) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "第 1 项（程序改过）" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+    QTreeWidget  → model 运行时类名 = QTreeModel ；rowCount = 1  columnCount = 3 ；model 的父对象 = QTreeWidget(0x1f1d7533c90) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "项目 A" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+    QTableWidget  → model 运行时类名 = QTableModel ；rowCount = 4  columnCount = 3 ；model 的父对象 = QTableWidget(0x1f1d7543aa0) （**便利类自己造了这张 model，并且把它 setParent 给自己**）
+      model->index(0,0) 有效 = true ，data(DisplayRole) = "写第 4 讲" （第 283 行那个纯虚 data() —— item 的 text() 只是它的包装）
+   表头在 view 层的另一套 API：本例已执行 table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch) （qtableview.h 38 行拿 QHeaderView*，qheaderview.h 102 行设模式）；顺带提醒：Stretch 模式下 setDefaultSectionSize 是不生效的，想按列各自谈判请用 Interactive 或 ResizeToContents（qheaderview.h 42~47 行的枚举）。
+
+=== 结论 ===
+① 便利类 = 内置 model + 内置 view；item(行,列) 只是 QModelIndex 的包装糖。
+② setModel 在便利类里是 **private**（qlistwidget.h 263~264 行）：这不是疏忽，是设计表态。
+③ 生命周期三条：addItem 交出去；takeItem/removeTab 式摘取归你；setItemWidget 的控件归你。
+④ 排序/换位之后**别拿旧的 row 数字**，请用 item 指针 + 现算 row(item)。
+⑤ 什么时候必须弃用便利类：行数 > 几千、数据在数据库/文件里、需要懒加载、
+   需要自定义 role、多个视图共享同一份数据 —— 全部转 model_view/ 模块。

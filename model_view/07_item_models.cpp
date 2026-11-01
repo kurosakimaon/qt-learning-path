@@ -49,9 +49,10 @@
 //     memoryUsage，不是进程 RSS）。所以这里给「可核对的下界估算 + 教你自己用 OS 工具测」，
 //     绝不编一个不存在 API 的名字。
 //   · 图解页面：../visuals/model_view.html（便利类 vs 自定义模型那一栏）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；每处「预期」后面是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_07_item_models，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_07_item_models.log）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -84,7 +85,7 @@
 #include <vector>
 
 // ============================================================================
-// 一、核对过的签名（本机 C:\msys64\ucrt64\include\qt6，QtCore/QtGui 版本 6.12.0）
+// 一、核对过的签名（本机 D:\Qt\6.12.0\mingw_64\include，QtCore/QtGui 版本 6.12.0）
 //     行号是我去头文件逐行看的，换 Qt 版本请重新核。
 // ============================================================================
 // QtGui/qstandarditemmodel.h
@@ -532,7 +533,7 @@ int main(int argc, char *argv[])
                                             "自定义 = %3 行 × sizeof(Row4) = %4")
                                  .arg(items).arg(humanBytes(itemBytes))
                                  .arg(kBigRows).arg(humanBytes(flatBytes));
-        qInfo().noquote() << QStringLiteral("  ⚠ 这只是**下界**：每格还有 d-pointer 指向的私有对象（大小未公开，"
+        qInfo().noquote() << QStringLiteral("  【注意】 这只是**下界**：每格还有 d-pointer 指向的私有对象（大小未公开，"
                                             "第 211 行 Q_DECLARE_PRIVATE）、每格 QString 的堆缓冲、"
                                             "以及模型自己那棵树状容器。真实常驻至少再翻 2~3 倍。");
         qInfo().noquote() << QStringLiteral("  要真数请用 OS 工具自己测（本示例不猜 API）：Windows 任务管理器/"
@@ -643,7 +644,7 @@ int main(int argc, char *argv[])
         m.removeRow(0);
         qInfo().noquote() << QStringLiteral("  removeRow(0) 之后行数=%1，rowsInserted=%2 / itemChanged=%3 / dataChanged=%4")
                                  .arg(m.rowCount()).arg(h.rowsInsertedHits).arg(h.itemChangedHits).arg(h.dataChangedHits);
-        qInfo().noquote() << QStringLiteral("  ⚠ 别在 setItem() 里塞同一个 QStandardItem 两次：一个 item 只有一个爹，"
+        qInfo().noquote() << QStringLiteral("  【注意】 别在 setItem() 里塞同一个 QStandardItem 两次：一个 item 只有一个爹，"
                                             "第二次塞会把它从第一次的位置摘走（这是便利类最常见的自伤写法）。");
     });
 

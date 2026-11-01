@@ -1,0 +1,93 @@
+================================================================
+network 第 2 讲 · 把网络层写成可测试的一层（Qt = "6.12.0" ）
+================================================================
+  对端就位：http://127.0.0.1:5091（端口是 listen(… , 0) 现分配的，**没有硬编码**）
+  同一个 RestClient 类，四个实例三种 baseUrl/超时/重试配置 —— 可注入就是这个意思：换配置，不换代码。
+
+---------- ①a 成功的样子：GET /v1/device?detail=full ----------
+  [收] ①a device ｜kind=Success http=200 netError=0 attempts=1 elapsed=3ms
+       给人看的那句："成功（200）"
+
+---------- ①b POST /v1/device：请求体是 JSON，Content-Type 由客户端统一加 ----------
+  [发] POST "/v1/device" 正文 35 字节： "{\"name\":\"\xE6\x96\xB0\xE8\xAE\xBE\xE5\xA4\x87-\xE5\x9B\x9E\xE7\x8E\xAF\",\"qty\":3}"
+  [收] ①b POST ｜kind=Success http=200 ｜对端收到正文 35/35 字节
+
+---------- ② HttpError：GET /v1/missing → 404（服务器答了，但答的是「没有」） ----------
+  [收] ② missing ｜kind=HttpError http=404 netError=203 attempts=1 elapsed=1ms
+       给人看的那句："服务返回 404 Not Found"
+
+---------- ③a ParseError：GET /v1/garbage → 200 + 半截 JSON ----------
+  [收] ③a garbage ｜kind=ParseError http=200 netError=0 attempts=1 elapsed=1ms
+       给人看的那句："服务返回 200，但正文不是合法 JSON（unterminated object，第 18 字节）"
+       解析错：unterminated object（第 18 字节）
+
+---------- ③b ParseError：GET /v1/array → 200 + 合法 JSON **数组**（契约要对象） ----------
+  [收] ③b array ｜kind=ParseError http=200 netError=0 attempts=1 elapsed=1ms
+       给人看的那句："服务返回的 JSON 结构不是对象，客户端契约对不上"
+       解析错：顶层不是 JSON 对象（是数组/标量）（第 -1 字节）
+
+---------- ④a 重试与幂等：GET /v1/flaky（对端前两次必 500）→ attempts 应当是 3 ----------
+"  [重试] ④a flaky｜第 1 次失败（HttpError 500）→ 幂等方法，再来一次"
+"  [重试] ④a flaky｜第 2 次失败（HttpError 500）→ 幂等方法，再来一次"
+  [收] ④a flaky ｜kind=Success http=200 netError=0 attempts=3 elapsed=2ms
+       给人看的那句："成功（200）"
+
+---------- ④b NetworkError：baseUrl 注入到一个刚关掉的端口（连不上） ----------
+      假服务的端口=5091，这次指过去=5100（后者 listen 完立刻 close）
+
+---------- ④c 超时：GET /v1/silent（收了连接一个字不答），本客户端 timeout=400ms ----------
+  [收] ④c silent ｜kind=NetworkError http=0 netError=4 attempts=1 elapsed=402ms
+       给人看的那句："连不上服务（Operation timed out）"
+
+---------- ⑤ Cancelled：GET /v1/lag（要 350ms 才答），120ms 时我方 abort ----------
+  [收] ⑤ cancel ｜kind=Cancelled http=0 netError=5 attempts=1 elapsed=120ms
+       给人看的那句："请求已取消"
+"  [取消] 我方主动 abort 了 1 条在飞请求"
+
+---------- ⑥ 两条设头路子等价：这次走 getOldStyle()（只有 setRawHeader/setHeader） ----------
+  [发] GET（老写法逐条 setRawHeader） "/v1/device"
+  [收] ⑥ oldStyle ｜kind=Success http=200 netError=0 attempts=1 elapsed=1ms
+       给人看的那句："成功（200）"
+  [收] ④b refused ｜kind=NetworkError http=0 netError=4 attempts=1 elapsed=1192ms
+       给人看的那句："连不上服务（Operation timed out）"
+
+---------- ⑦ 界面对象提前死掉：同一发请求，一个挂活对象、一个挂马上死的对象 ----------
+      现在把「界面-要死」delete 掉：它一死，挂在它身上的回调就永久失联了
+  [收] ⑦ 对照（接收者活着） ｜kind=Success http=200 netError=0 attempts=1 elapsed=353ms
+       给人看的那句："成功（200）"
+
+---------- 合账（①~⑦ 逐条核，最后一行给总数） ----------
+      [OK ] 核对  ①a GET 成功这一类 ｜期望 Success 实测 Success（tag=①a device http=200 netError=0）
+      [OK ] 核对  ①a http 状态码 ｜期望 200 实测 200
+      [OK ] 核对  ①a 解析出的 data["id"] ｜期望 7 实测 7
+      [OK ] 核对  ①a 对端收到的 Authorization ｜期望 "Bearer tok-42" 实测 "Bearer tok-42"
+      [OK ] 核对  ①a 对端收到的 Accept ｜期望 "application/json" 实测 "application/json"
+      [OK ] 核对  ①a 对端收到的 X-Client（QHttpHeaders 那条路） ｜期望 "qt-teach/02" 实测 "qt-teach/02"
+      [OK ] 核对  ①b POST 成功这一类 ｜期望 Success 实测 Success（tag=①b POST http=200 netError=0）
+      [OK ] 核对  ①b 对端收到的 Content-Type（客户端统一加的那串） ｜期望 "application/json; charset=utf-8" 实测 "application/json; charset=utf-8"
+      [OK ] 核对  ①b 框架算的 Content-Length == 对端实际收到的字节数 ｜期望 35 实测 35
+      [OK ] 核对  ② 404 归 HttpError（不是网络错） ｜期望 HttpError 实测 HttpError（tag=② missing http=404 netError=203）
+      [OK ] 核对  ② http 状态码 ｜期望 404 实测 404
+      [OK ] 核对  ② 4xx 的正文**别丢**：服务端给的原因还在 ｜期望 "no_such_device" 实测 "no_such_device"
+      [OK ] 核对  ③a 半截 JSON 归 ParseError ｜期望 ParseError 实测 ParseError（tag=③a garbage http=200 netError=0）
+      [OK ] 核对  ③a 状态码是 200（所以「HTTP 成功」不等于「数据能用」） ｜期望 200 实测 200
+      [OK ] 核对  ③b 合法 JSON 但不是对象，也归 ParseError ｜期望 ParseError 实测 ParseError（tag=③b array http=200 netError=0）
+      [OK ] 核对  ④a 重试到第三次应当成功 ｜期望 Success 实测 Success（tag=④a flaky http=200 netError=0）
+      [OK ] 核对  ④a attempts（含第一次，共 3 次） ｜期望 3 实测 3
+      [OK ] 核对  ④b 连不上：绝不能被当成成功 ｜期望 0 实测 0
+      [预期中]  ④b 期望归 NetworkError ｜应当 NetworkError 实测 NetworkError
+      [OK ] 核对  ④c 超时：绝不能被当成成功 ｜期望 0 实测 0
+      [预期中]  ④c 期望归 NetworkError ｜应当 NetworkError 实测 NetworkError
+      [OK ] 核对  ④c 没拿到状态码（压根没答复） ｜期望 0 实测 0
+      [OK ] 核对  ⑤ 我方 abort 归 Cancelled（和第④类分开） ｜期望 Cancelled 实测 Cancelled（tag=⑤ cancel http=0 netError=5）
+      [OK ] 核对  ⑥ 老写法（只 setRawHeader）也成功 ｜期望 Success 实测 Success（tag=⑥ oldStyle http=200 netError=0）
+      [OK ] 核对  ⑥ 对端看到的 Authorization 和①a 一模一样 ｜期望 "Bearer tok-42" 实测 "Bearer tok-42"
+      [OK ] 核对  ⑥ 对端看到的 X-Client 是老写法那个（证明这发走的另一条路） ｜期望 "qt-teach/02-oldstyle" 实测 "qt-teach/02-oldstyle"
+      [OK ] 核对  ⑦ 接收者死了：回调进来几次（期望 0） ｜期望 0 实测 0
+      [OK ] 核对  ⑦ 对照组：接收者活着的那发应当正常回来 ｜期望 Success 实测 Success（tag=⑦ 对照（接收者活着） http=200 netError=0）
+      [OK ] 核对  ⑦ 代价：客户端 m_pending 里还挂着那条没人收的 reply ｜期望 1 实测 1
+      [OK ] 核对  对端收到的请求数（应用层自己登记的计划） ｜期望 13 实测 13
+      [OK ] 核对  回调进来次数（计划） ｜期望 11 实测 11
+      [实测] ①a 用时 3ms、④c 用时 402ms（毫秒数不进硬账，只给你个量感）
+
+合账结果：29/29 项对上 ｜ 退出码 0

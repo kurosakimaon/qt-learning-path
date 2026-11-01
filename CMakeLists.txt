@@ -3,7 +3,7 @@
 # ----------------------------------------------------------------------------
 # 这一份 CMakeLists 是整个资料库的「验证入口」。你的环境里只要跑三条命令：
 #
-#   cmake -G Ninja -B build -S .
+#   cmake -G "MinGW Makefiles" -B build -S .
 #   cmake --build build
 #   ctest --test-dir build --output-on-failure
 #
@@ -38,6 +38,21 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_WIN32_EXECUTABLE OFF)
 set(CMAKE_MACOSX_BUNDLE OFF)
 
+# ── 把「编得过」抬到「编得过且没有警告」────────────────────────────────────
+#   为什么默认开：本仓库每一讲都靠打印出来的数字说话，一个 warning 就是一次
+#   「这个数可能不是你以为的那个」。本机实测 GCC 13.1.0 + -Wall -Wextra：
+#   全仓库 0 warning（曾经有 6 条 -Wunused-function，是六个写了却没调用的自检
+#   助手函数，已删掉而不是用 [[maybe_unused]] 把噪声按住）。
+#   换编译器/换版本被警告淹了时的退路：
+#     cmake -B build -DQTLP_STRICT_WARNINGS=OFF
+option(QTLP_STRICT_WARNINGS "给全部目标加 -Wall -Wextra（GCC/Clang）" ON)
+if(QTLP_STRICT_WARNINGS AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra)
+elseif(QTLP_STRICT_WARNINGS AND MSVC)
+    # MSVC 没有 -Wall 这个拼写，/W4 才是对应档；/Wv 不动，默认即可。
+    add_compile_options(/W4)
+endif()
+
 enable_testing()
 find_package(Threads REQUIRED)
 
@@ -52,8 +67,9 @@ if(NOT Qt6_FOUND)
         "\n================= Qt6 没有被找到 =================\n"
         "本库的所有示例都依赖 Qt 6 Widgets，找不到 Qt 时不会生成任何构建目标。\n"
         "请任选一种方式告诉 CMake 去哪里找 Qt：\n"
-        "  1) cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/mingw_64\n"
-        "  2) 用 Qt 自带的 qt-cmake 包装命令：qt-cmake -G Ninja -B build -S .\n"
+        "  1) cmake -G \"MinGW Makefiles\" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64\n"
+        "     （本机实测就是这条；装了 Ninja 的机器把 -G 换成 Ninja 也行）\n"
+        "  2) 用 Qt 自带的 qt-cmake 包装命令：qt-cmake -G \"MinGW Makefiles\" -B build -S .\n"
         "  3) MSYS2：pacman -S mingw-w64-ucrt-x86_64-qt6-base 之后直接 configure\n"
         "装好之后重新 configure 即可，build 目录不需要清空。\n"
         "==================================================")
@@ -86,8 +102,25 @@ function(qt_add_demo group target)
 
     # 每个示例都是一个测试用例：无头运行，超时 120 秒判失败
     add_test(NAME ${target} COMMAND ${target})
+    # QT_QPA_PLATFORM=offscreen     —— 没有显示器也能跑。
+    # QT_FORCE_STDERR_LOGGING=1     —— ★Windows 上必须加这一条。
+    #   Qt 的消息处理器在「检测到自己没有控制台」时，会把 qInfo()/qDebug() 改投
+    #   OutputDebugString（只能被调试器看见），于是 ctest 的 stdout/stderr 全空，
+    #   --output-on-failure 打出来是一片空白：用例挂了你也看不到它卡在哪一句证据上。
+    #   实测（Qt 6.12 / MinGW / Windows）：不加这条，73 个用例的失败日志一条都收不到。
+    #   注意 Windows 投出来的字节是按**本地代码页**（简体中文 = GBK）编的，不是 UTF-8；
+    #   想要 UTF-8 就在跑之前 chcp 65001，或者按 _tools/run_all.sh 那样事后 iconv。
+    # ★这里**不设** QT_LOGGING_RULES —— 原本设的是 default.warning=false，实测把三个用例判红了：
+    #   「default」这个 context 覆盖的正是**没有类别的 qWarning()**，也就是示例自己打的证据行。
+    #   后果有两个，都很难查：
+    #     · quality_01 用 QTest::ignoreMessage 认领一条 qWarning → 消息被规则提前丢掉，
+    #       报 "Not all expected messages were received"（单独跑却过，因为只有 ctest 带着这条规则）；
+    #     · quality_05 用 qInstallMessageHandler 数泄漏行数 → 处理器根本没被调用，计数恒为 0。
+    #   规矩：**日志规则要在消息处理器之前生效**，会被规则吃掉的消息永远进不了 handler。
+    #   真要压 Qt 内部的刷屏，就按 context 点名（qt.core.* / qt.qpa.* 之类），
+    #   别动 default —— 那是示例的证据通道。
     set_tests_properties(${target} PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_LOGGING_RULES=default.warning=false"
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_FORCE_STDERR_LOGGING=1"
         TIMEOUT 120
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 endfunction()
@@ -157,6 +190,47 @@ qt_add_demo(widgets widgets_07_layout_basics           widgets/07_layout_basics.
 qt_add_demo(widgets widgets_08_size_policies           widgets/08_size_policies.cpp)
 qt_add_demo(widgets widgets_09_style_sheets            widgets/09_style_sheets.cpp)
 qt_add_demo(widgets widgets_10_internationalization    widgets/10_internationalization.cpp)
+# 第 10 讲第 ⑧ 步要加载一份**本仓库自带**的样本 catalog：
+#   widgets/i18n/gauge_zh_CN.ts（填好译文的源文件，进仓库）──lrelease──▶ .qm（构建产物）
+# 路径在编译期钉成绝对路径：ctest 把工作目录设成 build/bin，靠运行目录找文件就会
+# 时灵时不灵，而这一讲的台账必须是不随环境变的硬结论。
+#
+# 【勘误·原来这里写的是「.qm 生成后提交进仓库，所以不需要 LinguistTools」】：
+#   那句和自家 .gitignore 第 68 行的 `*.qm` 直接打架 —— .qm 永远进不了仓库，
+#   而 .ts 当时也还没被 git add，于是**新克隆里 widgets/i18n/ 整个目录都不存在**。
+#   本机验过：把 widgets/i18n/ 挪走再跑 widgets_10_internationalization.exe，
+#   账1/账2 判错、退出码 1，也就是 ctest 在干净克隆上是红的。
+#   现在的口径改成「.ts 进仓库、.qm 现场编」，和 build_deploy/qt_cmake_05_translations
+#   一样用 find_package(... QUIET COMPONENTS LinguistTools)，找不到也只是不生成。
+set(I18N_SRC_DIR   "${CMAKE_CURRENT_SOURCE_DIR}/widgets/i18n")
+set(I18N_BUILD_DIR "${CMAKE_BINARY_DIR}/i18n")
+set(I18N_TS        "${I18N_SRC_DIR}/gauge_zh_CN.ts")
+set(QTLP_I18N_DIR  "${I18N_SRC_DIR}")          # 兜底：手工 lrelease 到源码目录也能跑通
+if(NOT EXISTS "${I18N_TS}")
+    message(WARNING "缺 ${I18N_TS}：第 10 讲第 ⑧ 步的样本 catalog 没了，"
+                    "账1/账2 会判错（这个 .ts 是仓库自带的源文件，别删、也别漏提交）")
+elseif(TARGET widgets_10_internationalization)
+    find_package(Qt6 QUIET COMPONENTS LinguistTools)
+    if(Qt6LinguistTools_FOUND)
+        file(MAKE_DIRECTORY "${I18N_BUILD_DIR}")
+        add_custom_command(OUTPUT "${I18N_BUILD_DIR}/gauge_zh_CN.qm"
+            COMMAND Qt6::lrelease "${I18N_TS}" -qm "${I18N_BUILD_DIR}/gauge_zh_CN.qm"
+            DEPENDS "${I18N_TS}"
+            COMMENT "lrelease：gauge_zh_CN.ts → build/i18n/gauge_zh_CN.qm（第 10 讲的样本 catalog）")
+        add_custom_target(gauge_zh_CN_qm DEPENDS "${I18N_BUILD_DIR}/gauge_zh_CN.qm")
+        set(QTLP_I18N_DIR "${I18N_BUILD_DIR}")
+    else()
+        message(WARNING "本机 Qt 没装 LinguistTools：第 10 讲第 ⑧ 步的 .qm 得自己生成 —— "
+                        "lrelease \"${I18N_TS}\" -qm \"${I18N_SRC_DIR}/gauge_zh_CN.qm\"")
+    endif()
+endif()
+if(TARGET widgets_10_internationalization)
+    target_compile_definitions(widgets_10_internationalization PRIVATE
+        QTLP_I18N_DIR="${QTLP_I18N_DIR}")
+    if(TARGET gauge_zh_CN_qm)
+        add_dependencies(widgets_10_internationalization gauge_zh_CN_qm)
+    endif()
+endif()
 qt_finish_group(widgets)
 
 # ============================================================================
@@ -181,6 +255,14 @@ set(QT_DEMO_LIBS Qt6::Widgets)
 qt_add_demo(model_view model_view_01_architecture         model_view/01_architecture.cpp)
 qt_add_demo(model_view model_view_02_custom_table_model   model_view/02_custom_table_model.cpp)
 qt_add_demo(model_view model_view_03_editing_and_flags    model_view/03_editing_and_flags.cpp)
+# 实测（Qt 6.12.0 / MinGW-w64 GCC 13.1 / Windows）：这一讲在默认 Release 的 -O3 下
+# 稳定段错误，-O0/-O1/-O2 都正常；把 -O3 加 -fno-strict-aliasing 或
+# -fno-tree-slp-vectorize 任一开关换掉也就好了 —— 典型的「优化器敏感的别名类 UB」，
+# 崩点落在 insertRows 里一个临时 QString 的析构上，源码层面查不出越界。
+# 学习材料不该让人撞这种玄学，所以单独把这一讲钉在 -O2（GCC 才会加，其它编译器不动）。
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(model_view_03_editing_and_flags PRIVATE -O2)
+endif()
 qt_add_demo(model_view model_view_04_delegate             model_view/04_delegate.cpp)
 qt_add_demo(model_view model_view_05_proxy_model          model_view/05_proxy_model.cpp)
 qt_add_demo(model_view model_view_06_selection_model      model_view/06_selection_model.cpp)
@@ -213,7 +295,11 @@ set(QT_DEMO_LIBS Qt6::Widgets Qt6::Sql Qt6::Xml)
 qt_add_demo(storage storage_01_qsettings                  storage/01_qsettings.cpp)
 qt_add_demo(storage storage_02_file_io                    storage/02_file_io.cpp)
 qt_add_demo(storage storage_03_json                       storage/03_json.cpp)
+# 第 4 讲除了资源系统本身，还用 QSvgRenderer 把 qrc 里的 SVG 画出来当证据，
+# 所以要额外链 Qt6::Svg（只给这一个示例开，别让整个 storage 组都被它卡住）。
+set(QT_DEMO_LIBS Qt6::Widgets Qt6::Sql Qt6::Xml Qt6::Svg)
 qt_add_demo(storage storage_04_resource_system            storage/04_resource_system.cpp storage/resource_demo.qrc)
+set(QT_DEMO_LIBS Qt6::Widgets Qt6::Sql Qt6::Xml)
 qt_add_demo(storage storage_05_sql_database               storage/05_sql_database.cpp)
 qt_add_demo(storage storage_06_sql_model_view             storage/06_sql_model_view.cpp)
 qt_finish_group(storage)
@@ -252,7 +338,7 @@ set(QT_DEMO_LIBS Qt6::Widgets)
 #   这里每个子目录都是一个**独立工程**（各自有自己的 CMakeLists.txt 和 project()），
 #   所以要单独 configure，不能由顶层一次性 add_subdirectory：
 #     cd build_deploy/qt_cmake_01_widgets
-#     cmake -G Ninja -B build -S . && cmake --build build
+#     cmake -G "MinGW Makefiles" -B build -S . && cmake --build build
 #   顶层只负责把它们的存在检查一下，真正的学习从模块首页进。
 # ============================================================================
 file(GLOB BUILD_DEMO_SUBDIRS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}/build_deploy

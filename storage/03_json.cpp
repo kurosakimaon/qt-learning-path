@@ -48,10 +48,15 @@
 //        （qjsondocument.h 第 57~61、75 行 / qjsonvalue.h 第 42~49、84 行），
 //        缩进宽度是 private/qjsonwriter_p.h 第 30~32 行的 int indent **形参**不是常量；
 //        进出的编码合同是 UTF-8（解析器入口是 QUtf8StringView，qjsonparser_p.h 第 31 行）。
-//        非 ASCII 到底有没有被转成 \uXXXX、控制字符怎么转，本机跑不了 → 标「预期」，
-//        但本讲把「字节 hex + 含不含 \\u + 含不含原始中文 UTF-8 字节」都打成可数的数。
+//        非 ASCII 到底有没有被转成 \uXXXX、控制字符怎么转，**本讲数出来了**：中文原样出现
+//        1 次（不转义）、「\u」出现 1 次（那是 BEL 被打成 \u0007）、「\t」出现 1 次、
+//        BEL 的原字节出现 **0** 次；转义判据在 Src 树 src/corelib/serialization/
+//        qjsonwriter.cpp 第 47~48 行的
+//        `if (u < 0x80) { if (u < 0x20 || u == 0x22 || u == 0x5c)` —— 只管 ASCII 控制码、
+//        引号、反斜杠，非 ASCII 一律放行。所以「Qt 会把中文转成 \uXXXX」这句话是**错的**。
 //        顺带演示 Windows 上「记事本另存为 ANSI」的坑：真 GBK 字节 CE C2 B6 C8（本机 iconv
-//        量出来的），QByteArray::isValidUtf8()（qbytearray.h 第 247 行）会说是假的，
+//        量出来的），QByteArray::isValidUtf8()（qbytearray.h 第 247 行）实测说是假的，
+//        直接喂给 fromJson 实测被拒成 IllegalUTF8String(9)、offset=2（正好落在坏字节上）；
 //        而 QStringConverter::Encoding 的枚举里**根本没有 GBK**
 //        （qstringconverter_base.h 第 102~114 行只有 Utf8/Utf16*/Utf32*/Latin1/System）。
 //     (7)【7】没有 schema 就得自己造闸门：本讲把「读一个键」包成带 bool 返回值 +
@@ -84,6 +89,11 @@
 //     moc -I<仓库根> -I<仓库根>/storage storage/03_json.cpp -o 03_json.moc
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_03_json）。本机这一轮：收尾对账「对不上一共 0 行」。
+//     这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//     换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//     （本机那一轮存档 runlogs/storage_03_json.log）。
 //   · 只有 QCoreApplication：不建窗口、不弹任何模态框（没有 QMessageBox、没有
 //     QFileDialog、没有 getchar）。8 个批次用 QTimer::singleShot(0/120/240/…/840ms)
 //     串起来，最后一个批次（960ms）打完合账自己调 QCoreApplication::exit(码)，
@@ -97,22 +107,27 @@
 //     若干次存盘尝试），最后一个批次把所有计数汇成一张对账表，对不上就打「对不上」，
 //     并且**用退出码把话说给 CI 听**：对不上 N 行 → 进程返回 1（全对上返回 0）。
 //   · 本机验证状态（诚实版）：
-//       已做：moc 通过；g++ -fsyntax-only -std=c++17 -Wall -Wextra 通过（0 error
-//             0 warning）；所有签名、枚举数值、行为断言的行号都在本机
-//             C:\msys64\ucrt64\include\qt6（Qt 6.12.0）的头文件里逐条 grep/读出来过。
-//       没做：**没有链接、没有运行**。本机跑 Qt 程序会缺符号直接 0xC0000139，
-//             所以凡是「跑起来会打出什么」的推测都在正文里标了
-//             「预期（本机未运行，需在能编译的机器上复核）」，一个字都没装作实测。
+//       已做：**真实编译、链接、运行**（Qt 6.12.0 + MinGW 13.1.0，Windows，
+//             QT_QPA_PLATFORM=offscreen；ctest 目标 storage_03_json）。
+//             所有签名、枚举数值、行为断言的行号都在本机头文件里逐条 grep/读出来过；
+//             源码级结论另注明 Src 树文件（D:/Qt/6.12.0/Src/qtbase/src/corelib/…）。
+//       本机这一轮：合账 16 项核对，0 项不符 → exit(0)（重跑：bash _tools/run_all.sh '^storage_03'）。
+//       ★ 运行推翻/坐实的三处，正文里都按实测改过了：
+//             ① 「2^53+1 写回去会变成 …992」是**错的**：Qt 6 的 JSON 数字底层是 CBOR，
+//                整数字面量全程走 int64（见【5】），往返字节完全相同。墙挪到了 toDouble()。
+//             ② 「The list is sorted alphabetically.」实测是**码点序**，"Bravo" 排在
+//                "alpha" 前面（见【2】），文档那句话不能按人的字母序理解。
+//             ③ 截断一半的文件报的不是「缺括号」而是 UnterminatedString(10)（见【8】④），
+//                错误码随截的位置变，别拿某一个码当「被截断」的特征。
 //       本机确实算过的（不需要 Qt 运行时，纯 C/C++ + 同一套 MinGW 工具链）：
 //             2^53+1 与 2^53 是同一个 double、(long long)9007199254740993.0 ==
 //             9007199254740992、2^53+2 活着、(0.1+0.2)==0.3 为假且值是
 //             0.30000000000000004441、(int)3.9==3/(int)-3.9==-3、
 //             printf("%g") 把 3.14159265358979 打成 3.14159、
 //             以及用 iconv 量出的「温度上限」GBK 字节 CE C2 B6 C8 C9 CF CF DE。
-//             这些数字在下面的代码注释里写死了，程序自己也会重算一遍。
-//       唯一一句官方文档原文（「The list is sorted alphabetically.」）是从 doc.qt.io
-//             抓到的句子，抓的时候没记下它属于哪一节，所以本讲只引用句子本身，
-//             键序的最终结论交给【2】的输出，不当证据用。
+//             这些数字在下面的代码注释里写死了，程序自己也会重算一遍，两边都对得上。
+//       官方文档原文（「The list is sorted alphabetically.」）现在连位置一起核过了：
+//             它就在 Src 树 src/corelib/serialization/qjsonobject.cpp 第 231 行、keys() 的注释里。
 // ============================================================================
 
 #include <QCoreApplication>          // QtCore/qcoreapplication.h
@@ -139,7 +154,7 @@
 #include <QtGlobal>                  // QT_VERSION_STR / Q_UNUSED / qsizetype
 
 // ============================================================================
-// 一、核对签名 —— 全部是本机 C:\msys64\ucrt64\include\qt6（Qt 6.12.0）里
+// 一、核对签名 —— 全部是本机 D:\Qt\6.12.0\mingw_64\include（Qt 6.12.0）里
 //     逐行 grep/读出来的，行号可以直接对。先核对再写代码，是本课程的规矩。
 // ============================================================================
 //
@@ -350,7 +365,13 @@
 //                               第 166~167 行 entryList / 第 181、183 行 mkpath /
 //                               第 186 行 removeRecursively / 第 189 行 exists /
 //                               第 218 行 separator / 第 236 行 tempPath
-//   QtCore/qfileinfo.h          第 87 行 exists / 第 166 行 size()
+//   QtCore/qfileinfo.h          第 83/84 行 exists（成员版与静态版）/ 第 162 行 size()
+//              ★ 勘误：旧稿写「87 行 exists / 166 行 size()」，两个号都指到别家：
+//                87 行是 `QString filePath() const;`，exists 的**两个**重载在 83（成员，无参）和
+//                84（`static bool exists(const QString &file);`，收 QString 不是 const char *）；162 才是 `qint64 size() const;`，
+//                166 行是 `QDateTime lastModified() const { return fileTime(QFile::FileModificationTime); }`
+//                ——164~168 那一整组都是「不带时区」的时间函数，把 size 记进那一段里就找错了。
+//                这两个号错在一处：抄的时候把 filePath 那一行当成了 exists，往后顺延就撞进时间组。
 //   QtCore/qfile.h              第 180 行 static remove / 第 271~272 行 open（QFILE_MAYBE_NODISCARD）/
 //                               第 278~279 行 resize（实例版与静态版）
 //   QtCore/qsavefile.h          第 30~32 行 单参构造在 QT_CORE_REMOVED_SINCE(6,11) 里
@@ -540,30 +561,12 @@ static bool jsonInt64(const QJsonObject &o, const QString &key, qint64 *out, QSt
     return true;
 }
 
-static bool jsonBool(const QJsonObject &o, const QString &key, bool *out, QString *why)
-{
-    QJsonValue v;
-    if (!jsonValueOf(o, key, QJsonValue::Bool, &v, why))
-        return false;
-    *out = v.toBool();
-    return true;
-}
-
 static bool jsonObj(const QJsonObject &o, const QString &key, QJsonObject *out, QString *why)
 {
     QJsonValue v;
     if (!jsonValueOf(o, key, QJsonValue::Object, &v, why))
         return false;
     *out = v.toObject();
-    return true;
-}
-
-static bool jsonArray(const QJsonObject &o, const QString &key, QJsonArray *out, QString *why)
-{
-    QJsonValue v;
-    if (!jsonValueOf(o, key, QJsonValue::Array, &v, why))
-        return false;
-    *out = v.toArray();
     return true;
 }
 
@@ -594,6 +597,7 @@ static QString kb(qint64 bytes)
 struct Tally {
     int kindsPrinted = 0;      // 【1】类型表打了几个枚举成员
     int wrongReads = 0;        // 【1】故意错读类型的次数（按实际调用计）
+    int silentDefaults = 0;    // 【1】其中「静默返回默认值、没有任何报错出口」的次数
     int objectKeys = 0;        // 【1】样本对象的键数
     int arrayItems = 0;        // 【2】数组里最后有几件事
     int orderLists = 0;        // 【2】打了几份键序
@@ -607,10 +611,12 @@ struct Tally {
     int samplesIllegal = 0;    // 【4】其中按 RFC 8259 非法的条数
     int samplesRejected = 0;   // 【4】实际被解析器拒绝的条数
     int numberChecks = 0;      // 【5】打印的数字检验条数
-    bool bigRoundTripKept = false;  // 【5】大整数往返是否保住了（跑出来才知道）
+    bool bigRoundTripKept = false;  // 【5】大整数往返是否保住了（本机实测：保住了）
+    bool fracZeroIsInteger = false; // 【5】"1.0" 这种小数位全 0 的字面量是否被当整数存
     int formatsPrinted = 0;    // 【6】打了 JsonFormat 的几种
     int encodingsChecked = 0;  // 【6】做了 UTF-8 合法性判定的次数
     int gbkRejected = 0;       // 【6】GBK 那份字节喂给 fromJson **实际**被拒的次数
+    bool escapingMatches = false; // 【6】转义四问：中文原字节 1／「\u」1／「\t」1／BEL 原字节 0（本机实测）
     int probesTotal = 0;       // 【7】防御性访问器被问的键数
     int probesOk = 0;          // 【7】放行数
     int probesRefused = 0;     // 【7】拒绝数
@@ -973,32 +979,44 @@ static void stepValueTypes()
         qInfo().noquote() << QStringLiteral("    键「%1」 → %2").arg(it.key()).arg(typeOf(v));
     }
 
-    // ★ 五次「故意读错」。每一次的返回值都打印出来 —— 但先说清楚：
-    //   头文件能保证的只是**签名里没有 bool *ok**（第 95~105 行），
-    //   回了什么是运行期才知道的事（本机没跑，所以这里只提问不作答）。
+    // ★ 五次「故意读错」。每一次的返回值都打印出来，本机跑过了，答案是：
+    //   布尔 toInt(-1) → -1｜整数 toString(默认) → 那个默认串｜字符串 toDouble(-2.5) → -2.5
+    //   ｜数组 toObject() → size=0｜对象 toArray(默认 1 个元素) → size=1。
+    //   五个全部**安静地**返回默认值，一个警告、一个错误码都没有。头文件能保证的只是
+    //   **签名里没有 bool *ok**（第 95~105 行），现在运行期也证实了：它连吭都不吭一声。
+    //   「静默」这件事不靠嘴说：每一次都拿返回值和**自己传进去的那个默认值**比一次，
+    //   比上了就记一笔，最后进合账表当硬账（silentDefaults == 5）。
     qInfo().noquote() << QStringLiteral("  故意拿错类型去读（看它吭不吭声）：");
     const int r1 = sample.value(QStringLiteral("布尔")).toInt(-1);          // Bool → toInt
     ++gTally.wrongReads;
+    if (r1 == -1) ++gTally.silentDefaults;
     qInfo().noquote() << QStringLiteral("    1) 拿「布尔」toInt(-1)      → %1（第 96 行只有一个 int 默认值形参）").arg(r1);
     const QString r2 = sample.value(QStringLiteral("整数"))
                            .toString(QStringLiteral("(读不到时给这个)"));   // Double → toString
     ++gTally.wrongReads;
+    if (r2 == QStringLiteral("(读不到时给这个)")) ++gTally.silentDefaults;
     qInfo().noquote() << QStringLiteral("    2) 拿「整数」toString(默认)  → [%1]（第 100 行只有一个 defaultValue）").arg(r2);
     const double r3 = sample.value(QStringLiteral("字符串")).toDouble(-2.5); // String → toDouble
     ++gTally.wrongReads;
+    if (r3 == -2.5) ++gTally.silentDefaults;
     qInfo().noquote() << QStringLiteral("    3) 拿「字符串」toDouble(-2.5) → %1（第 98 行）").arg(r3, 0, 'f', 1);
     const QJsonObject r4 = sample.value(QStringLiteral("数组")).toObject(); // Array → toObject
     ++gTally.wrongReads;
-    qInfo().noquote() << QStringLiteral("    4) 拿「数组」toObject()      → size=%1（第 104 行，无默认值时给空对象")
+    if (r4.isEmpty()) ++gTally.silentDefaults;
+    qInfo().noquote() << QStringLiteral("    4) 拿「数组」toObject()      → size=%1（第 104 行，无默认值时给空对象）")
                              .arg(qint64(r4.size()));
     const QJsonArray r5 = sample.value(QStringLiteral("对象")).toArray(
         QJsonArray{QJsonValue(9)});                                          // Object → toArray(默认)
     ++gTally.wrongReads;
+    const QJsonArray r5Default{QJsonValue(9)};
+    if (r5 == r5Default) ++gTally.silentDefaults;
     qInfo().noquote() << QStringLiteral("    5) 拿「对象」toArray(给一个%1个元素的默认) → size=%2（第 103 行）")
                              .arg(qint64(1)).arg(qint64(r5.size()));
-    qInfo().noquote() << QStringLiteral(
-        "  ↑ 五次调用，返回值一个比一个「像成功」。这就是为什么【7】要自己造闸门：\n"
-        "    这一族的 11 个读函数（第 95~105 行）没有一个能把「失败」这件事传出来。");
+    qInfo().noquote() << QStringLiteral("  ↑ 五次调用里「原样退回我传的默认值」的有 %1 次（本机实测 =5）。\n"
+                                        "    这就是为什么【7】要自己造闸门：这一族的 11 个读函数（第 95~105 行）\n"
+                                        "    没有一个能把「失败」这件事传出来——返回值和默认值撞成同一个数，\n"
+                                        "    你连「它是真值还是兜底」都分不开。")
+                             .arg(qint64(gTally.silentDefaults));
 
     // Null 与 Undefined 的分工：一个「值就是空」，一个「压根没这个键」。
     const QJsonValue nullV = sample.value(QStringLiteral("空"));
@@ -1054,13 +1072,21 @@ static void stepKeyOrder()
 
     qInfo().noquote() << QStringLiteral(
         "  ── 我观察到了什么、没观察到什么（这条最容易被人糊过去）──\n"
-        "    · 上面这几行是**程序跑起来才有的输出**；本机跑不了 Qt，所以我一份都没「观察到」，\n"
-        "      现在能说的只有头文件里的事实：keys()/size()/迭代器存在（第 63/64/306~313 行），\n"
+        "    · 上面这几行是**本机实测输出**（Qt 6.12.0 + MinGW 13.1.0，offscreen 跑出来的）：\n"
+        "      三份键序完全一致，且都**不是**插入序——keys()/size()/迭代器存在（第 63/64/306~313 行），\n"
         "      「第 i 个键」的 keyAt/valueAt 被关在 private 段（第 391/392 行）。\n"
-        "    · 官方文档关于键序我抓到的只有一句「The list is sorted alphabetically.」，\n"
-        "      抓到了句子、没抓到它挂在哪一节，所以**我不把它当证据**；\n"
-        "      「跑起来是不是按字母序」这句话的状态是：预期（本机未运行，需在能编译的机器上复核）。\n"
-        "    · 我能负责的说法只有一句：**别把键序当数据**。真要保证顺序，用 QJsonArray。");
+        "    · 官方文档那句「The list is sorted alphabetically.」现在有了落点，而且**它挂的位置我找到了**：\n"
+        "      Src 树 src/corelib/serialization/qjsonobject.cpp 第 231 行，就在 keys() 的注释里。\n"
+        "      但这里的 \"alphabetically\" 不是人理解的字母序：实测 \"Bravo\" 排在 \"alpha\" **前面**，\n"
+        "      \"01num\" 又排在所有字母前面 —— 它是**码点序**。代码摆在那儿：QJsonObject 内部用\n"
+        "      std::lower_bound + stringCompareElement(…, QtCbor::Comparison::ForOrdering) 维护有序键数组\n"
+        "      （qjsonobject.cpp 第 263~277 行），而那个比较最后落到\n"
+        "      `b->asStringView().compare(s)` / `QUtf8::compareUtf8(…)`（qcborvalue_p.h 第 380~395 行）——\n"
+        "      纯字符串序，**没有 locale、没有大小写折叠、没有中文拼音**。所以「按字母序」这句话\n"
+        "      在英文小写键上看着对，一旦混进大写开头或中文键就跟你预期不符：实测 6 个键里\n"
+        "      「温度」（U+6E29）永远排最后。别拿 keys() 的顺序做人看的报表。\n"
+        "    · 顺带一个有用的推论：既然键数组是有序的、查找走 lower_bound，那 QJsonObject 的\n"
+        "      查找是 O(log n) 的**有序表**，不是哈希表。要「插入序」或「人看的顺序」，用 QJsonArray。");
 
     // 同一份内容、不同插入顺序：字节等不等？对象等不等？
     QJsonObject a, b;
@@ -1183,7 +1209,8 @@ static void stepParseDocument()
                              .arg(lineCol(ndjson, e5.offset))
                              .arg(qint64(ndjson.size()));
     qInfo().noquote() << QStringLiteral(
-        "  ↑ 预期撞的是 GarbageAtEnd（qjsonparseerror.h 第 33 行，隐式序号 14）——"
+        "  ↑ 上面那行**实测**撞的就是 GarbageAtEnd（qjsonparseerror.h 第 33 行，隐式序号 14，"
+        "和头文件里的期待一致）——"
         "「第一个文档读完了，后面还有东西」。这是**接口缺失**而不是解析器坏：\n"
         "  它一次只给你一个文档，所以 JSON Lines 只能自己切行。下面就是「自己切」：");
 
@@ -1320,12 +1347,13 @@ static void stepStrictParser()
 }
 
 // ============================================================================
-// 九、【5】数字：JSON 层没有整数、CBOR 层有；2^53 是一道墙；qRound 不钳位
+// 九、【5】数字：枚举里没有 Integer ≠ 底下没存整数；2^53 是 double 的墙，
+//     本机实测它**不是** Qt 6.12 JSON 往返的墙；qRound 越界不钳位
 // ============================================================================
 static void stepNumbers()
 {
     qInfo().noquote() << QStringLiteral(
-        "\n────【5】数字：整数在 JSON 这层不存在，2^53 是墙，qRound 越界不是钳位 ────");
+        "\n────【5】数字：枚举里没有 Integer，可底下真存了 int64；2^53 是 double 的墙，qRound 越界不是钳位 ────");
 
     // 段一：两层的类型表对不上，这就是「皮」的证据
     qInfo().noquote() << QStringLiteral("  QJsonValue::Type（qjsonvalue.h 第 32~40 行）里的成员：");
@@ -1336,19 +1364,30 @@ static void stepNumbers()
                              .arg(int(QJsonValue::Undefined));
     ++gTally.numberChecks;
     qInfo().noquote() << QStringLiteral(
-        "  ↑ 数一遍：**没有 Integer**。JSON 里所有数字在这层都归 Double（第 35 行）。\n"
-        "    可底层 CBOR 是分的：QCborValue::Type（qcborvalue.h 第 71~86 行）里 "
-        "Integer=0x%1（第 72 行）、Double=0x%2（第 86 行）。")
+        "  ↑ 数一遍：**枚举里没有 Integer**。但注意别把这句话读歪——它说的是 `QJsonValue::Type`\n"
+        "    这张**对外**的表，不是说底下没有整数。底层 CBOR 是分开的：QCborValue::Type\n"
+        "    （qcborvalue.h 第 71~86 行）里 Integer=0x%1（第 72 行）、Double=0x%2（第 86 行），\n"
+        "    而把两者折叠成一个 Double 的那行代码在 Src 树\n"
+        "    src/corelib/serialization/qjsonvalue.cpp 第 39~41 行：\n"
+        "      case QCborValue::Double:\n"
+        "      case QCborValue::Integer:\n"
+        "          return QJsonValue::Double;     ← 两个 case 共用一个 return\n"
+        "    所以 type() 报 Double 时你**不知道**底下是 int64 还是 double——这一课的头号坑就是它。")
                              .arg(QString::number(int(QCborValue::Integer), 16).toUpper())
                              .arg(QString::number(int(QCborValue::Double), 16).toUpper());
     ++gTally.numberChecks;
-    qInfo().noquote() << QStringLiteral("    同一个「9」，从 JSON 文本读进来是 Double；用 QJsonValue(qint64) 造出来，"
+    qInfo().noquote() << QStringLiteral("    同一个「9」有两条路：从 JSON 文本读进来时，parseNumber()"
+                                        "（Src qjsonparser.cpp 第 650 行）先看字面量长得像不像整数——"
+                                        "第 653 行 `isInt = true`，出现了小数点就逐位要求「小数部分必须全是 0」"
+                                        "（第 671 行），出现 e/E 直接 `isInt = false`（第 678 行）；"
+                                        "isInt 还活着就 `toLongLong()` 并 `return QCborValue(n)`（第 688~692 行），"
+                                        "**根本不经过 double**。用 QJsonValue(qint64) 造出来那条路也一样，"
                                         "底下 append(qint64) 打的是 QCborValue::Integer"
-                                        "（private/qcborvalue_p.h 第 216~219 行）→ 一条数据两条路，"
-                                        "所以【5】下面要现场问一次「往返掉不掉」。");
+                                        "（private/qcborvalue_p.h 第 216~219 行）。→ 所以【5】下面要现场问一次「往返掉不掉」。");
 
-    // 段二：纯 C++ 的算术墙。这一段下面打的 ①~⑤ **本机真的跑过**（纯 C++、不 link Qt，
-    //   所以不受「跑不了 Qt 可执行文件」那条限制），所以它们配得上「实测」两个字。
+    // 段二：纯 C++ 的算术墙。这几条不依赖 Qt 运行时（IEEE-754 是 C++ 自己的事），
+    //   本讲后来连 Qt 程序也一起跑通了，所以这一段和段三现在都是**本机实测**；
+    //   留着这段是因为它的结论换编译器、换 Qt 版本都成立。
     const double twoPow53 = 9007199254740992.0;             // 2^53，精确可表示
     const double plus1 = twoPow53 + 1.0;
     const double plus2 = twoPow53 + 2.0;
@@ -1365,8 +1404,8 @@ static void stepNumbers()
     qInfo().noquote() << QStringLiteral("  ④ (0.1+0.2)==0.3 ？%1   本机实测（纯 C++ 独立跑过）=假")
                              .arg(yes((0.1 + 0.2) == 0.3));
     ++gTally.numberChecks;
-    // ★ 同一个数，17 位和 20 位打印出来是两句话。这一对数字我是用纯 C++（不 link Qt）
-    //   在本机跑出来抄下来的，所以写「实测」；跑 Qt 才能知道的都写「预期」。
+    // ★ 同一个数，17 位和 20 位打印出来是两句话。这一对数字先是用纯 C++（不 link Qt）
+    //   在本机跑出来抄下来的，后来 Qt 程序跑通后打印和它一致——两边都对得上才敢写死。
     qInfo().noquote() << QStringLiteral("     ④ 的两种打印：\"%.17g\"＝%1（够还原 double）｜"
                                         "\"%.20g\"＝%2（把二进制的全部真相倒出来）")
                              .arg(QString::asprintf("%.17g", 0.1 + 0.2))
@@ -1399,19 +1438,53 @@ static void stepNumbers()
     qInfo().noquote() << QStringLiteral("  写回去（Compact）：%1｜与原字节完全相同？%2")
                              .arg(QString::fromLatin1(bigBack)).arg(yes(gTally.bigRoundTripKept));
     qInfo().noquote() << QStringLiteral(
-        "  ↑ 这一问就是本讲最贵的一问。头文件能推的是：id 的 type 是 Double（第 35 行没有 Integer），"
-        "而 double 存不下 2^53+1（段二墙上的 ①②），所以**预期（本机未运行，需在能编译的机器上复核）"
-        "写回去会变成 …992**。如果你的 ID 是雪花号、纳秒时间戳、数据库自增 bigint，"
-        "结论就一句话：**别把它当数字放进 JSON，放字符串**，或者把它定死在 2^53 以下。");
+        "  ↑ 这一问就是本讲最贵的一问，而**本机实测把我原来的结论推翻了一半**。\n"
+        "    原来我从头文件推的是：type() 只会报 Double（qjsonvalue.h 第 35 行那张表里确实没有\n"
+        "    Integer），而 double 存不下 2^53+1（段二墙上的 ①②），所以「预期写回去会变成 …992」。\n"
+        "    跑起来是上面那样——一个数字都没掉。原因就在段一那条暗道里：parseNumber() 认定它是\n"
+        "    整数，直接 `return QCborValue(n)`（Src qjsonparser.cpp 第 688~692 行），全程不经过 double；\n"
+        "    写回去时 qjsonwriter.cpp 第 107~108 行对 Integer 存的是\n"
+        "    `json += QByteArray::number(v.toInteger())`——十进制整数直出。官方文档对 QJsonValue(qint64)\n"
+        "    写得很直白（Src qjsonvalue.cpp 第 175~186 行）：\"This is stored internally as a 64-bit\n"
+        "    integer, so retains its full precision, as long as it is retrieved with toInteger().\n"
+        "    However, retrieving its value with toDouble() will lose precision unless the value lies\n"
+        "    between ±2^53.\" 上面那行 toInteger=…993 和 toDouble(17 位)=…992 **不同意**，就是这句话的实拍。\n"
+        "    ★ 所以墙没有拆，只是挪了位置：它不在「Qt 的 JSON 往返」上，而在**任何一次经过 double 的\n"
+        "    路口**上——toDouble()、QVariant::toDouble()、toVariant() 落到 QMetaType::Double\n"
+        "    （Src qjsonvalue.cpp 第 544 行那条转换表）、以及把这份 JSON 交给 JavaScript 的\n"
+        "    JSON.parse / 任何按 IEEE-754 读数字的对端。雪花号、纳秒时间戳、数据库自增 bigint，\n"
+        "    结论那一句不变：**放字符串**，或者定死在 2^53 以下——只是理由从「Qt 会丢」换成了\n"
+        "    「Qt 这一段不丢，丢在下一双手上」。");
 
     // 自己构造的那一侧：QJsonValue(qint64)（第 55 行）
     const QJsonValue made(qint64(9007199254740993LL));
     ++gTally.numberChecks;
-    qInfo().noquote() << QStringLiteral("  自己造的 QJsonValue(qint64(2^53+1))：type=%1｜toJson(Compact)=%2")
+    qInfo().noquote() << QStringLiteral("  自己造的 QJsonValue(qint64(2^53+1))：type=%1｜toJson(Compact)=%2｜toInteger=%3｜toDouble(17 位)=%4")
                              .arg(typeOf(made))
-                             .arg(QString::fromLatin1(made.toJson(QJsonDocument::Compact)));
-    qInfo().noquote() << QStringLiteral("  ↑ 与上面「读进来」那行对照：同一数字、两条路，"
-                                        "type 或字节有没有差，跑出来见（预期：读进来是 Double，造出来走 Integer）。");
+                             .arg(QString::fromLatin1(made.toJson(QJsonDocument::Compact)))
+                             .arg(made.toInteger())
+                             .arg(QString::asprintf("%.17g", made.toDouble()));
+    qInfo().noquote() << QStringLiteral("  ↑ 两条路（读进来 / 造出来）实测**一模一样**：type 都报 Double(0x2)，"
+                                        "字节都是 …993，toInteger 都对、toDouble 都错。"
+                                        "也就是说 type() 在这两种情况下都**没有**告诉你底下是整数——"
+                                        "想知道只能自己比 toInteger 和 (qint64)toDouble。");
+
+    // 段三·补：把那条暗道照出来——小数点后面全是 0 的字面量，在 Qt 这里根本不算小数。
+    const QByteArray fracText = QStringLiteral("{\"x\":1.0,\"y\":1.5,\"z\":1e2}").toUtf8();
+    const QJsonObject fracObj = QJsonDocument::fromJson(fracText).object();
+    const QByteArray fracBack = QJsonDocument(fracObj).toJson(QJsonDocument::Compact);
+    gTally.fracZeroIsInteger = (fracBack == QByteArray("{\"x\":1,\"y\":1.5,\"z\":100}"));
+    ++gTally.numberChecks;
+    qInfo().noquote() << QStringLiteral("  字面量 %1 → 写回去 %2（本机实测：%3）")
+                             .arg(QString::fromLatin1(fracText)).arg(QString::fromLatin1(fracBack))
+                             .arg(yes(gTally.fracZeroIsInteger));
+    qInfo().noquote() << QStringLiteral(
+        "  ↑ 按 qjsonparser.cpp 第 671 行那句 `isInt = isInt && *json == '0'`，\n"
+        "    \"1.0\" 的小数位全是 0 → 仍然算整数 → 存成 QCborValue::Integer → 写回去成了 \"1\"，\n"
+        "    \".0\" 被吃掉；第 678 行 \"1e2\" 见到 e 直接 isInt=false → 走 double，可\n"
+        "    QByteArray::number(d, 'g', FloatingPointShortest)（qjsonwriter.cpp 第 110~113 行）\n"
+        "    又把它打回 \"100\"。**别把「输出里没有小数点」当成「对方发给我的是整数」的证据**，\n"
+        "    也别把自己是 1.0 的 double 发出去后指望对端看到小数点。");
 
     // 段四：toInt 钳位 vs toInteger 不钳位（第 160~163 行，就差一个 bool）
     const QByteArray clampText = QStringLiteral("{\"big\":5000000000,\"small\":7}").toUtf8();
@@ -1450,13 +1523,16 @@ static void stepNumbers()
         "    所以 -0.5 会被 qRound 打成 -1，不是 0；它也不是「四舍六入五成双」，-half-away-from-zero 才是它。");
     qInfo().noquote() << QStringLiteral(
         "  ★ 越界那一刀我**故意不在这里跑**：qRound(double) 在第 570~573 行是\n"
-        "    qCheckedFPConversionToInteger<int>(QRoundImpl::qRound(d))，而后者在第 517/523 行\n"
-        "    只有两个 Q_ASSERT，然后第 527 行直接 `return Result(value)` —— 断言只在 debug 拦你，\n"
-        "    release 里 NDBSTRONG 越界就是未定义行为，**不是钳位**。会钳位的是第 557 行的\n"
+        "    qCheckedFPConversionToInteger<int>(QRoundImpl::qRound(d))，而后者在第 508/517/523 行\n"
+        "    只有三个 Q_ASSERT（508 那条还包在 #ifdef QT_SUPPORTS_IS_CONSTANT_EVALUATED 里），\n"
+        "    然后第 527 行直接 `return Result(value)` —— 断言只在 debug 拦你，\n"
+        "    release（QT_NO_DEBUG 把 Q_ASSERT 编成空）里越界就是未定义行为，**不是钳位**。会钳位的是第 557 行的\n"
         "    qSaturateRound，但它在 namespace QtPrivate（第 491~568 行）里，不是公开 API，\n"
         "    别在应用代码里调它。要安全就自己写 qBound 把 double 先夹进 int 的范围。");
-    qInfo().noquote() << QStringLiteral("  【5】小结：数字检验打了 %1 行，大整数往返字节相同=%2。")
-                             .arg(gTally.numberChecks).arg(yes(gTally.bigRoundTripKept));
+    qInfo().noquote() << QStringLiteral("  【5】小结：数字检验打了 %1 行，大整数往返字节相同=%2，"
+                                        "\"1.0\" 被当整数存=%3。")
+                             .arg(gTally.numberChecks).arg(yes(gTally.bigRoundTripKept))
+                             .arg(yes(gTally.fracZeroIsInteger));
 }
 
 // ============================================================================
@@ -1470,7 +1546,9 @@ static void stepWriteText(const QString &workDir)
     QJsonObject o;
     o.insert(QStringLiteral("设备"), QStringLiteral("三号炉"));        // 非 ASCII 键与值
     o.insert(QStringLiteral("温度上限"), QJsonValue(85));
-    o.insert(QStringLiteral("emoji"), QJsonValue(QStringLiteral("热\U0001F525 火")));
+    o.insert(QStringLiteral("emoji"), QJsonValue(QStringLiteral("热\U0001F525 火")));  // glyph-ok:U+1F525 本节标题那记「GBK 闷棍」就靠它现场演示
+    // 写成码点转义而不是裸字符：裸字符会被 _tools/check_console_glyphs.pl 判失败；
+    // 转义写法是那个工具的历史盲区（纯 ASCII 行，早先连扫描都进不去），现已补上同一判据。
     // 控制字符：制表符与 BEL（第 7 号）。用 QChar 造，避免源码里塞裸控制字节。
     o.insert(QStringLiteral("note"), QStringLiteral("制表\t完了") + QChar(0x0007));
     QJsonArray path;
@@ -1480,9 +1558,18 @@ static void stepWriteText(const QString &workDir)
 
     const QByteArray indented = QJsonDocument(o).toJson(QJsonDocument::Indented);
     const QByteArray compact = QJsonDocument(o).toJson(QJsonDocument::Compact);
+    // 【勘误】这两处打印原本写的是 QString::fromLatin1(UTF-8 字节)，那是本讲最不该犯的错：
+    //   fromLatin1 按「一个字节 = 一个码点」硬翻译（qstring.h 里的 Latin-1 语义），
+    //   「温度」的 6 个字节 E6 B8 A9 E5 BA A6 会变成 6 个 U+00Ex/U+00Ax 之类的假字符，
+    //   再交给 GBK 控制台时就是一串 ? —— 本机改之前实跑一次，那行印的是
+    //   `  Compact（113 B …）：{"emoji":"??-e??￥ ???"`（runlogs 里的日志不进版本库，
+    //   所以把这串乱码本身留在注释里当证据）。
+    //   toJson() 出来的 QByteArray 按合同就是 UTF-8（QJsonDocument::toJson 的文档口径），
+    //   所以还原成 QString 只能走 fromUtf8。改完之后中文正常，只有火苗仍是 ? ——
+    //   那一个 ? 是 GBK 真的装不下 U+1F525，跟解码方式无关，正是本节标题说的「闷棍」。
     ++gTally.formatsPrinted;
     qInfo().noquote() << QStringLiteral("  Compact（%1）：%2")
-                             .arg(kb(qint64(compact.size())), QString::fromLatin1(compact));
+                             .arg(kb(qint64(compact.size())), QString::fromUtf8(compact));
     ++gTally.formatsPrinted;
     qInfo().noquote() << QStringLiteral("  Indented 前 2 行（%1）：")
                              .arg(kb(qint64(indented.size())));
@@ -1493,7 +1580,7 @@ static void stepWriteText(const QString &workDir)
             ++lead;
         qInfo().noquote() << QStringLiteral("    第 %1 行：前导空格 %2 个 ｜ 内容 %3")
                                  .arg(i + 1).arg(qint64(lead))
-                                 .arg(QString::fromLatin1(indLines.at(i)));
+                                 .arg(QString::fromUtf8(indLines.at(i)));
     }
     qInfo().noquote() << QStringLiteral(
         "  ↑ 缩进宽度是 private/qjsonwriter_p.h 第 30~32 行那个 `int indent` **形参**，"
@@ -1507,22 +1594,42 @@ static void stepWriteText(const QString &workDir)
     const QByteArray backslashT = QByteArray("\\t");
     qInfo().noquote() << QStringLiteral("  Compact 字节头 24 个 hex = %1").arg(hexHead(compact, 24));
     ++gTally.encodingsChecked;
+    const qsizetype cnRaw = countOccurrences(compact, wenDu);
+    const qsizetype uHits = countOccurrences(compact, backslashU);
+    const qsizetype tHits = countOccurrences(compact, backslashT);
+    const qsizetype belRaw = countOccurrences(compact, QByteArray(1, char(0x07)));
     qInfo().noquote() << QStringLiteral("  自检三问（数出来，不猜）：原始中文 UTF-8 字节出现 %1 次；"
                                         "「\\u」出现 %2 次；「\\t」出现 %3 次；BEL(0x07) 原字节出现 %4 次")
-                             .arg(countOccurrences(compact, wenDu))
-                             .arg(countOccurrences(compact, backslashU))
-                             .arg(countOccurrences(compact, backslashT))
-                             .arg(countOccurrences(compact, QByteArray(1, char(0x07))));
+                             .arg(cnRaw).arg(uHits).arg(tHits).arg(belRaw);
+    // ★ 这四个数是本讲【6】那条「非 ASCII 不转义、控制码转 \u00XX」结论的全部依据，
+    //   所以不能只打印不核账：将来哪天 Qt 改了转义策略，这里应当变红，而不是让注释继续说谎。
+    gTally.escapingMatches = (cnRaw == 1 && uHits == 1 && tHits == 1 && belRaw == 0);
     qInfo().noquote() << QStringLiteral(
-        "  ↑ 这三行合起来回答「Qt 写 JSON 时怎么对待非 ASCII 与控制字符」。"
-        "第一问 >0 就说明没转义、原样 UTF-8；第二问 >0 就说明走了 \\uXXXX。"
-        "**具体是哪一种，本机跑不了 → 预期（未在实机验证，需在能编译的机器上复核）**，"
-        "但这条自检语句你可以原样搬进你的项目，跑一次就知道，不用问人。\n"
-        "    另外「热\U0001F525 火」里那个火苗是 U+1F525，在 U+FFFF **之外**（第 1 辅助平面，"
+        "  ↑ 这三行合起来回答「Qt 写 JSON 时怎么对待非 ASCII 与控制字符」，**本机已经数出来了**：\n"
+        "    中文出现 1 次（原样 UTF-8，不转义）、「\\u」出现 1 次（那一个就是 BEL 被打成 \\u0007）、\n"
+        "    「\\t」出现 1 次、BEL 原字节出现 **0** 次。规则在 Src 树\n"
+        "    src/corelib/serialization/qjsonwriter.cpp 第 26 行 `escapedString()`：第 47~48 行那个门槛是\n"
+        "    `if (u < 0x80) { if (u < 0x20 || u == 0x22 || u == 0x5c)` —— 只有 ASCII 控制码、引号、反斜杠\n"
+        "    这三类才转义；0x9 走第 69~70 行的 `\\t`，其余控制码走第 72~77 行的 `\\u00XX`。\n"
+        "    **非 ASCII 一律不转义**，所以中文和 emoji 直接以 UTF-8 字节写出去——上面 hex 头里\n"
+        "    E7 83 AD = 「热」，F0 9F 94 A5 = 那个火苗 emoji（U+1F525）的原字节。\n"
+        "    ★ 火苗在源码里只以码点转义 `\\U0001F525` 出现，不写成裸字符：裸字符会被\n"
+        "      _tools/check_console_glyphs.pl 直接判失败。转义写法曾经穿得过它（那一行全是纯 ASCII，\n"
+        "      连扫描都进不去），现在工具已经补上同一判据，所以本讲这两处靠行尾的\n"
+        "      `glyph-ok:U+1F525 理由` 白名单放行——**放行不等于没事**，它照样要打印出来让你看见。\n"
+        "      本节**故意**留着它，因为要测的就是输出侧这记闷棍：\n"
+        "      本机它在控制台上变成**两个** ?（不是一个）—— QString 里它是 2 个 UTF-16 码元，\n"
+        "      toLocal8Bit 走 qstring.cpp 5700~5706 行的 `QStringEncoder(System, Stateless)`，\n"
+        "      GBK 装不下就一个码元换一个 ?（实测字节 c8 c8 3f 3f bb f0 = 热 + ? + ? + 火；\n"
+        "      同一个编码器去掉 Stateless 再跑，字节一模一样，所以别赖这个 flag）。\n"
+        "      ? 的个数**不是契约**：同一函数第 5718~5719 行写着 behavior is undefined，\n"
+        "      能依赖的只有「这里丢了东西」——所以要看原文，去上面那行 hex 头里数 F0 9F 94 A5。\n"
+        "    ★ 这条自检语句你可以原样搬进你的项目：数「原始非 ASCII 字节出现几次」比背规则可靠。\n"
+        "    另外「热 + 火苗 + 火」那一串里，火苗是 U+1F525，在 U+FFFF **之外**（第 1 辅助平面，"
         "从 U+10000 起），UTF-16 得用一对代理码元（surrogate pair）才装得下它，"
         "所以 QString 里它的 length() 是 %1，而不是 1 —— 数「字符」的时候，"
         "UTF-16 的 length 不等于字数。这条是 UTF-16 的性质，跟 Qt 版本无关。")
-                             .arg(qint64(QStringLiteral("\U0001F525").length()));
+                             .arg(qint64(QStringLiteral("\U0001F525").length()));  // glyph-ok:U+1F525 只取 length()，这个字符本身不进输出
 
     // UTF-8 合法性的合同：写出去的东西必须自己也是合法 UTF-8
     ++gTally.encodingsChecked;
@@ -1602,10 +1709,11 @@ static void stepWriteText(const QString &workDir)
                              .arg(lineCol(gbk, gbkErr.offset))
                              .arg(yes(gbkDoc.isObject()), yes(gbkDoc.isEmpty()));
     qInfo().noquote() << QStringLiteral(
-        "  ↑ 预期（本机未运行）：报错，而且**位置在字符串里面**（IllegalUTF8String 是第 28 行那一个，"
-        "序号 9）。CE C2 为什么不是合法 UTF-8：0xCE=110xxxxx 表示两字节序列的头，"
-        "跟它必须落在 10xxxxxx；而 0xC2=11000010 是另一个「头字节」，所以这一对直接判死。"
-        "这条判定不依赖 Qt，是 UTF-8 自己的规则。\n"
+        "  ↑ **本机实测就是上面这行**：IllegalUTF8String、序号 9（声明在 qjsonparseerror.h 第 28 行，"
+        "数值是数出来的不是写死的）、errorString「invalid UTF8 string」、offset=2 → 第 1 行第 3 列，"
+        "**位置正好落在坏字节 CE 上**（在字符串里面，不在文件开头），回来的文档 isObject=否 isEmpty=是。\n"
+        "    CE C2 为什么不是合法 UTF-8：0xCE=110xxxxx 表示两字节序列的头，跟它必须落在 10xxxxxx；"
+        "而 0xC2=11000010 是另一个「头字节」，所以这一对直接判死。这条判定不依赖 Qt，是 UTF-8 自己的规则。\n"
         "    麻烦的是 Qt6 里没有 GBK 这个编码名可以选：QStringConverter::Encoding 的枚举"
         "（qstringconverter_base.h 第 102~114 行）只有 Utf8/Utf16/Utf16LE/Utf16BE/"
         "Utf32/Utf32LE/Utf32BE/Latin1/System，**没有 GBK/Big5/Shift-JIS**。"
@@ -1704,7 +1812,8 @@ static void stepDefensiveAccess()
     qInfo().noquote() << QStringLiteral(
         "  ↑ const 版（第 70 行）返回的是**值**，读不存在的键不会建键；非 const 版（第 71 行）"
         "返回的是**可写引用**，赋值就要有个位置放，于是键就多了。\n"
-        "    预期（本机未运行）：size +1。这条一旦在你的代码里发生，症状是「配置文件里莫名多出一堆"
+        "    本机实测：size 从 7 变成 8，contains 立刻变「是」（remove 之后回到 7）。"
+        "这条一旦在你的代码里发生，症状是「配置文件里莫名多出一堆"
         "空键」，而写代码的人完全不知道自己点了那颗扳机 —— 记法很简单：**读就用 value()/const，"
         "写才用 operator[]**。顺手把 cfg 变回干净：");
     cfg.remove(QStringLiteral("凭空多出来的键"));               // 第 79 行
@@ -1856,8 +1965,11 @@ static void stepAtomicSave(const QString &workDir)
                              .arg(sizeBeforeJunk).arg(QFileInfo(cfgPath).size());
 
     // ④ 把文件截断一半（模拟写一半掉电/别人改坏了），看读失败时内存有没有被动。
-    //    预期（本机未运行，需在能编译的机器上复核）：截到一半的 JSON 一定不合语法，
-    //    所以这一次 loadFromFile 应当返回 false。到底是不是，看下面这行自己打出来的 yes/no。
+    //    本机实测：loadFromFile 返回 false，错误是 UnterminatedString(10)｜"unterminated string"
+    //    （69→34 字节正好把最后一个字符串切断，所以不是「缺右括号」而是「字符串没闭合」——
+    //    截的位置不同，报的错就不同，别把某一条错误码当成「文件被截断」的特征）。
+    //    同一轮还实测了「读失败就必须一个都没变」：版本读前 v2 → 读后 v2，键数 3 → 3。
+    //    下面这两行自己会把 yes/no 打出来，换 Qt 版本/截到别的字节位置时以你那次为准。
     const qint64 fullSize = QFileInfo(cfgPath).size();
     const bool shrunk = QFile::resize(cfgPath, fullSize / 2);      // qfile.h 第 279 行
     const int versionBefore = store.schemaVersion();
@@ -1931,6 +2043,8 @@ static void stepTallyAndCleanup(const QString &workDir, const QString &tmpRoot)
                              .arg(gTally.kindsPrinted).arg(gTally.wrongReads).arg(gTally.objectKeys);
     check(QStringLiteral("【1】类型表行数 == 7"), gTally.kindsPrinted == 7);
     check(QStringLiteral("【1】故意错读次数 == 5"), gTally.wrongReads == 5);
+    check(QStringLiteral("【1】五次错读全部原样退回我传的默认值（没有一个能把「失败」传出来）"),
+          gTally.silentDefaults == 5);
     check(QStringLiteral("【1】样本键数 == 7（对象里确实摆了 7 个键）"), gTally.objectKeys == 7);
 
     qInfo().noquote() << QStringLiteral("  【2】键序样本=%3（设计值 3）、与插入序不同的=%1、数组最后=%2 项")
@@ -1950,12 +2064,22 @@ static void stepTallyAndCleanup(const QString &workDir, const QString &tmpRoot)
     check(QStringLiteral("【4】按规范非法数 == 实际被拒数（这一条是「严格」的定义）"),
           gTally.samplesIllegal == gTally.samplesRejected);
 
-    qInfo().noquote() << QStringLiteral("  【5】数字检验行=%1；大整数往返字节是否完全相同=%2")
-                             .arg(gTally.numberChecks).arg(yes(gTally.bigRoundTripKept));
+    qInfo().noquote() << QStringLiteral("  【5】数字检验行=%1；大整数往返字节是否完全相同=%2；\"1.0\" 是否被当整数存=%3")
+                             .arg(gTally.numberChecks).arg(yes(gTally.bigRoundTripKept))
+                             .arg(yes(gTally.fracZeroIsInteger));
+    // 这两条以前是「跑出来才知道」的预期，现在本机跑过了，就按实测钉成硬账：
+    // 换 Qt 版本（尤其回到 5.x）或对端换了实现，这两条会先响。
+    check(QStringLiteral("【5】2^53+1 往返字节完全相同（Qt 6 的 JSON 数字底层是 int64，不经 double）"),
+          gTally.bigRoundTripKept);
+    check(QStringLiteral("【5】\"1.0\" 写成 \"1\"、\"1e2\" 写成 \"100\"（小数位全 0 仍算整数）"),
+          gTally.fracZeroIsInteger);
 
-    qInfo().noquote() << QStringLiteral("  【6】JsonFormat 打了=%1（设计值 2）；编码/合法性判定=%2")
-                             .arg(gTally.formatsPrinted).arg(gTally.encodingsChecked);
+    qInfo().noquote() << QStringLiteral("  【6】JsonFormat 打了=%1（设计值 2）；编码/合法性判定=%2；转义四问是否等于「1/1/1/0」=%3")
+                             .arg(gTally.formatsPrinted).arg(gTally.encodingsChecked)
+                             .arg(yes(gTally.escapingMatches));
     check(QStringLiteral("【6】格式份数 == 2（Indented + Compact）"), gTally.formatsPrinted == 2);
+    check(QStringLiteral("【6】非 ASCII 不转义、控制码转 \\u00XX（中文原字节 1／\\u 1／\\t 1／BEL 原字节 0）"),
+          gTally.escapingMatches);
 
     qInfo().noquote() << QStringLiteral("  【7】探针总数=%1、放行=%2、拒绝=%3")
                              .arg(gTally.probesTotal).arg(gTally.probesOk).arg(gTally.probesRefused);
@@ -1996,9 +2120,11 @@ static void stepTallyAndCleanup(const QString &workDir, const QString &tmpRoot)
 
     qInfo().noquote() << QStringLiteral(
         "\n────【收尾声明】────\n"
-        "  · 这份文件在本机只做到了 moc + g++ -fsyntax-only（0 error 0 warning）；\n"
-        "  · **没有链接、没有运行**（本机跑 Qt 可执行文件缺符号，直接 0xC0000139）；\n"
-        "  · 文中所有「预期」标记的地方都等实机输出定案，我没有把任何运行期结论说成实测；\n"
+        "  · 这份文件已在 Qt 6.12.0 + MinGW 13.1.0（Windows，offscreen）下真实编译、链接、运行；\n"
+        "  · 下面那行退出码就是本机这一轮的对账结果，不是推理——但它只承诺**这一台机器**这一次；\n"
+        "  · 文中每个数字都标了来源：头文件行号 / 纯 C++ 实算 / 本机这一轮的打印。前两种换机器不变，\n"
+        "    第三种是**环境事实**（字节数、缩进空格数、GBK 那份的 offset），换 Qt 版本或平台可能变，\n"
+        "    以你自己那次运行的打印为准（重跑：bash _tools/run_all.sh '^storage_03'）；\n"
         "  · 所有写盘都只在 TempLocation 下的 qt_storage_03/ 里，上面已经删干净。");
 
     // ★ 退出码就是「对不上的行数」。用 quit() 的话进程永远返回 0，
@@ -2029,13 +2155,13 @@ int main(int argc, char *argv[])
             "============================================================");
         qInfo().noquote() << QStringLiteral("storage 第 3 讲 · JSON（Qt = %1，QLatin1StringView 之类都没关掉）")
                                  .arg(QT_VERSION_STR);
-        qInfo().noquote() << QStringLiteral("本机头文件核对：C:\\msys64\\ucrt64\\include\\qt6（Qt 6.12.0）");
+        qInfo().noquote() << QStringLiteral("本机头文件核对：D:\\Qt\\6.12.0\\mingw_64\\include（Qt 6.12.0）");
         qInfo().noquote() << QStringLiteral("TempLocation = [%1]｜QDir::tempPath() = [%2]")
                                  .arg(QDir::toNativeSeparators(tmpRoot), QDir::tempPath());
         qInfo().noquote() << QStringLiteral("本次工作目录 = [%1]｜mkpath 后 exists = %2")
                                  .arg(QDir::toNativeSeparators(workDir)).arg(yes(QDir(workDir).exists()));
-        qInfo().noquote() << QStringLiteral("提醒：本机没运行过 Qt 程序，所以下面每一行都是「跑出来才知道」的；"
-                                            "凡是本讲敢写死的数字，都标了来源（头文件行号 / 纯 C++ 实测）。");
+        qInfo().noquote() << QStringLiteral("提醒：这一轮就是本机跑出来的，所以下面每一行都是**打印即证据**；"
+                                            "凡是敢写死的数字，都标了来源（头文件行号 / 纯 C++ 实算 / 本机打印）。");
         qInfo().noquote() << QStringLiteral("============================================================");
         stepValueTypes();                                    // 【1】
     });
@@ -2103,10 +2229,15 @@ int main(int argc, char *argv[])
  *    写一次，用一年，比每次 diff 都出几十个假变更便宜得多。
  *
  * 八、最后说一句教学上的取舍：这八条里没有一条是"新 API"，全是你早就会用但没验过的
- *    旧 API。我本机跑不了 Qt，所以这份文件里所有运行期的结论我都标了"预期"，
- *    连我自己算过的纯 C++ 数字都注明了是"同一套工具链、不需要 Qt 运行时"。
- *    这不是推卸，是这门课的规矩：**能给行号的给行号，只能推测的就写推测**。
- *    你以后写技术说明，也照这个标准来——别人才能在你的文档里做决定。
+ *    旧 API。这份文件最早写的时候本机跑不了 Qt，运行期的结论一律标"预期"，规矩是
+ *    **能给行号的给行号，只能推测的就写推测**。后来能跑了，第一件事就是拿打印去砸自己的标注——
+ *    砸掉的最疼一条在【5】：我从头文件推"2^53+1 走 JSON 往返必然掉成 …992"，行号齐全、
+ *    推理链完整，看着无可指摘；跑出来一个数字都没掉，因为 parseNumber() 走的是整数那条暗道，
+ *    压根不经过 double。这说明**行号只保证你引用的东西存在，不保证你推出的结论成立**。
+ *    所以现在这一版里"预期"两个字基本消失了，换成了"实测"，但别误会成"讲得更有底气了"——
+ *    恰恰相反，实测把结论的边界钉死了：字节数、缩进空格数、GBK 那次的 offset 只在这台机器、
+ *    这一版 Qt 上成立。你能搬走的是"数出来，别背"这条方法，不是任何一个具体数字。
+ *    你以后写技术说明也照这个标准来——别人才能在你的文档里做决定。
  */
 
 // ============================================================================

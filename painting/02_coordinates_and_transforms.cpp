@@ -21,16 +21,21 @@
 //   本文件同样**不含 Q_OBJECT**（只覆写 paintEvent），末尾不需要 .moc。
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_02_coordinates_and_transforms，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_02_coordinates_and_transforms.log）。
 //   · 会往当前工作目录写 painting_02_coordinates_and_transforms.png、
 //     painting_02_order_ab.png、painting_02_order_ba.png、painting_02_viewport.png。
 //   · 无人值守：QImage 那条证据链在 exec() 之前就能跑（第 1 讲的铁律），
 //     控件链用 QTimer::singleShot 驱动，约 1.5 秒自动 quit()。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     全部 API 对着 C:\msys64\ucrt64\include\qt6 的真实头文件核对（下面带行号）；
-//     另外只跑过 `g++ -fsyntax-only -I <Qt6 头文件目录>`——纯语法核对，**没有链接、没有运行**，
-//     它只证明这些调用对着 Qt6 头文件编得过，不证明方向/数字对。
-//   · 文中所有「预期」只是推理，**数字要你自己跑出来核对**；
-//     特别是角度正负那一组，本机 Qt 的实现我只核到签名，没核到方向，所以做成测量。
+//   · 实测状态：本示例已在 **Qt 6.12.0 / MinGW-w64 GCC 13.1.0 / Windows 11** 上编译通过并
+//     **无头跑通**（`QT_QPA_PLATFORM=offscreen`，退出码 0），四张 PNG 与下面每个数字都是本机产物。
+//     头文件在 `D:\Qt\6.12.0\mingw_64\include`（下面签名清单的行号就是对它核的），
+//     Qt 源码在 `D:\Qt\6.12.0\Src\qtbase\src`（涉及实现的地方给了文件+行号）。
+//     Windows 上 Qt 日志按本地代码页 GBK 输出，重定向时 `| iconv -f GBK -t UTF-8` 才不乱码。
+//   · 文中「预期」都对着本机日志核过一遍；跑出来的数字随机器不同，
+//     特别是耗时类，**请以你自己跑出来的数字为准**。
 //   · 图解配套：../visuals/coordinates.html（三层坐标 + 顺序不可交换的分步动画，
 //     页面由图解同事补；先按这个链接放着）。
 // ============================================================================
@@ -74,10 +79,11 @@
 // QtGui/qpainter.h
 //   第 201 行 void save();                 第 202 行 void restore();
 //   第 205 行 void setTransform(const QTransform &transform, bool combine = false);
-//   第 208 行 void resetTransform();
+//   第 208 行 void resetTransform();       ← **不止**清世界矩阵，见下面「说明」第二条
 //   第 210 行 void setWorldTransform(const QTransform &matrix, bool combine = false);
 //   第 211 行 const QTransform &worldTransform() const;
 //   第 213 行 QTransform combinedTransform() const;      ← 世界变换 + window/viewport 变换 的总效果
+//   第 215/216 行 void setWorldMatrixEnabled(bool); bool worldMatrixEnabled() const;
 //   第 218 行 void scale(qreal sx, qreal sy);
 //   第 220 行 void rotate(qreal a);
 //   第 222~224 行 void translate(const QPointF&)/(const QPoint&)/(qreal dx, qreal dy);
@@ -85,12 +91,24 @@
 //   第 228 行 inline void setWindow(int x, int y, int w, int h);
 //   第 230 行 QRect viewport() const;      第 231 行 void setViewport(const QRect &viewport);
 //   第 232 行 inline void setViewport(int x, int y, int w, int h);
-// 说明：Qt6 的 qpainter.h 里**同时**有两条设置变换的入口，别记混：
+// 说明一：Qt6 的 qpainter.h 里**同时**有两条设置变换的入口，别记混：
 //   第 205 行  void setTransform(const QTransform &transform, bool combine = false);
 //   第 210 行  void setWorldTransform(const QTransform &matrix, bool combine = false);
-//   两者形参一模一样，语义差别（与 window/viewport 那层的关系）本讲**不靠背**：
-//   证据④ 末尾分别调用它们，把 worldTransform()（211 行）与 combinedTransform()（213 行）
-//   的实际读数打出来，让数字告诉你该用哪个。老代码里只写 setTransform 的工程在 Qt6 照样编得过。
+//   两者形参一模一样。源码里 setTransform 的实现就是 `setWorldTransform(transform, combine);`
+//   一行转发（Src/qtbase/src/gui/painting/qpainter.cpp 第 8030~8033 行），**没有别的差别**；
+//   证据④ 末尾仍分别调用它们，把 worldTransform()（211 行）与 combinedTransform()（213 行）
+//   的实际读数打出来让数字确认。老代码里只写 setTransform 的工程在 Qt6 照样编得过。
+// 说明二：combinedTransform() 的构成也别背转述，看源码 —— qpainter.cpp 第 8153~8161 行：
+//   `return d->state->worldMatrix * d->viewTransform() * d->hidpiScaleTransform();`
+//   而 viewTransform()（同一文件 210~219 行）在 `VxF`（view transform 开关）为 false 时
+//   **直接返回单位阵**，为 true 时才用 vw/ww、vh/wh 算出那两个比例。
+//   resetTransform()（同一文件 8082~8104 行）把 wx/wy/ww/wh 与 vx/vy/vw/vh **全部**复位成
+//   整个设备（原点 0、尺寸取 PdmWidth/PdmHeight）、worldMatrix 清成单位阵，
+//   再把 setWorldMatrixEnabled(false) 与 setViewTransformEnabled(false) 一起关掉。
+//   结论要改口径：**resetTransform() 之后 combinedTransform 是单位阵，window/viewport 的
+//   比例不会残留**（本机跑出来就是 1.00/0.00，见证据④ 那行读数）。
+//   只想清世界矩阵、保留逻辑坐标系 → 用 setWorldTransform(QTransform())（210 行）。
+//   只想暂时不套用映射、数值还要留着 → 用 setViewTransformEnabled(false)（234 行）。
 // QtGui/qimage.h / qpaintdevice.h：同第 1 讲（constScanLine 169、pixelColor 184、
 //   devicePixelRatio 193、QImage(int,int,Format) 88；width/height/logicalDpiX 44~49）。
 
@@ -195,7 +213,7 @@ static void proofNonCommutative()
     bool okInvert = false;
     const QTransform Ainv = A.inverted(&okInvert);
     const QPointF roundTrip = Ainv.map(A.map(p1));
-    qInfo() << "  A.inverted() 可逆吗 =" << okInvert << "；A⁻¹(A(P)) =" << roundTrip
+    qInfo() << "  A.inverted() 可逆吗 =" << okInvert << "；A^-1(A(P)) =" << roundTrip
             << "（应回到 (10,0) 附近，浮点尾差正常）";
 }
 
@@ -337,7 +355,9 @@ static void proofViewportWindow()
     qInfo() << "  两条对上了，就证明 window/viewport 做的是**各向独立**的线性拉伸（4.8 与 3.2 不相等，"
             << "所以图形被拉长了）；想等比缩放，就得让 viewport 与 window 的宽高比一致。";
 
-    // 附加：setTransform 与 setWorldTransform 的分工（205 行 vs 210 行）—— 用读数对比，不背语义
+    // 附加：三条入口各自的分工，全部用读数对比、不背语义 ——
+    //   setTransform(205 行) vs setWorldTransform(210 行)：前者就是后者的转发（见源码账）；
+    //   resetTransform(208 行) vs setWorldTransform(QTransform())：一个掀两层、一个掀一层。
     {
         QPainter p(&img);
         p.setViewport(0, 0, 480, 320);        // 先让 window/viewport 层非平凡，才能看出两者的差别
@@ -360,11 +380,51 @@ static void proofViewportWindow()
                 << " combinedTransform:" << describe(p.combinedTransform())
                 << " → 与上面 setWorldTransform 的读数**逐行对比**：一样的话就说明这条代码路径上两者等价，"
                 << "不一样就记下差在哪。这是本讲唯一一处「用数字代替背诵」的作业。";
-        p.resetTransform();                                  // 208 行：回到单位阵
+        p.resetTransform();                                  // 208 行：见下面那段源码账
         qInfo() << "  resetTransform() 之后 worldTransform().isIdentity ="
                 << p.worldTransform().isIdentity()
-                << " 但 combinedTransform 仍带 window/viewport 的比例："
-                << describe(p.combinedTransform());
+                << " combinedTransform().isIdentity =" << p.combinedTransform().isIdentity()
+                << " window =" << p.window() << " viewport =" << p.viewport()
+                << " 读数 =" << describe(p.combinedTransform());
+        qInfo() << "  → 判定：combinedTransform **也是单位阵**，window/viewport 双双回到 (0,0,480,320)。"
+                   "**比例不残留。** 旧注释写「combinedTransform 仍带 window/viewport 的比例」是错的，"
+                   "而且它同一行打印出来就是 1.00/0.00 —— 自己把自己证伪了。";
+        qInfo() << "  源码账（本机 Src/qtbase/src/gui/painting/qpainter.cpp 第 8082~8104 行，"
+                   "resetTransform 一口气干四件事）：";
+        qInfo() << "    8094  wx=wy=vx=vy=0                          ← window/viewport 的**原点**复位";
+        qInfo() << "    8095~8096  ww=vw=PdmWidth, wh=vh=PdmHeight   ← window/viewport 的**尺寸**复位成整个设备";
+        qInfo() << "    8097  worldMatrix = QTransform()             ← 世界矩阵清成单位阵";
+        qInfo() << "    8098~8099  setWorldMatrixEnabled(false); setViewTransformEnabled(false);";
+        qInfo() << "    而 combinedTransform() = worldMatrix * viewTransform() * hidpiScale（同一文件 8160 行），";
+        qInfo() << "    viewTransform() 在 VxF=false 时直接返回单位阵（同一文件 210~219 行）→ 必然单位阵。";
+
+        // ── resetTransform() 与 setWorldTransform(QTransform()) 的分工 ──────────
+        // 一句话：**resetTransform() 掀两层（世界矩阵 + window/viewport），
+        //           setWorldTransform(QTransform()) 只掀世界矩阵那一层，window/viewport 原样留着。**
+        // 想「保留逻辑坐标系、只把自己的 translate/rotate/scale 归零」→ 用后者；
+        // 想「彻底回到设备像素坐标」→ 用前者。混用的症状是：图表明明要 0..100 的逻辑域，
+        // 你 resetTransform() 了一下，数据就全挤在左上角 100x100 像素里。
+        p.setViewport(0, 0, 480, 320);                       // setWindow/setViewport 会把 VxF 重新置 true
+        p.setWindow(0, 0, 100, 100);                         //   （qpainter.cpp 7097 / 7161 行）
+        qInfo() << "  【分工对照】重新 setViewport(0,0,480,320)+setWindow(0,0,100,100) 之后"
+                << " window =" << p.window() << " viewport =" << p.viewport()
+                << " combinedTransform =" << describe(p.combinedTransform());
+        p.setWorldTransform(QTransform());                   // 210 行：只归零世界矩阵
+        qInfo() << "  再 setWorldTransform(QTransform())：worldTransform().isIdentity ="
+                << p.worldTransform().isIdentity()
+                << " combinedTransform().isIdentity =" << p.combinedTransform().isIdentity()
+                << " window =" << p.window() << " viewport =" << p.viewport()
+                << " 读数 =" << describe(p.combinedTransform());
+        qInfo() << "  → 判定：worldTransform 回到单位阵，但 combinedTransform **仍带 4.8/3.2 的比例**、"
+                   "window 仍是 (0,0,100,100)。这一条和上面 resetTransform() 的读数并排放，"
+                   "就是两者分工的全部证据。";
+        // 顺手把「只关不重置」的第三个开关打出来：viewTransformEnabled(false) 也能让
+        // combinedTransform 变单位阵，但 window/viewport 的**数值还在**，随时能开回来。
+        p.setViewTransformEnabled(false);                    // qpainter.h 234 行
+        qInfo() << "  第三种：setViewTransformEnabled(false) 之后 combinedTransform().isIdentity ="
+                << p.combinedTransform().isIdentity()
+                << " 但 window 仍 =" << p.window() << " viewport 仍 =" << p.viewport()
+                << " → 它是「暂时不套用映射」，resetTransform() 是「连映射本身都拆了」。";
     }
 }
 
@@ -436,9 +496,16 @@ int main(int argc, char *argv[])
         qInfo() << "② 绕点旋转的固定套路：translate(center) → rotate(a) → translate(-center)，"
                 << "因为 rotate/scale 永远作用在**当前坐标系原点**上（第 6 讲做仪表盘控件时它是唯一写法）。";
         qInfo() << "③ Qt6 里世界变换有**两条**入口：setTransform(m, combine)（qpainter.h 205 行）与"
-                << "setWorldTransform(m, combine)（210 行），形参完全一样；"
+                << "setWorldTransform(m, combine)（210 行），形参完全一样，而且 setTransform 就是"
+                << "setWorldTransform 的一次转发（qpainter.cpp 8030~8033 行），所以这条代码路径上两者**等价**；"
                 << "读它用 worldTransform()（211 行），读「连 window/viewport 一起算完」用 combinedTransform()（213 行）。"
                 << "两者的实际差别以证据④ 末尾打出的那两组数字为准，别背我的转述。";
+        qInfo() << "③b 复位有**三个档位**，别只会按最狠的那个："
+                << "setWorldTransform(QTransform()) 只归零**世界矩阵**，window/viewport 留着"
+                << "（combinedTransform 仍带 4.8/3.2）；setViewTransformEnabled(false) 只是**暂时不套用**映射，"
+                << "数值还在；resetTransform() 最狠，**两层一起掀**——世界矩阵清成单位阵，"
+                << "window/viewport 一并复位成整个设备（qpainter.cpp 8082~8104 行），"
+                << "所以它之后 combinedTransform 就是单位阵，**不残留任何比例**。";
         qInfo() << "④ window/viewport 是各向独立拉伸：宽高比不等就变形（证据④的 4.8 vs 3.2）。"
                 << "要做「数据坐标 → 屏幕坐标」的图表，用这套，别自己写比例。";
         qInfo() << "⑤ QTransform::rotate 的单位是**度**，而 QPainter::drawArc/drawPie/drawChord 是 **1/16 度**，"
@@ -463,6 +530,11 @@ int main(int argc, char *argv[])
  *  要一个可复用/可复合的变换        QTransform t; t.translate(); t.rotate(); ...        setWorldTransform(t) / t * t2 / t.inverted()
  *  临时改一下再改回来               save() / restore()                                 配对写，别跨函数
  *  已知逻辑点想知道落在哪个像素     combinedTransform().map(QPointF)                   这条把世界变换和 window/viewport 一起算
+ *  只把自己的 translate/rotate/scale 归零，**保留**逻辑坐标系
+ *                                  setWorldTransform(QTransform())                     window/viewport 原样留着，combinedTransform 仍带比例
+ *  彻底回到设备像素坐标             resetTransform()                                    **两层一起掀**：世界矩阵清单位阵 + window/viewport 复位成整个设备
+ *  暂时不套用 window/viewport（回头还要用）
+ *                                  setViewTransformEnabled(false) / (true)              数值不丢，只是先不算它
  *
  * 三个必须记死的单位/约定：
  *   ① 屏幕 y 轴向下。数学里「逆时针为正」到这里可能变成视觉顺时针 —— 本讲用测量解决，别靠背。

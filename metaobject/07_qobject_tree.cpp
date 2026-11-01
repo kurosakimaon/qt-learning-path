@@ -9,6 +9,8 @@
 //     3) children() / findChild<T> / findChildren<T> 的**真实模板签名**（T 是指针！）
 //     4) deleteLater() 到底解决什么问题——「在事件处理函数里 delete 自己」会怎样
 //     5) QObjectCleanupHandler：一堆寿命不定的临时对象，怎么一次清干净
+//        （顺带纠正一条老说法：登记「已经有爹」的对象**不会**双删，本机实测；
+//         它真正的答案是「名单自己会干净，你手里的裸指针不会」）
 //   每节都打印一棵**父子树快照**，让你看得见「谁在谁下面」在每一步怎么变。
 //
 // 对应构建目标名：metaobject_07_qobject_tree
@@ -21,36 +23,13 @@
 //     QTimer::singleShot 排自动脚本，最后 QCoreApplication::quit()——无人值守能跑完。
 //   · 【一处故意留白】第 4 节「在槽里直接 delete this」的反面代码是**注释掉**的：
 //     那是真·未定义行为（发射者手里的连接链表节点已被销毁），跑起来可能崩、也可能
-//     「看着没事」。想看效果请在调试器里单独试一次，别把它留在CI 里。
-//   · 本机当前无法编译链接 Qt 程序，本示例**未在本机实测编译**；但本文件已用本机
-//     moc 实跑过一遍（moc 输出为本机实测）：
-//       C:/msys64/ucrt64/share/qt6/bin/moc.exe -I C:/msys64/ucrt64/include/qt6
-//         07_qobject_tree.cpp → 退出码 0、无 stderr、产物 120 行（Part 一张表 +
-//         Panel 无属性表；证明「只有信号槽的类，moc 也只生成方法表」）。
-//     所有 API 都对着本机真实头文件核对过：
-//       QtCore/qobject.h            —— `typedef QList<QObject*> QObjectList` 46 行、
-//                                      QObjectData 里 `QObjectList children;` 75 行、
-//                                      `const QObjectList &children() const` 206 行、
-//                                      **`void setParent(QObject *parent);` 208 行（返回 void！）**、
-//                                      findChild/findChildren 模板 159~199 行、
-//                                      installEventFilter 209 行、isWidgetType() 134 行、
-//                                      dumpObjectTree() 340 行 / dumpObjectInfo() 341 行、
-//                                      destroyed(QObject*) 352 行、
-//                                      objectNameChanged(..., QPrivateSignal) 353 行、
-//                                      `public Q_SLOTS: void deleteLater();` 363~364 行、
-//                                      qobject_cast 模板 431~443 行
-//       QtCore/qobjectcleanuphandler.h —— 整个类只有 add/remove/isEmpty/clear +
-//                                      private slot objectDestroyed（12~31 行），成员是
-//                                      `QObjectList cleanupObjects;`（27 行）
-//       QtCore/qnamespace.h        —— 1494~1498 行
-//                                      `enum FindChildOption { FindDirectChildrenOnly = 0x0,
-//                                       FindChildrenRecursively = 0x1 };` +
-//                                      `Q_DECLARE_FLAGS(FindChildOptions, FindChildOption)`
-//                                      （**注意**：没有 DoNotFindChildrenRecursively 这个名字，
-//                                       网上博客常这么写，那是错的）
-//       QtCore/qcoreevent.h        —— `ParentAboutToChange = 131` 86 行、
-//                                      `DeferredDelete = 52` 105 行（deleteLater 投的就是它）
-//       QtCore/qpointer.h         —— `class QPointer` 19 行、data() 75 行、isNull() 86 行
+//     「看着没事」——本机把它换成正文那种写法连跑 5 次，**5 次全 exit 0**，属于后者。
+//     「没崩」在这里恰恰是最坏的结果：它教会你信任一段随时会变脸的代码。
+//     想看效果请在调试器里单独试一次，别把它留在 CI 里。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_07_qobject_tree，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_07_qobject_tree.log）。
 // ============================================================================
 
 #include <QCoreApplication>
@@ -269,10 +248,19 @@ int main(int argc, char *argv[])
             << " → deleteLater 只登记没兑现，账上这个对象**还活着**";
     // 【反面教材·故意注释掉，别在 CI 里打开】把 lambda 里那行换成 `delete deferKid;`：
     //   1) 此刻 QMetaObject::activate 正拿着「deferKid 上这条连接」的节点指针往回走；
-    //   2) ~QObject 会断开这个对象的全部连接、销毁 d_ptr，并**递归删它的子**（延迟根的
-    //      children 里还留着它）；
+    //   2) ~QObject 会断开这个对象的全部连接、销毁 d_ptr，并**递归删它的子**；
+    //      （顺带把它自己从 deferRoot 的 children 里摘掉——本机实测发射前后 1 → 0，
+    //        所以**不会**再多删一刀，双删不是这里的失败形状。）
     //   3) 于是栈上那个节点已属于被释放内存 —— 结果不是「一定崩」而是「不一定崩」，
     //      改一行无关代码之后才崩，最难查。这就是 Qt 非要给 deleteLater 的原因。
+    //   【本机实测，值得抄进你的记忆】把这个 lambda 改成 `delete deferKid;` 连跑 5 次：
+    //     **5 次全部 exit 0**，~Part 在槽里就打印了，而且 delete 之后那两行 qInfo/++hits
+    //     照样执行完。这正好是要你警惕的两件事：
+    //       ① 「这次没崩」不是证据 —— 未定义行为的「这轮没崩」不代表下一行代码安全；
+    //       ② delete 之后**代码会继续往下跑**，没人拦你。本讲 lambda 里就有一句现成的
+    //          `deferKid->objectName()`，换成 delete 之后它读的是已释放内存
+    //          （这一句我**没**跑：objectName() 要解引用 d_ptr，而 d_ptr 在 ~QObject 里
+    //            已销毁 —— 这是源码推理，不是实测结论。实测到的只有「不崩 + 继续跑」。）
     // 【第二个坑】deleteLater **依赖事件循环**：调完就 return（不 exec()），
     //   DeferredDelete 永远不被处理，对象**不会被删** —— 「明明 deleteLater 了却泄漏」
     //   的头号原因。本讲第 9 节用定时器正面验证这个时间点。
@@ -323,8 +311,13 @@ int main(int argc, char *argv[])
     //   QObject *add(QObject *object);   void remove(QObject *object);
     //   bool isEmpty() const;            void clear();
     // 内部就是一个 `QObjectList cleanupObjects;`（27 行）+ 一个 private slot
-    // objectDestroyed(QObject*)（30 行）——它给每个登记的 QObject 连上 destroyed，
-    // 谁先死就从名单里划掉。适合「一批各自独立寿命的对象，退出时把还活着的清掉」。
+    // objectDestroyed(QObject*)（30 行）。
+    // add()（同文件 cpp 59~67 行）只做两件事：给这个对象连上
+    //   connect(object, SIGNAL(destroyed(QObject*)), this, SLOT(objectDestroyed(QObject*)))  ← 64 行
+    // 然后 cleanupObjects.insert(0, object)                                              ← 65 行
+    // 注意 insert(0)：登记是**往名单头里塞**。clear()（101~105 行）是
+    //   while (!cleanupObjects.isEmpty()) delete cleanupObjects.takeFirst();             ← 104 行
+    // 头塞头删，所以**后登记的先死**。析构函数（48~51 行）本身只调 clear()。
     QObjectCleanupHandler cleaner;
     Part *a = new Part(QStringLiteral("临时A"));     // 无父：谁也不管它，只能自己管
     Part *b = new Part(QStringLiteral("临时B"));
@@ -334,22 +327,101 @@ int main(int argc, char *argv[])
     delete b;                                  // B 自己先死（比如它挂在别的树上）
     qInfo() << "  delete b 之后，名单里还剩几个？isEmpty() =" << cleaner.isEmpty()
             << "（内部靠 destroyed 自动划名，不用你自己维护列表）";
+
+    // 删除顺序实测：a、c 还在名单里，给它们各自的 destroyed 连一句打印，谁先响就是
+    // clear() 先删了谁。回调里只打印、不碰 obj 的任何成员——信号发出时它已在析构中。
+    int clearOrder = 0;
+    QObject::connect(a, &QObject::destroyed, [&clearOrder] {
+        qInfo() << "      临时A 的 destroyed 响，它是这轮里第" << ++clearOrder << "个死的";
+    });
+    QObject::connect(c, &QObject::destroyed, [&clearOrder] {
+        qInfo() << "      临时C 的 destroyed 响，它是这轮里第" << ++clearOrder << "个死的";
+    });
     cleaner.clear();                           // 剩下的（a 和 c）立刻删掉
     qInfo() << "  clear() 之后活跃 Part 数 =" << Part::alive()
-            << " isEmpty() =" << cleaner.isEmpty();
-    // 【注意】add() 不接管所有权、不 setParent；clear() 是**直接 delete**。
-    // 所以别把已经有父对象的 QObject 交给它管，否则可能双删。
+            << " isEmpty() =" << cleaner.isEmpty()
+            << "（上面两行谁先响，就是 clear() 先删了谁 —— 按 65/104 行，应该是后登记的 C 先死）";
+
+    // 【实测纠正一条流传很广的说法】「已经有爹的对象别交给它管，否则双删」——
+    // 本机跑下来**不成立**，下面这段就是证据：
+    Part *root7 = new Part(QStringLiteral("第七节根"));
+    Part *kid7 = new Part(QStringLiteral("第七节子"), root7);   // 明明白白有爹
+    cleaner.add(kid7);
+    qInfo() << "  登记一个「有爹的孩子」，现在 delete 它的爹（传闻这里会双删）：";
+    delete root7;
+    qInfo() << "    删完爹 cleaner.isEmpty() =" << cleaner.isEmpty()
+            << " 活跃 Part 数 =" << Part::alive()
+            << "（这行能印出来就是没当场崩；本讲整体退出码 0，见 runlogs 同名日志末行）";
+    // 为什么不会双删：`emit destroyed(this)` 就写在 ~QObject 里（本机 qobject.cpp
+    // 1091~1092 行），而父的 deleteChildren() 在同函数更靠后的 1189~1190 行；孩子自己
+    // 一响 destroyed，cleaner 的 objectDestroyed → remove() 就把它划掉了，clear() 时名单
+    // 里根本没有它。Qt 官方文档原话（qobjectcleanuphandler.cpp 26~27 行）：
+    //   "If an object being tracked by the cleanup handler gets deleted by someone else
+    //    it will automatically be removed from the cleanup handler."
+    // 真正该小心的不是 cleaner，是**你自己手里那把裸指针**：kid7 此刻已经悬垂，
+    // cleaner 一点都帮不到它 —— 能帮的只有第 6 节的 QPointer<T> 或自己置空。
+    kid7 = nullptr;                            // 别让悬垂指针继续待在作用域里骗人
+    // add() 不 setParent、也不接管「别人已经有的爹」：它只是「名单 + 收尾时 delete
+    // 名单里还活着的」。所以它适合「一批各自有寿命的对象」，不适合当所有权模型。
 
     qInfo() << "=== 8. dumpObjectTree()：调试期最好用的一行「看树」=== ";
     Part *root2 = new Part(QStringLiteral("根2"));
     new Part(QStringLiteral("子2a"), root2);
     Part *renamed = new Part(QStringLiteral("子2b"), root2);
     renamed->setObjectName(QStringLiteral("子2b改名"));
-    // dumpObjectTree()/dumpObjectInfo() 在 qobject.h 340/341 行，输出走 qDebug()，
-    // 只在 debug 构建里有实质内容，release 里是空实现——别把它当运行时数据源。
+    // dumpObjectTree()/dumpObjectInfo() 声明在 qobject.h 340/341 行，输出走 qDebug()。
+    // 【勘误】这下面原先写的是「只在 debug 构建里有实质内容，release 里是空实现」——错的，
+    // 三条证据：
+    //   1) 两个函数体里压根没有 #ifdef：本机 qobject.cpp 4700~4703（dumpObjectTree）
+    //      和 4714~4717（dumpObjectInfo）就是普通实现；
+    //   2) 真能把 qDebug 整条编译掉的是 QT_NO_DEBUG_OUTPUT（qlogging.h 180~183 行
+    //      把 qDebug 换成 QT_NO_QDEBUG_MACRO），而 CMake 连 QT_NO_DEBUG_OUTPUT 都不给你定义；
+    //      Qt6 在非 Debug 配置里只加 QT_NO_DEBUG（Qt6Targets.cmake 140 行、
+    //      Qt6CoreConfigExtras.cmake 15 行那句 `$<NOT:$<CONFIG:Debug>>:QT_NO_DEBUG>`），
+    //      而 QT_NO_DEBUG 只影响 QT_MESSAGELOGCONTEXT（qlogging.h 151~157 行）
+    //      ——少的是文件名/行号，不是打印本身；
+    //   3) 本机拿这份源码按 Release 的宏配置（-O2 -DNDEBUG -DQT_NO_DEBUG）重编再跑：
+    //      下面这几行一字不差照样打出来，退出码 0。
+    // 所以 debug/release 的真实差别只有「日志里还带不带 file:line」。
+    // 真正该记住的是另一句：这两个函数是**给人调试用的**，输出格式不是 API，
+    // 别把它的文本喂给自己的代码当运行时数据源。
     root2->dumpObjectTree();
     root2->dumpObjectInfo();
-    printTree("手工快照（和 dumpObjectTree 对齐）", root2);
+    // 【实测·同一次调用里中文怎么就坏了】上面两组输出你会看见一个刺眼的差别：
+    // dumpObjectTree 那三行的中文是对的，dumpObjectInfo 第一行却是 `OBJECT Part::??2`。
+    // 同一个 qDebug、同一个源文件，差别只在格式说明符：
+    //   · qobject.cpp 4683~4685（dumpRecursive）用 `%ls` + qUtf16Printable(...)，
+    //     vasprintf 见 %ls 直接按 const char16_t* 收（qstring.cpp 7583~7590），UTF-16 原样进串；
+    //   · qobject.cpp 4716~4717 用 `%s` + `objectName().toLocal8Bit().data()`，
+    //     vasprintf 见 %s 走 QString::fromUtf8（qstring.cpp 7592）——本机 toLocal8Bit
+    //     出来的是 GBK 字节，拿它当 UTF-8 解，非法字节各换一个 U+FFFD，
+    //     再经 GBK 控制台就是那个 ??。
+    // 下面这几行把这条链当场复现一遍，数字自己数出来：
+    const QByteArray nameGbk = root2->objectName().toLocal8Bit();     // 本机 = GBK 字节
+    const QString misDecoded = QString::fromUtf8(nameGbk);            // Qt 那行 %s 做的事
+    const qsizetype fffd = misDecoded.count(QChar(0xFFFD));
+    qInfo().noquote() << QStringLiteral(
+                                "  复现上面那行 `??`：名字「%1」的本地 8 位字节 = %2（%3 个字节），"
+                                        "按 UTF-8 硬解得 %4 个字符，其中替换符 U+FFFD 有 %5 个")
+            .arg(root2->objectName())
+            .arg(QString::fromLatin1(nameGbk.toHex(' ')))   // hex 全是 ASCII，fromLatin1 才安全
+            .arg(qint64(nameGbk.size()))
+            .arg(qint64(misDecoded.size()))
+            .arg(qint64(fffd));
+    if (fffd > 0) {
+        qInfo().noquote() << QStringLiteral(
+                                    "    ← 本机正是这一种（locale 是 GBK）：%1 个 U+FFFD 就对应上面 "
+                                    "`OBJECT Part::??2` 里那几个 ?；把那句改成 "
+                                    "qDebug(\"%s\", name.toUtf8().constData()) 就一致了。")
+                .arg(qint64(fffd));
+    } else {
+        qInfo().noquote() << QStringLiteral(
+                                    "    ← 这台机器的 locale 本身就是 UTF-8，toLocal8Bit 等于 toUtf8，"
+                                    "没有替换符（%1 个），上面 dumpObjectInfo 那行的中文应当是好的。"
+                                    "同一段 Qt 代码在两种 locale 下症状不同——所以别背症状，"
+                                    "要背「哪些字节被喂进了哪个解码器」。").arg(qint64(fffd));
+    }
+    printTree("手工快照（和 dumpObjectTree 那三行对齐）", root2);
     delete root2;      // 整棵子树走掉
 
     // ── 自动脚本：让事件循环真的转一轮，把 DeferredDelete 兑现 ──────────
@@ -422,13 +494,19 @@ int main(int argc, char *argv[])
  *   1. 给 Part 加一个 `QPointer<Part> m_sibling;` 并在构造时指向「同一爹的下一个孩子」，
  *      然后 `delete machine;` 打印 m_sibling.isNull()；再把 QPointer 换成裸指针，
  *      在 ASan/调试器下观察它变成悬空指针的瞬间。写出「什么时候值得付 QPointer 的成本」。
- *   2. 把第 4 节的 `m1->deleteLater()` 换成 `delete m1;`（**只在调试器里跑一次**），
- *      把调用栈抄下来：你要能在栈里认出 QMetaObject::activate 和 ~Part。
+ *   2. 把第 4 节 lambda 里的 `deferKid->deleteLater()` 换成 `delete deferKid;`
+ *      （**只在调试器里跑一次**），把调用栈抄下来：你要能在栈里认出 QMetaObject::activate
+ *      和 ~Part。本机实测这个改法连跑 5 次都是 exit 0，所以请把注意力放在**栈**上而不是
+ *      崩溃与否：找出 activate 停在哪个帧、以及 delete 之后 lambda 还剩几行在跑。
  *      再验证一遍「没进 exec() 时 deleteLater 不兑现」：把 deleteLater 放在 main 里、
  *      然后在 app.exec() 之前就 return，观察 Part::alive() 不减。
- *   3. 把第 7 节改成「a 有爹（new Part("临时A", root)）」再交给 cleanupHandler，
- *      然后 delete root —— 你会撞见双删。用源码注释写出 QObjectCleanupHandler::add()
- *      **不**接管所有权这一事实，并给出你在真实项目里会怎么用这个类（提示：插件、
- *      临时对话框、一堆各自有寿命的解析节点）。
+ *   3. 第 7 节已经演过「登记一个有爹的孩子，再删它的爹」——**没有双删**（实测
+ *      isEmpty() 变 true、进程正常退出）。请在此基础上改出**会**出事的版本：
+ *        a) 把 cleaner 换成 `QPointer<Part>`，再 `delete root7`，对比两者各自告诉你什么；
+ *        b) 保留 cleaner，另外用一个 `QList<Part*>` 存同一个对象，然后 delete root7，
+ *           遍历打印这个 QList —— 你要在输出里认出「名单自己干净了，你的名单没干净」。
+ *      再用源码注释写出 QObjectCleanupHandler::add() **不**接管所有权、clear() 走
+ *      `insert(0)` + `takeFirst()` 因此**后登记的先死**这两件事（本机实测顺序见第 7 节输出），
+ *      并给出你在真实项目里会怎么用这个类（提示：插件、临时对话框、一堆各自有寿命的解析节点）。
  */
 // ============================================================================

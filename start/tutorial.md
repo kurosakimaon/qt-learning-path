@@ -10,7 +10,9 @@ Qt 这门东西，说难也难，说顺也顺。难在它不像标准 C++ 那样
 
 咱这起步模块一共 **6 章**，从第一个窗口一路讲到「无头运行、自动化自测」。学完这 6 章，你算是正式入了 Qt 的门，而且**每章示例都能无人值守跑完、自己吐结论**——这是后面所有学习能自动验证的地基。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`。
+>
+> 实测口径：本模块 6 个示例**都在本机编译、链接、无头运行过**（`QT_QPA_PLATFORM=offscreen`），包含在顶层 `ctest` 的 75/75 绿里；`-Wall -Wextra` 零 error 零 warning，每个 API 都对着本机 `D:\Qt\6.12.0\mingw_64\include` 的真实头文件核对。输出存档在 `runlogs/start_0N_*.log`（原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。文中带具体数字的预期（像素计数、尺寸、耗时）是**本机那一轮**的读数，换机器请以你自己打印的为准。
 
 ## 二、学习目标
 
@@ -132,7 +134,7 @@ Qt6 工程标配 `set(CMAKE_AUTOMOC ON)`。没开，moc 根本不被调度，任
 
 ### 6. 无头环境找不到平台插件
 
-在 CI/服务器上用 `QT_QPA_PLATFORM=offscreen`，前提是运行目录能找到 `platforms/qoffscreen.dll`。把它拷到别的机器就报「no Qt platform plugin could be initialized」——多半是 `platforms` 目录没跟过去，用 `windeployqt` 补齐（本机在 `C:\msys64\ucrt64\bin\windeployqt.exe`）。另外别用 **minimal** 平台截图，它不产生像素，要截图请用 **offscreen**。
+在 CI/服务器上用 `QT_QPA_PLATFORM=offscreen`，前提是运行目录能找到 `platforms/qoffscreen.dll`。把它拷到别的机器就报「no Qt platform plugin could be initialized」——多半是 `platforms` 目录没跟过去，用 `windeployqt` 补齐（本机在 `D:\Qt\6.12.0\mingw_64\bin\windeployqt.exe`）。另外别用 **minimal** 平台截图，它不产生像素，要截图请用 **offscreen**。
 
 ## 七、老师傅的经验之谈
 
@@ -148,9 +150,9 @@ Qt6 工程标配 `set(CMAKE_AUTOMOC ON)`。没开，moc 根本不被调度，任
 
 这是本模块立的一条硬规矩，也是师傅的偏好：**凡「必须有人点关闭」的示例都是不合格的**。全部用 `QTimer::singleShot` 排自动脚本，最后 `quit()`/`exit(code)`。第 6 步更是把这套变成断言式自测——以后你写 GUI 也能像测纯函数一样测它。
 
-### 4. 诚实对待「编没编过」
+### 4. 诚实对待「测没测过」
 
-本机此刻运行时在升级、编不动，就大方写「未在本机实测编译」，但**每个 API 都查真实头文件核对**。查不到签名的一律不用，宁可用更简单的替代。写 Qt 和做人一样：不确定就别乱说——这正是这套资料叫「无谬误」的原因。
+编得动、跑得起，就把本机那一轮的数字写清楚（这一版 6 个示例都在 Qt 6.12.0 + MinGW 13.1.0 上编译、链接、无头运行过，输出存档在 `runlogs/`）；跑不到的部分——真实显示器上的观感、依赖窗口管理器的行为、依赖外部服务的时序——就大方写「未在本机实测」。**环境事实最容易烂**：这一版曾写过「本机运行时在升级、编不动」，环境一好那句话就成了假结论，所以现在的规矩是「凡环境事实，标注它是哪一轮查的、怎么现查」（例如第 10 讲的翻译目录改用 `QLibraryInfo::path(QLibraryInfo::TranslationsPath)` 现场问，而不是把某台机器的安装路径写死）。但**每个 API 都查真实头文件核对**这条不变，查不到签名的一律不用，宁可用更简单的替代。写 Qt 和做人一样：不确定就别乱说——这正是这套资料叫「无谬误」的原因。
 
 ### 5. 多敲多跑多改
 

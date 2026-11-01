@@ -1,0 +1,59 @@
+
+=== 证据① translate 与 rotate 不可交换 ===
+  A 是单位阵吗 = false ；A 可逆 = true ；A 含缩放 = true
+  A（translate→rotate）: "原点→(100.00,0.00) x轴单位→(100.71,0.71) y轴单位→(99.29,0.71)"
+  B（rotate→translate）: "原点→(70.71,70.71) x轴单位→(71.42,71.42) y轴单位→(70.00,71.42)"
+  同一个点 (0,0)：A.map = QPointF(100,0)  B.map = QPointF(70.7107,70.7107)   ← 不相等就是「不可交换」的证明
+  同一个点 (10,0)：A.map = QPointF(107.071,7.07107)  B.map = QPointF(77.7817,77.7817)
+  (A*B).map(P) = QPointF(141.421,151.421)   vs  先 A 再 B 的嵌套结果 = QPointF(141.421,151.421)
+  (B*A).map(P) = QPointF(100,110)   vs  先 B 再 A 的嵌套结果 = QPointF(100,110)
+  判别结论（**看上面两行数字哪两行相等**）： 若 (A*B) 与「先 A 再 B」相等，则 Qt 的组合规则是「左边的矩阵先作用」； 自己确认一次比背十遍可靠。
+  A.inverted() 可逆吗 = true ；A^-1(A(P)) = QPointF(10,0) （应回到 (10,0) 附近，浮点尾差正常）
+
+=== 证据② QPainter 里 translate/scale 的顺序：量重心 ===
+  先 translate 后 scale：包围盒 x[ 80 .. 119 ]  y[ 80 .. 119 ] 重心 =( 99 , 99 ) 着墨 = 1600
+  先 scale 后 translate：包围盒 x[ 160 .. 199 ]  y[ 160 .. 199 ] 重心 =( 179 , 179 ) 着墨 = 1600
+  读法：scale 之后再 translate，平移量会被 scale 乘一遍（80 变成 160）； translate 之后再 scale，平移量不受影响。**位置差 = scale × 平移差**， 上面两组包围盒的差正好体现这件事——数字请你自己核对。
+
+=== 证据③ 绕点旋转的三步套路，并测出正角度在屏幕上转向哪边 ===
+  未旋转时旗子中心（逻辑）=( 120 , 20 )  相对旋转中心 =( 0 , -100 )
+  旋转后实测重心 =( 219 , 119 )  着墨 = 800
+  候选一（数学逆时针）=( 220 , 120 )  候选二（数学顺时针）=( 20 , 120 )
+  → **重心离哪个候选近，正角度就往哪边转**。y 轴向下意味着「数学上的逆时针」 在屏幕上看很可能是顺时针，这就是为什么做动画时角度符号总要试一次才对。
+
+=== 证据④ setViewport / setWindow 的映射实测 ===
+  viewport() = QRect(0,0 480x320)   window() = QRect(0,0 100x100)
+  combinedTransform()（213 行）: "原点→(0.00,0.00) x轴单位→(4.80,0.00) y轴单位→(0.00,3.20)"
+  逻辑矩形 (25,25,25,25) 的手算设备范围 = x[ 120 .. 240 ] y[ 80 .. 160 ]
+  实测着墨范围 = x[ 118 .. 241 ] y[ 78 .. 161 ] 着墨 = 10408
+  两条对上了，就证明 window/viewport 做的是**各向独立**的线性拉伸（4.8 与 3.2 不相等， 所以图形被拉长了）；想等比缩放，就得让 viewport 与 window 的宽高比一致。
+  setWorldTransform(scale3, combine=false) 之后： worldTransform: "原点→(0.00,0.00) x轴单位→(3.00,0.00) y轴单位→(0.00,3.00)"  combinedTransform: "原点→(0.00,0.00) x轴单位→(14.40,0.00) y轴单位→(0.00,9.60)"
+  setWorldTransform(rotate30, combine=true) 之后： "原点→(0.00,0.00) x轴单位→(2.60,1.50) y轴单位→(-1.50,2.60)"  含缩放 = true （还留着 scale 的痕迹就说明是复合，不是替换）
+  setTransform(scale3, combine=false) 之后： worldTransform: "原点→(0.00,0.00) x轴单位→(3.00,0.00) y轴单位→(0.00,3.00)"  combinedTransform: "原点→(0.00,0.00) x轴单位→(14.40,0.00) y轴单位→(0.00,9.60)"  → 与上面 setWorldTransform 的读数**逐行对比**：一样的话就说明这条代码路径上两者等价， 不一样就记下差在哪。这是本讲唯一一处「用数字代替背诵」的作业。
+  resetTransform() 之后 worldTransform().isIdentity = true  combinedTransform().isIdentity = true  window = QRect(0,0 480x320)  viewport = QRect(0,0 480x320)  读数 = "原点→(0.00,0.00) x轴单位→(1.00,0.00) y轴单位→(0.00,1.00)"
+  → 判定：combinedTransform **也是单位阵**，window/viewport 双双回到 (0,0,480,320)。**比例不残留。** 旧注释写「combinedTransform 仍带 window/viewport 的比例」是错的，而且它同一行打印出来就是 1.00/0.00 —— 自己把自己证伪了。
+  源码账（本机 Src/qtbase/src/gui/painting/qpainter.cpp 第 8082~8104 行，resetTransform 一口气干四件事）：
+    8094  wx=wy=vx=vy=0                          ← window/viewport 的**原点**复位
+    8095~8096  ww=vw=PdmWidth, wh=vh=PdmHeight   ← window/viewport 的**尺寸**复位成整个设备
+    8097  worldMatrix = QTransform()             ← 世界矩阵清成单位阵
+    8098~8099  setWorldMatrixEnabled(false); setViewTransformEnabled(false);
+    而 combinedTransform() = worldMatrix * viewTransform() * hidpiScale（同一文件 8160 行），
+    viewTransform() 在 VxF=false 时直接返回单位阵（同一文件 210~219 行）→ 必然单位阵。
+  【分工对照】重新 setViewport(0,0,480,320)+setWindow(0,0,100,100) 之后  window = QRect(0,0 100x100)  viewport = QRect(0,0 480x320)  combinedTransform = "原点→(0.00,0.00) x轴单位→(4.80,0.00) y轴单位→(0.00,3.20)"
+  再 setWorldTransform(QTransform())：worldTransform().isIdentity = true  combinedTransform().isIdentity = false  window = QRect(0,0 100x100)  viewport = QRect(0,0 480x320)  读数 = "原点→(0.00,0.00) x轴单位→(4.80,0.00) y轴单位→(0.00,3.20)"
+  → 判定：worldTransform 回到单位阵，但 combinedTransform **仍带 4.8/3.2 的比例**、window 仍是 (0,0,100,100)。这一条和上面 resetTransform() 的读数并排放，就是两者分工的全部证据。
+  第三种：setViewTransformEnabled(false) 之后 combinedTransform().isIdentity = true  但 window 仍 = QRect(0,0 100x100)  viewport 仍 = QRect(0,0 480x320)  → 它是「暂时不套用映射」，resetTransform() 是「连映射本身都拆了」。
+  Stage::paintEvent 完成一次绘制，世界变换 isIdentity = true  viewport = QRect(0,0 360x240)  window = QRect(0,0 360x240)
+
+=== save()/restore() 的语义（证据⑤，看控件里那三个框）===
+  restore() 还回的不只是坐标变换：pen、brush、font、渲染提示、裁剪区**一并**回去。 所以第三条 drawRect 应该和第一条完全重合（红色、原位、无填充）。
+  纪律：save/restore 必须配对，且**跨函数不共享栈**—— painter 析构（RAII）时未配对的 restore 不会替你补，但整幅画笔状态随之消失， 所以「忘了 restore」的现象通常表现为后面的东西莫名其妙跑偏。
+
+=== 结论 ===
+① 三件套不可交换：先 scale 后 translate，平移量会被 scale 乘；证据②的两组包围盒差就是它。
+② 绕点旋转的固定套路：translate(center) → rotate(a) → translate(-center)， 因为 rotate/scale 永远作用在**当前坐标系原点**上（第 6 讲做仪表盘控件时它是唯一写法）。
+③ Qt6 里世界变换有**两条**入口：setTransform(m, combine)（qpainter.h 205 行）与 setWorldTransform(m, combine)（210 行），形参完全一样，而且 setTransform 就是 setWorldTransform 的一次转发（qpainter.cpp 8030~8033 行），所以这条代码路径上两者**等价**； 读它用 worldTransform()（211 行），读「连 window/viewport 一起算完」用 combinedTransform()（213 行）。 两者的实际差别以证据④ 末尾打出的那两组数字为准，别背我的转述。
+③b 复位有**三个档位**，别只会按最狠的那个： setWorldTransform(QTransform()) 只归零**世界矩阵**，window/viewport 留着 （combinedTransform 仍带 4.8/3.2）；setViewTransformEnabled(false) 只是**暂时不套用**映射， 数值还在；resetTransform() 最狠，**两层一起掀**——世界矩阵清成单位阵， window/viewport 一并复位成整个设备（qpainter.cpp 8082~8104 行）， 所以它之后 combinedTransform 就是单位阵，**不残留任何比例**。
+④ window/viewport 是各向独立拉伸：宽高比不等就变形（证据④的 4.8 vs 3.2）。 要做「数据坐标 → 屏幕坐标」的图表，用这套，别自己写比例。
+⑤ QTransform::rotate 的单位是**度**，而 QPainter::drawArc/drawPie/drawChord 是 **1/16 度**， 同一个 90 度，一处写 90.0 一处要写 90*16。这两个地方最容易被「顺手」写错。
+  图解：../visuals/coordinates.html 里把这三件套的顺序做成可拖动分步动画，跑完代码去看图。

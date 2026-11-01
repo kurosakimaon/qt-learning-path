@@ -125,11 +125,12 @@ Q_SIGNALS:
         <text class="svg-small" x="408" y="258">methodCount() 与每条方法</text>
         <text class="svg-small" x="408" y="280">signature / parameterTypes / 类型（信号?槽?）</text>
 
-        <rect class="svg-box-good" x="40" y="306" width="680" height="66" rx="8"/>
-        <text class="svg-small" x="58" y="330">信号表（signalOffset / signalCount）+ 属性表 + 枚举表</text>
-        <text class="svg-small" x="58" y="354">三者都是「字符串池 + 索引」，运行期只翻索引，不做字符串比较</text>
+        <rect class="svg-box-good" x="40" y="306" width="680" height="80" rx="8"/>
+        <text class="svg-small" x="58" y="328">信号表（signalOffset / signalCount 在私有头文件里）+ 属性表 + 枚举表</text>
+        <text class="svg-small" x="58" y="350">公共侧只有 methodOffset() / methodCount() / indexOfSignal() 可查</text>
+        <text class="svg-small" x="58" y="372">★ 表都是「字符串池 + 索引」：运行期只翻索引，不做字符串比较</text>
       </svg>`,
-    caption: 'moc 是<strong>构建期</strong>的一个独立程序，它<strong>不链接 Qt 库、也不懂 C++ 语义</strong>，只是读文本找 <code>Q_OBJECT</code> 和 <code>Q_SIGNALS</code> 段，然后吐出 <code>moc_lamp.cpp</code>。所以它看不见宏、看不见 <code>#ifdef</code> 之外的分支，也看不见你写在别的头文件里的东西。',
+    caption: 'moc 是<strong>构建期</strong>的一个独立程序，它<strong>不链接 Qt 库、也不懂 C++ 语义</strong>：自带一个只认宏和条件编译的迷你预处理器，读文本找 <code>Q_OBJECT</code> 和 <code>Q_SIGNALS</code> 段，然后吐出 <code>moc_lamp.cpp</code>。<strong>两条边界本机实测过</strong>（往头文件里故意埋两个坑，再 <code>moc lamp.h -o moc_lamp.cpp</code>）：① 用 <code>#define DECL_TICK void tick();</code> 在信号段里写 <code>DECL_TICK</code> —— moc <strong>认得</strong>，表里照样出现 <code>"tick"</code>，所以「它完全不展开宏」这句老话不成立；② 把信号写进 <code>#ifdef 未定义的宏</code> 里 —— 生成的表里<strong>根本没有这个信号</strong>，连上就是一句 <code>No such method</code>。它真正没有的是<strong>编译器视角</strong>：表里存的是<strong>字符串</strong>（签名、参数类型名），类型语义一概不管 —— 这就是重载必须逐字对上、自定义类型进队列连接要先登记的根因。',
     code: `# 手工跑一次看得最清楚（只生成，无副作用）
 moc lamp.h -o moc_lamp.cpp
 # 打开它，找这三个东西：
@@ -137,51 +138,67 @@ moc lamp.h -o moc_lamp.cpp
 #   Lamp::qt_metacall           ← 转发函数
 #   Lamp::qt_static_metacall    ← 按索引 switch 到方法
 
+# 本机实测的两条边界（头文件里故意埋坑）：
+#   #define DECL_TICK void tick();  → 表里出现 "tick"，moc 自己展开了它
+#   #ifdef 未定义的宏 包住的信号     → 表里根本没有这条信号
+
 # CMake 里由 AUTOMOC 自动完成，不用手写；但要知道它在跑`,
-    highlight: [0, 3]
+    highlight: [1, 8, 9]
   },
   {
     title: '第三步：信号函数体是 moc 写的，不是你写的',
     nav: '信号的定义',
     ms: 6500,
     stage: `
-      <svg viewBox="0 0 760 420" role="img" aria-label="信号函数体由 moc 生成并调用 activate">
-        <rect class="svg-box" x="20" y="45" width="330" height="110" rx="10"/>
+      <svg viewBox="0 0 760 420" role="img" aria-label="信号函数体由 moc 生成并调用 activate 模板版">
+        <rect class="svg-box" x="20" y="45" width="310" height="150" rx="10"/>
         <text class="svg-small" x="38" y="72">你只写了声明（Q_SIGNALS 段）</text>
         <text class="svg-mono" x="38" y="102">void switched(bool on);</text>
-        <text class="svg-small" x="38" y="132">没有函数体 —— 手写会编译报错</text>
+        <text class="svg-small" x="38" y="132">没有函数体 —— 手写会「重复定义」</text>
+        <text class="svg-small" x="38" y="158">（Q_SIGNALS 已展开成 public）</text>
 
-        <path class="svg-arrow" d="M350 100 L410 100"/>
-        <rect class="svg-box-accent" x="410" y="45" width="330" height="110" rx="10"/>
-        <text class="svg-small" x="428" y="72">moc 生成的函数体（等价的形态）</text>
-        <text class="svg-mono" x="428" y="102">void Lamp::switched(bool on) {</text>
-        <text class="svg-mono" x="428" y="126">  QMetaObject::activate(this, &amp;staticMetaObject, 0, argv);</text>
-        <text class="svg-mono" x="428" y="148">}</text>
+        <path class="svg-arrow" d="M330 120 L350 120"/>
+        <rect class="svg-box-accent" x="350" y="45" width="390" height="150" rx="10"/>
+        <text class="svg-small" x="366" y="70">moc 生成的函数体（本机实测，Qt 6.12.0）</text>
+        <text class="svg-mono" x="366" y="95">void Lamp::switched(bool _t1) {</text>
+        <text class="svg-mono" x="366" y="117">  QMetaObject::activate&lt;void&gt;(this,</text>
+        <text class="svg-mono" x="366" y="139">      &amp;staticMetaObject, 0, nullptr, _t1);</text>
+        <text class="svg-mono" x="366" y="161">}</text>
+        <text class="svg-small" x="366" y="183">无参信号版少最后一个实参，见下方代码</text>
 
-        <rect class="svg-field" x="20" y="185" width="720" height="205" rx="10"/>
-        <text class="svg-small" x="40" y="213">三个参数分别是什么：</text>
-        <text class="svg-text" x="40" y="242">· this —— 谁发的，接收者可以通过 sender() 反查</text>
-        <text class="svg-text" x="40" y="268">· &amp;staticMetaObject —— 哪张表，保证只在「本类+基类」的连接里找</text>
-        <text class="svg-text" x="40" y="294">· 0 —— 信号在表里的局部索引（signalOffset + 0）</text>
-        <text class="svg-text" x="40" y="320">· argv —— 参数被打包成 void* 数组，按「地址」传，不按类型查</text>
-        <text class="svg-small" x="40" y="352">★ 这就是「信号可以只有声明」的原因，也是它比手写回调更省心的原因。</text>
-        <text class="svg-small" x="40" y="376">★ emit 是空宏：&#96;#define emit&#96;，删掉程序行为完全不变，纯给人看的。</text>
+        <rect class="svg-field" x="20" y="205" width="720" height="195" rx="10"/>
+        <text class="svg-small" x="40" y="230">这五个实参分别是什么：</text>
+        <text class="svg-text" x="40" y="253">· this —— 谁发的，接收者可以用 sender() 反查</text>
+        <text class="svg-text" x="40" y="274">· &amp;staticMetaObject —— 在哪张表里找连接</text>
+        <text class="svg-text" x="40" y="295">· 0 —— 本类里的局部信号索引（全局索引还要加私有的 signalOffset）</text>
+        <text class="svg-text" x="40" y="316">· nullptr —— 模板版的第 4 个参数是 Ret *ret：信号的返回值放哪儿</text>
+        <text class="svg-text" x="40" y="337">· _t1 —— 真正的参数；模板版把实参取地址拼成 void* 数组，再转调 4 参重载</text>
+        <text class="svg-small" x="40" y="364">★ emit 不是函数，是宏：qtmetamacros.h 第 51 行 Q_EMIT、第 53 行 #define emit，删掉程序照跑。</text>
+        <text class="svg-small" x="40" y="388">★ 旧讲义里的 activate(this, &amp;staticMetaObject, 0, argv) 是 Qt 4 形态，本机 6.12 实测不是。</text>
       </svg>`,
-    caption: '<strong>信号的函数体由 moc 生成</strong>，形态就是 <code>QMetaObject::activate(this, &amp;staticMetaObject, 信号索引, argv)</code>。所以：① 你写了函数体反而报「重复定义」；② <code>emit</code> 是个<strong>空宏</strong>，删掉不改变行为，只是失去「这里在发信号」的提示。',
-    code: `// 你写的
+    caption: '<strong>信号的函数体由 moc 生成</strong>。本机实测（用 6.12.0 的 <code>moc</code> 跑一个有参信号 <code>switched(bool)</code> 加一个无参信号 <code>tick()</code>）：带参的生成 <code>QMetaObject::activate&lt;void&gt;(this, &amp;staticMetaObject, 0, nullptr, _t1)</code>，无参的生成 <code>QMetaObject::activate(this, &amp;staticMetaObject, 1, nullptr)</code>。注意<strong>参数并没有先装进一个叫 <code>argv</code> 的数组</strong> —— 那是模板版 <code>activate</code> 的活：它在 <code>qobjectdefs.h</code> 第 313~321 行现场拼一个 <code>void *_a[] = { ret, std::addressof(args)... }</code>，再转调第 311 行那个 4 参重载。所以第 4 个位置的真实身份是 <code>Ret *ret</code>（「信号的返回值往哪儿写」），信号几乎总是 <code>void</code>，于是传 <code>nullptr</code>；旧讲义写的 <code>activate(this, &amp;staticMetaObject, 0, argv)</code> 是 Qt 4 的形态。由此：① 你给信号写函数体反而「重复定义」；② <code>emit</code> 是个空宏，删掉不改变行为，只是失去「这里在发信号」的视觉提示。顺带两个容易写错的细节：<code>emit</code>／<code>Q_EMIT</code> 定义在 <code>qtmetamacros.h</code>（第 53、51 行），<strong>不在 <code>qobjectdefs.h</code> 里</strong>；而且 <code>Q_SIGNALS</code> 第 49 行展开成 <code>public QT_ANNOTATE_ACCESS_SPECIFIER(qt_signal)</code> —— 信号段是 <strong>public</strong> 的，「只能类内调用」这句是老误解，真正限制它的是没有函数体。',
+    code: `// 你写的（signals 段，只有声明）
 Q_SIGNALS:
-    void switched(bool on);      // 只有声明
+    void switched(bool on);
+    void tick();
 
-// moc 生成的（不要自己写）
-void Lamp::switched(bool on)
+// moc 实测生成的函数体（Qt 6.12.0，别自己写）
+void Lamp::switched(bool _t1)
 {
-    QMetaObject::activate(this, &staticMetaObject, 0,
-                          /*argv 打包*/);
+    QMetaObject::activate<void>(this, &staticMetaObject, 0, nullptr, _t1);
 }
 
-// emit 的真身（qobjectdefs.h）
-#define emit`,
-    highlight: [1, 2]
+void Lamp::tick()
+{
+    QMetaObject::activate(this, &staticMetaObject, 1, nullptr);
+}
+
+// emit / Q_EMIT 的真身（qtmetamacros.h 第 51、53 行）
+# define Q_EMIT
+#ifndef QT_NO_EMIT
+# define emit
+#endif`,
+    highlight: [1, 2, 8, 13, 19]
   },
   {
     title: '第四步：connect 在连接那一刻就完成了「解析」',
@@ -216,23 +233,27 @@ void Lamp::switched(bool on)
 
         <rect class="svg-box-bad" x="400" y="208" width="320" height="90" rx="8"/>
         <text class="svg-small" x="418" y="232">字符串形式 SIGNAL(switched(bool))</text>
-        <text class="svg-small" x="418" y="256">运行期比较字符串；拼错 = 静默连不上</text>
-        <text class="svg-small" x="418" y="280">connect 返回 false，但没人检查</text>
+        <text class="svg-small" x="418" y="256">运行期比较字符串；拼错时 Qt 打警告</text>
+        <text class="svg-small" x="418" y="280">connect 返回 false —— 但没人检查返回值</text>
 
         <text class="svg-small" x="40" y="330">一旦注册进连接表，之后每次 emit 都只按索引走 —— 不再有字符串比较。</text>
         <text class="svg-small" x="40" y="356">所以「信号槽很慢」是个流传已久的误会：慢的是跨线程排队与参数打包，不是分发。</text>
       </svg>`,
-    caption: '<code>connect</code> 这一步才做「查表」：把方法指针换算成<strong>方法索引</strong>，登记进连接表。指针形式在<strong>编译期</strong>就把类型对上了，写错直接编不过；<code>SIGNAL()/SLOT()</code> 是字符串，拼错只在<strong>运行期</strong>返回 <code>false</code>，而绝大多数人没检查返回值——这就是「连了但没反应」的头号原因。',
+    caption: '<code>connect</code> 这一步才做「查表」：把方法指针换算成<strong>方法索引</strong>，登记进连接表。指针形式在<strong>编译期</strong>就把类型对上了，写错直接编不过；<code>SIGNAL()/SLOT()</code> 是字符串，拼错在<strong>运行期</strong>返回 <code>false</code>——而绝大多数人没检查返回值，这就是「连了但没反应」的头号原因。<strong>但它并不是「静默」的</strong>：本机实测 Qt 会打两句（日志类别前缀 <code>qt.core.qobject.connect</code>），文案由 <code>qobject.cpp</code> 第 2729~2744 行的 <code>err_method_notfound()</code> 现拼：<code>QObject::connect: No such signal S::nope()</code> 和 <code>QObject::connect: No such slot R::nopeSlot()</code>。同一处还有一个分支值得记：字符串里<strong>忘了写括号</strong>时它不说 No such，而说 <code>Parentheses expected,</code>——看见这半句就知道是漏了 <code>()</code>，不是名字拼错。',
     code: `// 推荐：编译期检查
 connect(&lamp, &Lamp::switched, this, &Panel::onSwitch);
 
-// 老写法：字符串，拼错只在运行期失败
+// 老写法：字符串。拼错时不是静默失败，本机实测 Qt 自己会打：
+//   qt.core.qobject.connect: QObject::connect: No such signal Lamp::nope()
+//   qt.core.qobject.connect: QObject::connect: No such slot Panel::nope()
 connect(&lamp, SIGNAL(switched(bool)), this, SLOT(onSwitch(bool)));
 
-// 工程习惯：把返回值当成断言
+// 工程习惯：检查返回值。别写 Q_ASSERT(ok) —— 定义了 QT_NO_DEBUG 的 Release 里
+// 它整个被编译掉（qassert.h 第 28~30 行），等于什么都没检查。
 bool ok = connect(&lamp, &Lamp::switched, this, &Panel::onSwitch);
-Q_ASSERT(ok);`,
-    highlight: [1, 4, 5]
+if (!ok)
+    qWarning() << "连接没建立：查信号/槽名、重载有没有消歧义";`,
+    highlight: [1, 6, 8, 10]
   },
   {
     title: '第五步：emit 的那一刻，activate 遍历连接表',
@@ -248,7 +269,7 @@ Q_ASSERT(ok);`,
         <rect class="svg-box-accent" x="250" y="40" width="190" height="90" rx="10"/>
         <text class="svg-title" x="345" y="70" text-anchor="middle">Lamp::switched()</text>
         <text class="svg-small" x="345" y="94" text-anchor="middle">moc 生成的函数体</text>
-        <text class="svg-small" x="345" y="114" text-anchor="middle">打包 argv</text>
+        <text class="svg-small" x="345" y="114" text-anchor="middle">实参直接递给 activate</text>
 
         <path class="svg-arrow svg-flow" d="M440 85 L490 85"/>
         <rect class="svg-box-warn svg-pulse" x="490" y="40" width="250" height="90" rx="10"/>
@@ -297,13 +318,16 @@ connect(&lamp, &Lamp::switched, this, &Panel::onSwitch,
       <svg viewBox="0 0 760 420" role="img" aria-label="qt_static_metacall 的 switch 分发">
         <rect class="svg-box-warn" x="20" y="40" width="200" height="60" rx="8"/>
         <text class="svg-small" x="120" y="66" text-anchor="middle">传入 _id（方法索引）</text>
-        <text class="svg-small" x="120" y="88" text-anchor="middle">和 void** a</text>
+        <text class="svg-small" x="120" y="88" text-anchor="middle">和 void **_a</text>
 
         <path class="svg-arrow" d="M220 70 L280 70"/>
-        <rect class="svg-box-accent" x="280" y="25" width="460" height="90" rx="10"/>
-        <text class="svg-small" x="298" y="50">moc 生成的跳转（形态，不是逐字原文）</text>
-        <text class="svg-mono" x="298" y="76">switch (_id) {</text>
-        <text class="svg-mono" x="298" y="99">case 0: _t-&gt;onSwitch(*reinterpret_cast&lt;bool*&gt;(a[1])); break;</text>
+        <rect class="svg-box-accent" x="280" y="20" width="460" height="115" rx="10"/>
+        <text class="svg-small" x="298" y="40">moc 生成的 qt_static_metacall（本机 6.12 实测原文，只截 switch 那段）</text>
+        <text class="svg-mono" x="298" y="60">switch (_id) {</text>
+        <text class="svg-mono" x="298" y="77">case 0: _t-&gt;switched(*reinterpret_cast&lt;</text>
+        <text class="svg-mono" x="298" y="94">    std::add_pointer_t&lt;bool&gt;&gt;(_a[1]))); break;</text>
+        <text class="svg-mono" x="298" y="111">case 1: _t-&gt;tick(); break;</text>
+        <text class="svg-mono" x="298" y="128">default: ;</text>
 
         <rect class="svg-field" x="20" y="140" width="720" height="240" rx="10"/>
         <text class="svg-small" x="40" y="168">为什么用索引而不是字符串？</text>
@@ -328,16 +352,31 @@ connect(&lamp, &Lamp::switched, this, &Panel::onSwitch,
         <text class="svg-text" x="40" y="328">① 为什么重载信号要写 qOverload&lt;&gt;() 指明是哪一个 —— 索引不止一条。</text>
         <text class="svg-text" x="40" y="356">② 为什么自定义类型跨线程必须 qRegisterMetaType —— 排队时要按类型名重建参数。</text>
       </svg>`,
-    caption: '落点是 moc 生成的 <code>switch (_id)</code>：索引就是表里的行号，编译成跳转表，<strong>一次间接跳转就到位</strong>，没有字符串比较。参数以 <code>void*</code> 数组按<strong>地址</strong>传递，所以类型必须精确对上——这也是「重载信号要用 <code>qOverload&lt;&gt;()</code> 指定」「跨线程的自定义类型要 <code>qRegisterMetaType</code>」两条规则的技术根源。',
-    code: `// 信号重载：索引不止一条，必须指明
-connect(slider, qOverload<int>(&QSlider::valueChanged),
-        spin,   &QSpinBox::setValue);
+    caption: '落点是 moc 生成的 <code>switch (_id)</code>（上图是 <code>moc 6.12.0</code> 对本机 <code>Lamp</code> 的<strong>实测原文</strong>，只有 <code>case 0</code> 那一行因为太宽被折成两行，原文是一整行）。索引就是表里的行号，编译成跳转表，<strong>一次间接跳转就到位</strong>，没有字符串比较。参数以 <code>void*</code> 数组按<strong>地址</strong>传递，而且 <code>_a[0]</code> 是<strong>返回值位</strong>（信号是 <code>void</code>，所以那一格是空），<code>_a[1]</code> 起才是第一个参数——上一条讲的那个模板版拼的就是这个数组。所以类型必须精确对上：这也是「重载信号要用 <code>qOverload&lt;&gt;()</code> 指定」「跨线程的自定义类型要 <code>qRegisterMetaType</code>」两条规则的技术根源。同一个函数里还有第二个分支 <code>if (_c == QMetaObject::IndexOfMethod)</code>，<strong>指针形式的 <code>connect</code> 就是靠它把「成员函数指针」换算成 <code>_id</code> 的</strong>。',
+    code: `// moc 实测原文（节选）：Qt 6.12.0 给 Lamp 生成的跳转
+void Lamp::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, void **_a)
+{
+    auto *_t = static_cast<Lamp *>(_o);
+    if (_c == QMetaObject::InvokeMetaMethod) {
+        switch (_id) {                                 // _id 是「本类局部索引」
+        case 0: _t->switched((*reinterpret_cast<std::add_pointer_t<bool>>(_a[1]))); break;
+        case 1: _t->tick(); break;
+        default: ;
+        }
+    }
+    if (_c == QMetaObject::IndexOfMethod) {            // connect(函数指针) 靠这段换算索引
+        if (QtMocHelpers::indexOfMethod<void (Lamp::*)(bool )>(_a, &Lamp::switched, 0))
+            return;
+    }
+}
 
-// 跨线程排队要用到类型名重建参数
+// 信号重载：索引不止一条，必须指明
+connect(slider, qOverload<int>(&QSlider::valueChanged), spin, &QSpinBox::setValue);
+
+// 跨线程排队要用类型名重建参数
 qRegisterMetaType<TodoItem>("TodoItem");
-connect(worker, &Worker::loaded, this, &Page::onLoaded,
-        Qt::QueuedConnection);`,
-    highlight: [1, 4]
+connect(worker, &Worker::loaded, this, &Page::onLoaded, Qt::QueuedConnection);`,
+    highlight: [6, 11, 12, 18, 21]
   },
   {
     title: '第七步：moc 相关的报错，全都长这样',

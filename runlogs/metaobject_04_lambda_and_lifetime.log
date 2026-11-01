@@ -1,0 +1,40 @@
+=== 1. 危险路径：lambda 捕获裸指针 + 三参 connect ===
+  raw->value() = 1  连接状态： 活
+  delete raw 之后，连接仍是： 活   ← 这一行就是崩溃的全部原因：Qt 没有任何理由断这条连接
+  手动 disconnect 后连接状态： 死
+=== 2. 安全路径 A：把短命 QObject 传成 context ===
+  连接活： 活  c->value() = 1  viewer->shown() = 1
+  delete viewer 之后连接自动变： 死 （第 3 讲的『接收者析构自动断连』在 lambda 上**借** context 生效了）
+=== 3. 安全路径 B：context 用 this（成员函数里最常见）===
+  v->shown() = 1  last = "B 活着"
+  delete v 后再 load 也没崩；model.data() = "B 已亡"
+=== 4. 兜底路径：没有合适 context 时，用 QPointer 在 lambda 内判活 ===
+    [lambda] 收到并转交： "C 第一次"  shown = 1
+  delete 之后 guard.isNull() = true  operator bool = false
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  注意：连接**并没有**因为 QPointer 失效而断掉（下面第 5 节给出正确组合）
+=== 5. 正确组合：context + QPointer 双保险 ===
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  c->value() = 1  v->shown() = 1
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  delete v 后再 load，c->value() 仍是 1 （context 已经替我拔掉了连接，QPointer 只是第二重保险）
+=== 6. std::weak_ptr 版兜底（适用非 QObject）===
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  shared 版 value = 1
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  reset 后 weak.expired() = true （普通 C++ 类只能靠这条路，QPointer 帮不上）
+=== 7. 两个哑坑：blockSignals 的方向 + 匿名临时对象 ===
+  v.signalsBlocked() = true （qobject.h 140 行，直接读 d_ptr->blockSig）
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  v.shown() = 1  ← 槽照跑（model 的信号没被屏蔽，v 只是接收方）
+  v 发出 textShown 的命中数 = 0  ← 只有这里是 0，这才是 blockSignals 真正管的东西
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  出作用域后 v.shown() = 2  textShown 命中 = 1 （两边都恢复正常）
+=== 8. 让 lambda「只跑一次」的两种做法 ===
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  自断式：命中 1 次（应为 1）
+=== 9. 事件循环里发射：上面的每一条连接状态都没变 ===
+    [lambda] QPointer 已失效，安全跳过（信号仍打到了这里）
+  model.data() = "I 定时发射"
+=== 第 4 讲演示结束，自动退出 ===

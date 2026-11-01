@@ -42,9 +42,10 @@
 //   · 打印的**次数依赖机器/样式/窗口尺寸**，我只承诺关系：一次重绘的 data() 调用数是
 //     「可见格子数 × 角色数」这个量级，而不是「总格子数」。
 //   · 图解页面：../visuals/model_view.html（五角色数据流 + index 生命周期）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；下面每一处「预期」后面写的是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_01_architecture，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_01_architecture.log）。
 // ============================================================================
 
 #include <QApplication>             // QtWidgets/qapplication.h
@@ -73,7 +74,7 @@
 #include <QDebug>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0；行号是我去头文件里看的）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0；行号是我去头文件里看的）
 // ============================================================================
 // QtCore/qabstractitemmodel.h
 //   第 127~174 行  class QModelIndex
@@ -538,7 +539,7 @@ static void evidenceIndexIsCoordinate(CountingModel &model)
             << "—— 它**不报错，只是指到别的行上去了**。这就是「别把 QModelIndex 存起来跨操作用」的由来。";
     qInfo() << "  纪律：要跨「增删行/reset」持有位置 → QPersistentModelIndex；"
                "要跨「函数调用」持有位置 → 存 row/column 两个整数，用完立刻 model->index(r,c)；"
-               "要跨「模型」（源↔代理）→ 必须先 mapToSource / mapFromSource。";
+               "要跨「模型」（源<->代理）→ 必须先 mapToSource / mapFromSource。";
 
     // 补回一行，让后面的证据看到完整表格
     model.insertRow(5, new QStandardItem(QStringLiteral("（补回来的占位）")));

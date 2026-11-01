@@ -1,0 +1,13 @@
+********* Start testing of TestTaskModel *********
+Config: Using QtTest library 6.12.0, Qt 6.12.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 15.1.0), windows 11
+PASS   : TestTaskModel::initTestCase()
+PASS   : TestTaskModel::addTaskAssignsIncreasingIds()
+PASS   : TestTaskModel::setDoneEmitsDataChangedAndCounts()
+PASS   : TestTaskModel::emptyTitleIsRejected()
+PASS   : TestTaskModel::proxyFiltersDone()
+PASS   : TestTaskModel::proxyFiltersTextAndMapsBack()
+PASS   : TestTaskModel::jsonRoundTrip()
+PASS   : TestTaskModel::statsSkipCompletedOverdue()
+PASS   : TestTaskModel::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 13ms
+********* Finished testing of TestTaskModel *********

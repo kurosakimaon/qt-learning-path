@@ -37,9 +37,11 @@
 //     的解析代码在 qtestcase.cpp，本机只有头文件，**核不到选项表**；下面附录里
 //     我只写「常见选项，具体以 QTest 文档为准」，并且把**能从头文件核到的**
 //     运行期 API（QTest::qExec 重载、setThrowOnFail、ignoreMessage…）标了行号。
-//   · 未实测声明：本机当前无法链接 Qt 运行时，本示例**已通过 moc +
-//     g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；文中「预期/应该」是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 quality_01_qtest_unit）。本机这一轮：Totals: 21 passed, 0 failed, 0 skipped。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QObject>                  // QtCore/qobject.h
@@ -466,9 +468,16 @@ QTEST_GUILESS_MAIN(TestPricing)
  *      QCOMPARE_EQ|NE|LT|LE|GT|GE 100~105 /
  *      QVERIFY_THROWS_NO_EXCEPTION 109 / QVERIFY_THROWS_EXCEPTION 131 /
  *      QTRY_VERIFY 217（+ _WITH_TIMEOUT 211）/ QTRY_VERIFY2 227 /
- *      QTRY_COMPARE 238（+ _WITH_TIMEOUT 212，另有 _EQ/_NE/_LT/_LE/_GT/_GE 242~287）/
- *      QSKIP 297 / QEXPECT_FAIL 299 / QFETCH 306 / QFETCH_GLOBAL 311 / QTEST 314 /
- *      QWARN 865 / QFINDTESTDATA / QEXTRACTTESTDATA（340 附近）
+ *      QTRY_COMPARE 238（+ _WITH_TIMEOUT **232**，另有 _EQ/_NE/_LT/_LE/_GT/_GE 242~287）/
+ *      QSKIP 297 / QEXPECT_FAIL 299 / QFETCH 305 / QFETCH_GLOBAL 308 / QTEST 311 /
+ *      QWARN 865 / QFINDTESTDATA 334 与 337（两支 #if 各一个）/ QEXTRACTTESTDATA 341
+ *      ★ 勘误：旧稿这五个号是抄来的，本机 6.12.0 逐条 grep `^#define` 重数过——
+ *        _WITH_TIMEOUT 版 QTRY_COMPARE 在 **232**（旧稿 212，那是 QTRY_VERIFY_WITH_TIMEOUT 的地盘）、
+ *        QFETCH **305**（旧稿 306）、QFETCH_GLOBAL **308**（旧稿 311）、QTEST **311**（旧稿 314）。
+ *        错位是连号的：305/308/311 三个都对，说明旧稿整体偏 +1/+3，不是手滑一次。
+ *        顺手记一条容易踩的：QVERIFY_THROWS_EXCEPTION 有两套定义（131 是支持异常的那支，
+ *        158/160 是 QT_NO_EXCEPTIONS 下的替身，后者一调用就 static_assert 拦你），
+ *        所以「这个宏在不在」取决于异常开关，不只取决于头文件。
  *   **确证存在**的 main 宏（qtest.h，注意：本版本 QtTest 目录里没有 qtest_main.h，
  *   三个 main 宏都在 qtest.h 里）：
  *      QTEST_APPLESS_MAIN 269 / QTEST_MAIN 296 / QTEST_GUILESS_MAIN 299

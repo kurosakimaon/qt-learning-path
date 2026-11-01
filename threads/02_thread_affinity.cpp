@@ -9,6 +9,11 @@
 //     1) **谁创建对象，对象就归谁**：在主线程 new 出来的 QObject / QTimer，
 //        它的 thread() 就是主线程 —— 跟你打算把它交给哪条线程干活**毫无关系**。
 //        这是新手第二大坑（第一大坑是第 1 讲那个「run() 里没有事件循环」）。
+//        最扎心的一个后果在【4B】现场打出来了：**继承 QThread 的那个对象，它自己的槽
+//        照样会被执行，只是执行在主线程**（本机实测：run() 里 emit → 槽被执行 1 次，
+//        槽里 currentThread()==主线程、!= 这个 QThread 自己）。所以「run() 里没事件循环
+//        → 这个对象上的槽不会自动执行」这句流传很广的话是**写反了**，正确的说法是
+//        「不会在**新线程**里执行」。见第四节B的注释与 runlogs 里那两行取证。
 //     2) `QObject::thread()` 读的就是这份归属；`moveToThread()` 改它。
 //        核对到的硬信息：本机 qobject.h 第 143 行 `QThread *thread() const;`、
 //        第 145 行的**旧版 void 返回**被包在 `#if QT_CORE_REMOVED_SINCE(6, 7)` 里，
@@ -53,8 +58,10 @@
 //     每次 tick 的「currentThread 句柄 == worker->thread() 句柄」判定应**全为真**。
 //     这些结论不只在屏幕上打一行：每一项都登记进 Ledger，末尾以退出码 0/1 表态，
 //     ctest 只看退出码。12 次 tick 有约 500 ms 余量（第 12 次落在 ~400 ms，汇总在 900 ms）。
-//   · 本文件未在本机实测编译运行：只过了 `moc + g++ -fsyntax-only`（-std=c++17
-//     -Wall -Wextra，0 error 0 warning）；**未链接、未运行**，文中「预期」皆为推理。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，Windows，
+//     QT_QPA_PLATFORM=offscreen；ctest 目标 threads_02_thread_affinity）。本机这一轮：
+//     【硬账】17/17 项核对通过、退出码 0（存档 runlogs/threads_02_thread_affinity.log）。
+//     上面那句「12 次 tick 有约 500 ms 余量」就是靠这 17 项里的 ownTicks 核住的。
 // ============================================================================
 
 #include <QCoreApplication>      // QtCore/qcoreapplication.h：quit() 是 public slot
@@ -103,7 +110,7 @@ void checkBool(const char *what, bool got, bool want = true)
 } // namespace
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // ── qobject.h ──────────────────────────────────────────────────────────────
 //   第 143 行  QThread *thread() const;
@@ -374,6 +381,57 @@ public:
 };
 
 // ============================================================================
+// 四B、专门造一个「继承 QThread」的对象，用来打脸一句流传很广的话
+// ----------------------------------------------------------------------------
+//   流传的说法：「run() 里没有事件循环 → 这个对象上的槽不会自动执行」。
+//   本机实测（【4B】那两步的日志）：槽**照样执行**，只是执行在它**户口所在的那条线程**
+//   —— 也就是主线程。原因是这一讲的第一课：QThread 对象谁 new 它谁收留，它的 run()
+//   在新线程跑，对象本身却归主线程；从新线程 emit、接收者是这个对象 → 线程不同 →
+//   AutoConnection 判成队列连接 → 队列由**主线程**的事件循环消化。
+//   所以正确的说法是「槽不会在**新线程**里执行」，不是「不会执行」。
+//   那句流言是怎么来的？主线程 new 完就阻塞在 wait()/exec() 之外死等，循环不转，
+//   这条排队调用当时确实看不到 —— 「没跑到」被说成了「不会执行」。
+// ============================================================================
+class SubclassThread : public QThread
+{
+    Q_OBJECT
+public:
+    SubclassThread() { setObjectName(QStringLiteral("sub")); }
+
+    int slotRuns = 0;
+    QThread *slotThread = nullptr;
+
+Q_SIGNALS:
+    void pokeFromRun();
+
+public slots:
+    void onPokeFromRun()
+    {
+        ++slotRuns;
+        slotThread = QThread::currentThread();
+        qInfo() << QStringLiteral("      槽现场：currentThread=%1(%2)｜本对象 thread()=%3(%4)"
+                                  "｜槽是新线程自己在跑吗 = %5")
+                       .arg(ptrText(slotThread),
+                            slotThread->objectName().isEmpty() ? QStringLiteral("(无名)") : slotThread->objectName(),
+                            ptrText(thread()), thread()->objectName())
+                       .arg(slotThread == static_cast<QThread *>(this) ? QStringLiteral("是")
+                                                                        : QStringLiteral("否"));
+    }
+
+protected:
+    void run() override
+    {
+        QThread *cur = QThread::currentThread();
+        qInfo() << QStringLiteral("      run() 现场：currentThread=%1(%2)｜thread()=%3(%4)"
+                                  "｜相同吗 = %5（户口和「谁在执行」本来就是两件事）")
+                       .arg(ptrText(cur), cur->objectName(), ptrText(thread()), thread()->objectName())
+                       .arg(cur == thread() ? QStringLiteral("是") : QStringLiteral("否"));
+        emit pokeFromRun();
+        qInfo() << QStringLiteral("      emit 已返回 —— 槽此刻**还没**跑，它排进的是主线程的队列");
+    }
+};
+
+// ============================================================================
 // 五、main：QTimer::singleShot 串起来的自动演示
 // ============================================================================
 int main(int argc, char *argv[])
@@ -404,6 +462,9 @@ int main(int argc, char *argv[])
     // 【4】反面组：在主线程 new 的定时器（归属=主线程），后面 moveToThread 到 host
     auto *badTimer = new QTimer;
     badTimer->setObjectName(QStringLiteral("bad-timer"));
+
+    // 【4B】用的「继承 QThread」那个对象：也**在主线程 new**，所以户口=主线程
+    SubclassThread *sub = nullptr;
 
     // 连线：probe 的信号 → 主线程的 Collector（context=&col → 槽在主线程跑）
     QObject::connect(probe, &AffinityProbe::ticked, &col,
@@ -506,6 +567,32 @@ int main(int argc, char *argv[])
                        .arg(col.badTicks);
     });
 
+    // ── 【4B】打脸一句流言：「继承 QThread 后，这个对象上的槽不会自动执行」────
+    QTimer::singleShot(400, [&sub, mainThread]() {
+        qInfo() << QStringLiteral("【4B】继承 QThread 的那条路：对象上的槽到底会不会跑？");
+        sub = new SubclassThread;                     // 主线程 new → 户口留在主线程
+        // 接收者就是**发射者自己**：pokeFromRun 从新线程里 emit，对象的 thread() 却是主线程。
+        QObject::connect(sub, &SubclassThread::pokeFromRun, sub, &SubclassThread::onPokeFromRun);
+        qInfo() << QStringLiteral("      创建完：sub->thread()=%1(%2)，主线程=%3 —— %4"
+                                  "｜这个对象的槽是 public slots（写成 private slots 时"
+                                  "上面那行 connect 在本机 g++ 直接编译不过，指针式 connect 进不了私有成员）")
+                       .arg(ptrText(sub->thread()), sub->thread()->objectName(), ptrText(mainThread))
+                       .arg(sub->thread() == mainThread ? QStringLiteral("相同") : QStringLiteral("不同"));
+        sub->start();
+    });
+    QTimer::singleShot(470, [&sub, mainThread]() {
+        qInfo() << QStringLiteral("【4B】收尾取证（start() 之后主循环已经转了好几轮）");
+        qInfo() << QStringLiteral("      槽被执行 %1 次；执行线程==主线程? %2；执行线程==sub 自己? %3")
+                       .arg(sub->slotRuns)
+                       .arg(sub->slotThread == mainThread ? QStringLiteral("是") : QStringLiteral("否"))
+                       .arg(sub->slotThread == static_cast<QThread *>(sub) ? QStringLiteral("是")
+                                                                            : QStringLiteral("否"));
+        check("【4B】「不会自动执行」是错的：槽确实跑了 1 次", sub->slotRuns, 1);
+        checkBool("但它跑在**主线程**（不是新线程）", sub->slotThread == mainThread);
+        qInfo() << QStringLiteral("      → 正确说法：重写 run() 之后，这个对象上的槽"
+                                  "**不会在新线程里执行**；要它在新线程执行就得 moveToThread 一个 worker。");
+    });
+
     // ── 【5】跨线程收尸：deleteLater（正路）────────────────────────────────
     QTimer::singleShot(520, [probe]() {
         qInfo() << QStringLiteral("【5】对象归子线程时，主线程怎么「删」它：deleteLater()");
@@ -546,7 +633,7 @@ int main(int argc, char *argv[])
     });
 
     // ── 【7】总汇总并退出 ───────────────────────────────────────────────────
-    QTimer::singleShot(900, [&col, host, probe, &wall]() {
+    QTimer::singleShot(900, [&col, host, probe, &sub, &wall]() {
         qInfo() << QStringLiteral("【7】总汇总（可核对的证据）");
         qInfo() << QStringLiteral("      主线程收到 tick 信号 %1 次，其中「worker 侧"
                                   " currentThread==worker->thread()」判定为真的 %2 次，"
@@ -572,6 +659,11 @@ int main(int argc, char *argv[])
         QObject::connect(host, &QThread::finished, probe, &QObject::deleteLater);
         if (!host->isRunning())
             qInfo() << QStringLiteral("      （host 已结束；probe 的 deleteLater 会在其线程收尾时被处理）");
+        const bool subWaited = sub->wait(QDeadlineTimer(300));
+        qInfo() << QStringLiteral("      【4B】那个 QThread 子类：run() 早就返回了，wait(300ms)=%1"
+                                  " → 线程死了才 delete（QThread 对象归主线程，所以主线程能删它）")
+                       .arg(subWaited ? QStringLiteral("true") : QStringLiteral("false"));
+        delete sub;
         delete host;                  // QThread 对象归**主线程**（主线程 new 的）→ 主线程删它合法
         qInfo().noquote() << QStringLiteral("\n【硬账】%1/%2 项核对通过 → 退出码 %3")
                                  .arg(Ledger::passed).arg(Ledger::total).arg(Ledger::exitCode());

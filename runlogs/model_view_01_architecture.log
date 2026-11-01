@@ -1,0 +1,61 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+================================================================
+model_view 第 1 讲 · 模型/视图五角色（平台 = "offscreen" , Qt = 6.12.0 ）
+================================================================
+【证据①】最小闭环：数据存在模型里，视图只负责画
+  setModel 之后：model->rowCount() = 40 columnCount() = 4 ｜ view->model() 是否同一个对象 = true
+  表头文字也是模型给的：headerData(2, Horizontal, DisplayRole) = "进度" （视图只是把它画在表头区；表头也走 delegate，第 4 讲提一句）
+  坐标长这样：[ "row=7 column=2 internalId=0x225d93b7320 model=非空 isValid=true" ]
+  同一个格子两条读法：model->data(idx) = "14" ｜ idx.data() = "14" （后者是 QModelIndex::data 的便利写法，内部就是调 model->data；**值一样，因为都是问模型**）
+  那一格的 EditRole：typeId 是 int 吗 = true ｜ toInt() = 14 ｜ toString() = "14" （QVariant 负责转换：存的是 int，显示时是字符串，**同一份数据两种读法**）
+  问一个没给过的角色：data(idx, FontRole).isValid() = false ← **模型对「没有的角色」必须返回无效 QVariant**，视图靠这个决定「要不要处理」
+  show() 并催一次事件之后：view 的子对象数 = 8 ｜格子总数 = 160
+     这些子对象是 8 个（表头 2 + 滚动条 2 一类）， 横向表头 = true 纵向表头 = true ——**跟行数、列数完全无关**：40 行 160 格，视图侧一个「格子控件」都没有。
+     想把数据塞进控件的人第一个撞到的墙：**QTableView 头文件里没有 item()/addItem()**。想要 item()，只有便利类 QStandardItemModel 有（qstandarditemmodel.h 第 329 行），那是「模型」提供的，不是「视图」提供的。
+【证据②】data(index, role) 是拉取的：视图反复问，模型从不推
+"  甲：整幅重绘 1 次 → paintEvent 1 回，data() 被调用 126 次（其中 DisplayRole 18 次、headerData 0 次）；全表共 160 格"
+     被问到的行 = 6 / 40 列 = 3 / 4 （列会被问全，行只问到看得见的几条 → 这就是「只画可见格子」的证据）
+     角色分布： "DisplayRole:18  DecorationRole:18  FontRole:18  TextAlignmentRole:18  BackgroundRole:18  ForegroundRole:18  CheckStateRole:18"
+"  乙：连续滚 3 次 → paintEvent 6 回，data() 又被调用 756 次（DisplayRole 108 次）"
+     角色分布： "DisplayRole:108  DecorationRole:108  FontRole:108  TextAlignmentRole:108  BackgroundRole:108  ForegroundRole:108  CheckStateRole:108"
+     顺手记一笔：拿无效 index 来问的次数 = 0 （视图确实会用无效坐标问一次，比如「当前项」为空时；所以 data() 开头先判 isValid）
+  丙：把甲+乙的调用数加起来跟 160 格比，你会发现它**只跟可见区有关**，跟总行数无关。这就是模型/视图能扛住十万行的根本原因。
+  → 三条工程含义：① data() 里不要加锁、读盘、造大对象、写日志；② 返回「没有」就用 QVariant()（无效），不要返回空 QString 蒙混；③ 需要一次拿多个角色时，Qt 给了批量入口 multiData(index, QModelRoleDataSpan)（qabstractitemmodel.h 第 356 行）与委托侧的 paintingRoles()（qabstractitemdelegate.h 第 78 行）——第 8 讲调优时再动它。
+【证据③】QModelIndex = 带内部指针的坐标，不是数据
+"  sizeof(QModelIndex) = 24 字节 ｜ sizeof(QVariant) = 32 字节 ｜ sizeof(QPersistentModelIndex) = 8 字节"
+     QModelIndex 的全部成员就是 int r, int c, quintptr i, 模型指针（qabstractitemmodel.h 第 171~173 行）——**没有一格数据的位置**
+  idx 拆开看：[ "row=3 column=1 internalId=0x225d93b7320 model=非空 isValid=true" ]  model 指针 == &model = true
+"  idx.internalId() = 0x225d93b7320"   internalPointer() = 0x225d93b7320 ← 这是**模型自己塞的私货**：便利类塞的是节点指针，QAbstractTableModel 的默认 index() 塞 0（第 2 讲自己塞、自己取）。**框架完全不解释它**，只有你的模型解释它，所以它不能当跨模型的身份。
+  copy = idx 之后：两个 index 相等 = true 取到的值也相等 = true （拷贝的是那二十几字节的坐标，**不是那一格的数据**）
+  默认构造的 index：[ "row=-1 column=-1 internalId=0x0 model=nullptr isValid=false" ] isValid() = false ——判据是 (row>=0 && column>=0 && model!=nullptr) 三条（第 146 行），默认构造 row/column 都是 -1，第一条就不满足
+  越界不崩溃，只给无效：hasIndex(999,0) = false ｜ index(999,0).isValid() = false ｜ 拿无效 index 问数据：isValid = false text = "[]" ← 所以**先判 isValid() 再用**是纪律，不是建议
+  表格模型里 idx.parent()：[ "row=-1 column=-1 internalId=0x0 model=nullptr isValid=false" ]  isValid = false
+     → 表格只有一层，行的「父亲」是那个看不见的**虚拟根**，Qt 用无效 index 表示它。所以 rowCount(QModelIndex()) / columnCount(QModelIndex()) 才表示「整表多少行/列」——参数是无效 index 就是在问根。树（QTreeView）才会让 parent() 返回真坐标。
+     同一条从模型侧看：model->rowCount(无效 index) = 40 ｜model->columnCount(无效 index) = 4 ｜model->rowCount(第 0 行的 index) = 0 ｜hasChildren(index(0,0)) = false （表格在真实格子下面没有子行，全是 0/无效——这就是「表格 = 只有一层的树」）
+  删除前 → 裸 index：[ "row=5 column=0 internalId=0x225d93b7320 model=非空 isValid=true" ] 文本 = "任务 6"
+  删除前 → 护栏版（QPersistentModelIndex）：row = 5 isValid = true 文本 = "任务 6"
+  removeRows(5,1) 返回 = true
+  删除后 → 护栏版：isValid = false （模型把「这一行没了」通知给了它，**它自己作废**）
+  删除后 → 裸 index：row 仍是 5 ，文本变成了「 "任务 7" 」 —— 它**不报错，只是指到别的行上去了**。这就是「别把 QModelIndex 存起来跨操作用」的由来。
+  纪律：要跨「增删行/reset」持有位置 → QPersistentModelIndex；要跨「函数调用」持有位置 → 存 row/column 两个整数，用完立刻 model->index(r,c)；要跨「模型」（源<->代理）→ 必须先 mapToSource / mapFromSource。
+  补回占位行之后 rowCount = 40 （注意：插入这一行只给了第 0 列，第 1~3 列是空的，便利类容忍「洞」；手写模型时你可没有这个容忍度，第 2/3 讲自己管）
+【证据④】选择状态不在模型里，在**第四个角色**里
+  从没调过 setSelectionModel，view->selectionModel() 也非空 = true ｜它是 setModel 时按这个模型建起来的：sel->model() == view.model() = true
+     → 关键点：**模型里没有「选中」这个角色**。选择是另一个 QObject，它的坐标空间跟模型一致，但管的是「哪些格子被选中、哪个是当前」，与「格子里是什么」彻底分开。所以同一份模型可以挂两个视图、两套选择。
+  select(index(9,0), ClearAndSelect|Rows) 之后： selectedIndexes().size() = 4 （按行选 → 该行的 4 列全在集合里）｜ isSelected(9,1) = true ｜ currentIndex =[ "row=0 column=0 internalId=0x225d93b7320 model=非空 isValid=true" ]
+  selectedRows()（默认按第 0 列代表）size = 1 第一个 row = 9 ｜selectedColumns() 也能问，size = 0
+  view.selectRow(13)（视图便利，转手就是 sel->select）之后 isSelected(13,2) = true ｜selectionModel()->selectedIndexes().size() = 4
+  删一行会发生什么（选择模型会跟着调整，这是裸 index 做不到的）：
+     removeRows(13,1)：selectedRows 从 1 变成 0 （第 13 行被摘掉；回路是「模型发行数变化信号 → 选择模型自己改状态」）
+  第 6 讲正面讲这个角色：QItemSelection 的「区间」表示（它存的是 topLeft/bottomRight，不是一堆 index）、批量选择、跨视图同步、selectAll/clearSelection 的行为差异。
+【证据⑤】代理模型：同一份数据，另一套坐标
+"  源模型 40 行 → 代理模型 10 行（过滤串「任务 1」，第 0 列）；列数 4 → 4"
+  代理的 data() 内部还是去问源模型：proxy.index(0,0) 的文本 = "任务 1"
+  代理坐标 index(1,0)：[ "row=1 column=0 internalId=0x225d94179a0 model=非空 isValid=true" ] 行号 1 → mapToSource 之后：[ "row=9 column=0 internalId=0x225d93b7320 model=非空 isValid=true" ] 行号 9 ｜两个 index 相等吗 = false （相等要 row/column/internalId/model **四个字段全等**，模型不同直接不等）
+QSortFilterProxyModel: index from wrong model passed to mapToSource
+QSortFilterProxyModel: index from wrong model passed to mapToSource
+  把**源模型的 index** 直接喂给代理模型：proxy.rowCount(源index) = 0 ｜proxy.data(源index).isValid() = false ← 不崩溃、不报错，**就是问不出东西**（代理不认识这套坐标）
+  正确姿势：先映射再问。mapToSource/mapFromSource（qabstractproxymodel.h 第 31/32 行）是代理模型的全部身家；视图 setModel(&proxy) 之后拿到的永远是**代理坐标**，把它们直接拿去给源模型用，轻则空值、重则越界踩内存。
+  代理家族（Qt6 全在 QtCore，本机 QtCore/q…proxymodel.h）：QSortFilterProxyModel、QIdentityProxyModel（不改数据只改接口的壳）、QConcatenateTablesProxyModel（多表拼一张）、QTransposeProxyModel（行列倒过来）。第 5 讲专讲，包括自写代理必须实现的四个映射函数。
+【收尾】五个角色认全了：Model（存 + 答）、View（画 + 问 + 滚动）、Delegate（一格怎么画 + 编辑器怎么造）、Selection Model（谁被选中）、Proxy（另一套坐标）。下一讲把「答」这一半自己写出来。

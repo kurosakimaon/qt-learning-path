@@ -25,14 +25,17 @@
       这一讲本身就是给后面所有示例「跑起来验一验」用的。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
       每一章都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级），本模块示例
-      <strong>未在本机实测编译</strong>；文中每一个类、函数、重载都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 6 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 75/75 绿里；
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      文中每一个类、函数、重载都对着本机 <code>D:\Qt\6.12.0\mingw_64\include</code> 里的真实头文件核对过。
+      完整输出存档在 <code>runlogs/start_0N_*.log</code>（重跑：<code>bash _tools/run_all.sh '^start'</code>）；
+      带具体数字的预期（像素计数、尺寸、耗时）以下一次你自己打印的那一行为准。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -117,7 +120,7 @@
       <li><strong>亲手把每个示例跑起来</strong>：Qt 是「跑起来才看得懂」的东西。每个示例都配了自动演示脚本，无人值守也能跑完、自己吐结论。</li>
       <li><strong>moc 坎别绕着走</strong>：第 2 步的 Q_OBJECT / moc / AUTOMOC 是 Qt 区别于普通 C++ 的地方，务必用三个小练习把「三种忘了」的报错都亲手撞一遍。</li>
       <li><strong>理解事件驱动</strong>：第 1 步 show() + 第 4 步信号槽合起来，就是 Qt 的心智模型——「登记响应、交给事件循环」，不是「轮询查询」。</li>
-      <li><strong>记住「未在本机实测编译」</strong>：本机运行时正在升级，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，你换到能编译的环境按注释里的 CMake 目标名构建即可。</li>
+      <li><strong>先把 6 个目标跑起来再读注释</strong>：顶层 <code>ctest -R start</code>（或 <code>bash _tools/run_all.sh '^start'</code>）会在无头环境里把它们全跑一遍，输出存档在 <code>runlogs/</code>。先看到你屏幕上那一行的数字，再回来看注释里写的本机那一轮——对不上时相信你的打印。</li>
     </ul>
   </div>
 
@@ -129,7 +132,7 @@
       <li><strong>第一条：QApplication 是一切的前提。</strong> 在它之前碰任何 QWidget 都是崩。窗口 show 了没东西、一闪而过，病根多半在你没让<strong>事件循环</strong>转起来。想看到真东西，就得把动作交给 <code>exec()</code> 之后。</li>
       <li><strong>第二条：moc 这道坎要正面跨。</strong> 别怕 Q_OBJECT / AUTOMOC / .moc 这些词，它本质就是「一个帮你生成信号槽实现的代码生成器」。撞过三种报错，你就再不怕它。</li>
       <li><strong>第三条：用无头自测当你的安全带。</strong> 第 6 步不是收尾的彩蛋，是全课后面每个 GUI 示例能自动化验证的地基。学会 grab() + 断言 + 退出码，你写的界面就再也不是「只能靠肉眼点」的死角。</li>
-      <li><strong>第四条：诚实对待环境。</strong> 本机此刻编不动，就大方标注「未实测编译」，但 API 一律查真头文件核对，绝不凭记忆。写 Qt 和做人一样：不确定就别乱说。</li>
+      <li><strong>第四条：诚实对待环境，并且给「环境事实」标上保质期。</strong> 编得动、跑得起就把那一轮的数字写清楚；跑不到的部分大方标「未实测」，但 API 一律查真头文件核对，绝不凭记忆。<strong>这条本模块自己走过回头路</strong>：早期文件里躺着「本机编不动、跑不了」，环境修好后全仓 73 个编号示例（连 <code>todo_desktop</code> 的两个用例共 75 个 ctest）都编译、链接、<code>offscreen</code> 跑过了——那句当时是真的，后来就成了盖住结论的假话。所以「标出来」不是一次性动作：<strong>换了环境要回去把标着「未实测」的行重跑一遍、改掉</strong>。写 Qt 和做人一样：不确定就别乱说，确定了也别忘了标上你是哪天确定的。</li>
     </ul>
     <p>慢慢来，不急。起步阶段就是要稳。等你把这 6 章啃下来，事件循环、moc、信号槽、日志、无头自测都通了，就正式具备往「控件与布局」阶段进阶的本钱了。加油，徒弟！</p>
   </div>

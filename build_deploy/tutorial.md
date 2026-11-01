@@ -17,9 +17,18 @@
 
 本阶段有 **5 个独立工程**，每个都有各自的 `CMakeLists.txt` 与 `project()`，**必须进各自目录单独 configure**——仓库顶层只检查它们存在，不会 `add_subdirectory` 进来。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，五份工程**未在本机实际 configure / build / run**。其中的 C++ 源码都过了 `moc` + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`（零 error、零 warning）；CMake 用到的每个函数与参数都对着本机 `C:\msys64\ucrt64\lib\cmake\Qt6*` 的真实实现核对过。核对到的一条关键事实：**`qt_standard_project_setup()` 只打开 AUTOMOC 与 AUTOUIC，不打开 AUTORCC**。
+> 实测口径（本机真的建过、跑过，不再是「对着实现核一遍」）：五份工程都在 `D:\Qt\6.12.0\mingw_64` + MinGW 13.1.0 + CMake 3.30.5 + 生成器 MinGW Makefiles 下**各自 configure、build、run 过一遍**：
+>
+> - 五次 `cmake --build` 的 `warning:` / `error:` 行数都是 **0**；
+> - 四个 GUI 目标在 `QT_QPA_PLATFORM=offscreen` 下退出码全 **0**（`hello_widgets` / `greeting_app` / `resource_app` / `translations_app`）；
+> - `qt_cmake_04_tests` 的 CTest **1/1 Passed**，直接跑 `tst_calc.exe` 是 `Totals: 10 passed, 0 failed, 0 skipped, 0 blacklisted, 5ms`；
+> - `qt_cmake_05_translations` 里那条链闭合了，但**它原先是坏的**：`qt_add_translations` 首次 configure 生成的 `.ts` 是**空的**（文件里只有一句 "Run the update_translations CMake target to populate the source strings in this file."），空 `.ts` 过 `lrelease` 出来一个 **30 字节、0 条译文**的 `.qm`，而 `QTranslator::load()` 对这种文件**照样返回 true** —— 于是原程序在界面三行全是中文的情况下打印「翻译是否生效： true」。现在它改成了带基线对照的 11 项台账，不符就参与退出码。全过程写在 `qt_cmake_05_translations/src/main.cpp` 的文件头。
+>
+> CMake 侧仍然是逐行对着 `D:\Qt\6.12.0\mingw_64\lib\cmake\Qt6*` 的真实实现核过的。核对到的一条关键事实：**`qt_standard_project_setup()` 只打开 AUTOMOC 与 AUTOUIC，不打开 AUTORCC**。
+>
+> ⚠ 上面这条「跑过」是**构建环境事实**，不是语义保证：换一台没装 `Qt6LinguistTools` 的机器，第 5 份工程会走 `else()` 分支、`:/i18n` 里一个 `.qm` 都没有，程序的期望值会自动切到「全回落源文」那一档（`haveCatalog` 是构建期决定的，见那个文件的第四步注释），照样退 0。这就是它不判红的原因，也是它仍然能抓住「有 `.qm` 但里面没译文」的原因。
 
 ## 二、学习目标
 
@@ -54,13 +63,23 @@
           target_compile_definitions(greeting PRIVATE GREETING_LIBRARY=1) 的用途
     诚实标注：AUTOMOC 对**头文件里的 Q_OBJECT** 自动生效；写在 .cpp 里的类要 include .moc
 
-  qt_cmake_03_resources/        ← 资源两条路线
-    重点：qt_add_resources(<target> "<name>" PREFIX "/" FILES ...) 直接生成 ":/style.qss"；
+  qt_cmake_03_resources/        ← 资源三条路线（同一份文件进树三次）
+    重点：★路径 = PREFIX + 文件在源码树里的**相对路径**，不是文件名。
+          所以 qt_add_resources(... PREFIX "/" FILES assets/style.qss) 得到的是 ":/assets/style.qss"；
+          要压平成 ":/style.qss" 必须显式加 BASE assets（实测：中间产物
+          build/.qt/rcc/app_assets.qrc 里写的是 <file alias="assets/style.qss">）；
           传统路线：set(CMAKE_AUTORCC ON) + target_sources(... legacy.qrc) → ":/legacy/style.qss"；
-          两条路径的内容逐字节比较、字节数打印、WriteOnly 打开必失败（资源只读）；
+          三条路径的内容逐字节比较（同一份字节在 exe 里存了三份，alias 不去重）、
+          字节数打印、WriteOnly 打开必失败（资源只读）；
           qss 从资源读出来喂给 setStyleSheet 的日常写法
-    诚实标注：Qt6 CMake 层默认让 AUTORCC 用 zstd；本机没编 zstd 或设了
-              QT_NO_AUTORCC_ZSTD 时会追加 --no-zstd
+    诚实标注：qt_add_resources **没有** ALIAS 关键字（Qt6CoreMacros.cmake 408 行的单值参数
+              只有 PREFIX;LANG;BASE;OUTPUT_TARGETS;DESTINATION），按单个文件改名要用
+              QT_RESOURCE_ALIAS 源属性；
+              Qt6 CMake 层默认让 AUTORCC 用 zstd，但**本机 Qt 6.12.0 MinGW 没编 zstd**
+              （`mkspecs/qconfig.pri` 的 `QT.global.disabled_features` 里有 `zstd`），
+              所以实际命令行带的是 `--no-zstd`——在 `build/CMakeFiles/resource_app.dir/build.make`
+              里能直接grep到。换台机器装了带 zstd 的 Qt，资源段就会是 zstd 压缩的，
+              **同一份源码的 exe 体积会不一样**，别把体积差异当成代码改动的影响。
 
   qt_cmake_04_tests/            ← 库 + 应用 + 测试
     重点：find_package(Qt6 COMPONENTS Core Test)；enable_testing() 必须在顶层；
@@ -85,7 +104,7 @@
 构建、验证、运行三条命令（每个工程目录里都能用）：
 
 ```bash
-cmake -G Ninja -B build -S .
+cmake -G "MinGW Makefiles" -B build -S .
 cmake --build build
 ctest --test-dir build --output-on-failure    # 只有工程 04 有用例
 ```

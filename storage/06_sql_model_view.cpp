@@ -33,6 +33,11 @@
 //        但「一直 fetchMore 到底，总数一定对」是**两条分支同结论**，记硬账。
 //
 //   ★ 运行前须知：
+//     · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//       Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_06_sql_model_view）。本机这一轮：【硬账】86/86 项核对通过、整节作废 0。
+//       这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//       换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//       （本机那一轮存档 runlogs/storage_06_sql_model_view.log）。
 //     · 用 QSQLITE 内存库（":memory:"），一个文件都不写；每个连接有自己的库。
 //     · 每种「库里的值」都用一条独立 SELECT 去核，不靠模型自己汇报 ——
 //       模型说「我改了」和库说「我改了」是两件事，这一讲从头到尾在区分它们。
@@ -78,8 +83,11 @@
 //   第 71/72 行 insertRecord / setRecord
 //   第 74 行 revertRow(int)
 //   第 77/78 行 select() / selectRow(int)
-//   第 80/81 行 submit() / revert()          ← 只影响「当前行」
-//   第 83/84 行 submitAll() / revertAll()    ← 影响全部脏行
+//   第 80/81 行 submit() / revert()
+//              ← ★ 别被这对名字骗了：头文件里它们**没有**「只管当前行」的承诺。
+//                .cpp 第 770~774 行：非 OnManualSubmit 时 submit() 直接 return submitAll()，
+//                OnManualSubmit 时它原样 return true（空转）。「只管当前行」是 Qt4 的旧说法。
+//   第 83/84 行 submitAll() / revertAll()    ← 真正遍历脏缓存的那一对
 //
 // QtSql/qsqlrelationaltablemodel.h
 //   第 53 行 enum JoinMode（InnerJoin / LeftJoin）
@@ -344,32 +352,90 @@ static void phase2_editStrategies(QSqlDatabase db)
             QStringLiteral("%1（枚举序：OnFieldChange=0, OnRowChange=1, OnManualSubmit=2）")
                 .arg(int(table.editStrategy())));
 
+    // ★ 先把两条「网上都这么说」的旧账清了，这一节的数字才看得懂（两条都是取证出来的）：
+    //   ① setData() 里只有一句和策略有关：qsqltablemodel.cpp 第 562~563 行
+    //        if (d->strategy == OnFieldChange && row.op() != Insert) return submit();
+    //      —— **只有 OnFieldChange 会在 setData 内部自己提交**。OnRowChange 的 setData
+    //      走到第 565 行 return true 就结束了，改动只进 d->cache，库里一动不动。
+    //   ② submit() 不是「只提交当前行」：qsqltablemodel.cpp 第 770~774 行
+    //        bool QSqlTableModel::submit() { if (strategy==OnRowChange||strategy==OnFieldChange) return submitAll(); return true; }
+    //      它转手就是 submitAll()（第 696 行起，遍历整个 d->cache）。Qt4 时代那种
+    //      「submit 管当前行、submitAll 管全部」的分工在 Qt6 头文件/源码里已经没有了。
+    //   那 OnRowChange 到底靠谁提交？靠**视图**：QAbstractItemView::closeEditor()
+    //   （qabstractitemview.cpp 第 2895 行起）在 hint==SubmitModelCache 时调
+    //   d->model->submit()（第 2974~2975 行）。所以「离开这一行才提交」的真实含义是
+    //   **「编辑这一格的编辑器关掉了」**，不是「模型又 setData 了另一行」。
+    //   本讲【2】不建视图，所以下面用一次手调 submit() 来扮演那个「关编辑器」的动作。
+    //   ★ 另外：setEditStrategy() 的第一件事是 revertAll()（qsqltablemodel.cpp 第 823~828 行），
+    //     换策略=先把没提交的改动丢掉。所以下面每次换策略之前，该落的都已经落了。
+
+    // 列号：emp 的字段顺序是 0 id / 1 name / 2 dept_id / 3 salary（见 main 里的 CREATE TABLE）。
+    // ★ 这一行就是本节原先全红的根因：写的是第 2 列（dept_id），读的却是 salary，
+    //   模型改它的缓存、库里的 salary 当然一点不动。列号一律从 record 里查，别写死。
+    const int salaryCol = table.record().indexOf(QStringLiteral("salary"));
+    checkNum(QStringLiteral("【2】salary 在第 4 列（下标 3）"), salaryCol, 3);
+    // 行号→主键：select() 没带 ORDER BY，SQLite 按 rowid 出，所以第 r 行就是 id=r+1。
+    // 【8A】那条硬账（拉到底 200 行一项不差）也是按这个顺序成立的。
+    auto salaryOf = [&db](int id) {
+        return scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=%1").arg(id)).toInt();
+    };
+
     // ① OnFieldChange：改一个字段就写一次库。
     table.setEditStrategy(QSqlTableModel::OnFieldChange);
-    table.setData(table.index(1, 2), 11111);
+    table.setData(table.index(1, salaryCol), 11111);      // 第 1 行 = id 2
     checkNum(QStringLiteral("【2A】OnFieldChange：setData 之后库里立刻变了"),
-             scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=2")).toInt(), 11111);
+             salaryOf(2), 11111);
 
-    // ② OnRowChange：改的时候只在缓存里；离开这一行时才提交。
+    // ② OnRowChange：改的时候只在缓存里；**关编辑器那一下**才提交。
     table.setEditStrategy(QSqlTableModel::OnRowChange);
-    table.setData(table.index(2, 2), 22222);
-    checkNum(QStringLiteral("【2B】OnRowChange：还在这一行里，库里没变"),
-             scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=3")).toInt(), 0);
-    // ★ 这一条的依据是策略名字的字面语义（qsqltablemodel.h 第 29 行的枚举）：
-    //   「换到另一行时提交」。所以改完第 3 行、再改第 4 行，第 3 行就应该落库了。
-    table.setData(table.index(3, 2), 33333);
-    checkNum(QStringLiteral("【2C】OnRowChange：换行之后，上一行的改动落库"),
-             scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=3")).toInt(), 22222);
+    checkBool(QStringLiteral("【2B】OnRowChange：第一行的 setData 被接受"),
+              table.setData(table.index(2, salaryCol), 22222), true);   // 第 2 行 = id 3
+    checkNum(QStringLiteral("【2B1】但库里还是旧值（改动只在缓存里）"),
+             salaryOf(3), 5000);
+    checkBool(QStringLiteral("【2B2】缓存里确实挂着这条未提交的改动"), table.isDirty(), true);
+    // ★ 这一条原先按「策略名字的字面语义」预测成「换行就落库」，实测打脸：
+    //   换到下一行再 setData，**这次写直接被拒**（返回值 false）。
+    //   依据两条，都是现场可查的：
+    //     · setData 第 544 行先看 flags()；flags() 第 1259~1262 行：OnRowChange 下
+    //       「这一行已 submitted() 并且全局 isDirty()」→ 不给 ItemIsEditable。
+    //       没进过缓存的行，其默认 ModifiedRow 的 op 是 None，而 setOp(None) 会把
+    //       m_submitted 置 true（qsqltablemodel_p.h 第 75~83 行）—— 所以「别的地方还挂着
+    //       未提交改动」时，任何新行都会走到这条拒绝分支。
+    //     · setData 的文档注释（qsqltablemodel.cpp 第 517~518 行）写得很直白：
+    //       "For OnRowChange, an index may receive a change only if no other
+    //        row has a cached change. Changes are not submitted automatically."
+    //   一句话：**OnRowChange 一次只允许挂一行的改动**，别指望它能攒着多行一起走。
+    checkBool(QStringLiteral("【2C】OnRowChange：另一行还挂着未提交改动 → 换行再改被拒"),
+              table.setData(table.index(3, salaryCol), 33333), false);   // 第 3 行 = id 4
+    checkNum(QStringLiteral("【2C0】被拒之后模型里第 4 行仍是旧值（缓存也没动）"),
+             table.data(table.index(3, salaryCol)).toInt(), 6000);
+    // 现在扮演视图：编辑器关闭 → QAbstractItemView::closeEditor() 调 d->model->submit()
+    //（qabstractitemview.cpp 第 2895 行起的函数体，第 2974~2975 行那两句）。
+    checkBool(QStringLiteral("【2C1】OnRowChange：手调 submit()（=关编辑器那一下）成功"),
+              table.submit(), true);
+    checkNum(QStringLiteral("【2C2】submit() 之后，先前那一行的改动落库"),
+             salaryOf(3), 22222);
+    checkBool(QStringLiteral("【2C3】提交之后不再脏（缓存腾出来了）"), table.isDirty(), false);
+    // 腾出缓存之后，下一行才写得动 —— 这才是 OnRowChange 逐行编辑的真实节奏。
+    checkBool(QStringLiteral("【2C4】submit() 之后换行再改就被接受了"),
+              table.setData(table.index(3, salaryCol), 33333), true);
+    table.submit();
+    checkNum(QStringLiteral("【2C5】再 submit()：这一行也落库（submit 内部就是 submitAll）"),
+             salaryOf(4), 33333);
 
-    // ③ OnManualSubmit：只有 submitAll()/submit() 才写。
-    table.setEditStrategy(QSqlTableModel::OnManualSubmit);
-    table.setData(table.index(4, 2), 44444);
-    checkNum(QStringLiteral("【2D】OnManualSubmit：setData 之后库里没变"),
-             scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=4")).toInt(), 0);
+    // ③ OnManualSubmit：submit()/revert() 空转，只有 submitAll() 才写。
+    table.setEditStrategy(QSqlTableModel::OnManualSubmit);   // 上一节已 submit，revertAll() 无损失
+    table.setData(table.index(4, salaryCol), 44444);        // 第 4 行 = id 5
+    checkNum(QStringLiteral("【2D】OnManualSubmit：setData 之后库里还是旧值"),
+             salaryOf(5), 7000);
     checkBool(QStringLiteral("【2E】OnManualSubmit：模型是脏的"), table.isDirty(), true);
+    checkBool(QStringLiteral("【2E1】OnManualSubmit：手调 submit() 什么都不做（返回 true 但没提交）"),
+              table.submit(), true);
+    checkNum(QStringLiteral("【2E2】OnManualSubmit：submit() 之后库里仍旧是旧值"),
+             salaryOf(5), 7000);
     table.submitAll();
     checkNum(QStringLiteral("【2F】OnManualSubmit：submitAll 之后落库"),
-             scalar(db, QStringLiteral("SELECT salary FROM emp WHERE id=4")).toInt(), 44444);
+             salaryOf(5), 44444);
 
     // 主键：没有主键的表怎么编辑？
     checkNum(QStringLiteral("【2G】emp 的主键列数"), table.primaryKey().count(), 1);
@@ -402,11 +468,14 @@ static void phase2_editStrategies(QSqlDatabase db)
 
     qInfo().noquote() << QStringLiteral(
         "  → 三种策略怎么选，只有一个判断标准：**用户能不能容忍「刚填的东西突然没了」**。"
-        "\n     · 单个开关 / 单个数字：OnFieldChange，改完就走，简单；"
-        "\n     · 一个表单（多字段要一起成立）：OnManualSubmit + 一个「保存」按钮；"
-        "\n     · 表格里逐行编辑：OnRowChange（离开这一行才算改完）。"
-        "\n     混合策略是灾难 —— 所以 setEditStrategy 应该在 setTable 之后立刻定下来，"
-        "\n     别在事件处理里来回改。");
+        "\n     · 单个开关 / 单个数字：OnFieldChange，setData 里就替你 submit 了，改完就走；"
+        "\n     · 一个表单（多字段要一起成立）：OnManualSubmit + 一个「保存」按钮调 submitAll()；"
+        "\n     · 表格里逐行编辑：OnRowChange —— 注意它落库的时刻是**编辑器关闭**"
+        "（closeEditor→model->submit()），不是「光标挪到别的格」；而且它**一次只允许挂一行的改动**，"
+        "第二行的 setData 会被直接拒掉（见【2C】），提交完才轮得到下一行（见【2C4】【2C5】）。"
+        "\n     两条额外的纪律：① 混合策略是灾难 —— setEditStrategy 应该在 setTable 之后立刻定下来；"
+        "\n     ② 真要中途换策略，记住 setEditStrategy() 进门先 revertAll()（.cpp 第 823~828 行），"
+        "缓存里没提交的改动会当场蒸发。");
 }
 
 // ============================================================================
@@ -887,15 +956,21 @@ int main(int argc, char *argv[])
  *   外键列要显示成人话                  QSqlRelationalTableModel + setRelation
  *   只读超大数据集、不想全进内存        QSqlQueryModel + setForwardOnly + 分批
  *
- * 三种编辑策略（qsqltablemodel.h 第 29 行）：
- *   OnFieldChange    改一个字段写一次库     单个开关/数字，改完就走
- *   OnRowChange      离开这一行时提交       表格逐行编辑（默认）
- *   OnManualSubmit   只有 submitAll 才写    表单，或需要「一起成立」的多字段
+ * 三种编辑策略（qsqltablemodel.h 第 29 行；语义按 .cpp 实测，别信「名字的字面意思」）：
+ *   OnFieldChange    setData 内部自己 submit（.cpp:562）—— 改一个字段写一次库
+ *   OnRowChange      setData 只进缓存；**closeEditor 时视图调 model->submit()** 才落库
+ *                    （qabstractitemview.cpp:2974）。★ 且一次只允许一行挂着未提交改动，
+ *                    第二行的 setData 直接返回 false（qsqltablemodel.cpp:517~518 文档 +
+ *                    flags() :1259~1262）。默认策略（.cpp:253 文档：默认 OnRowChange）
+ *   OnManualSubmit   submit()/revert() 空转，只有 submitAll() 写库，且它结尾会 select()
  *
- * 三对容易混的方法：
- *   submit() / revert()        只作用于**当前行**
- *   submitAll() / revertAll()  作用于**所有脏行**
+ * 三对容易混的方法（★ Qt6 实测纠正了两条老说法）：
+ *   submit() / revert()        = 「按策略决定要不要动手」：非 OnManualSubmit 时它们
+ *                                就是 submitAll()/revertAll()；OnManualSubmit 时什么都不做。
+ *                                不是「只作用于当前行」！
+ *   submitAll() / revertAll()  遍历整个脏缓存
  *   select()                   重新查；未提交的改动会被丢掉（Soft，实测为准）
+ *   setEditStrategy()          进门先 revertAll()（.cpp:823~828）—— 换策略=丢改动
  *
  * 五个「不是」：
  *   · 模型不是数据库 —— 它是缓存，绕过它改库要自己 select()

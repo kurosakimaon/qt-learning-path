@@ -43,9 +43,11 @@
 //     UI 层只被**构造**，不 show()、不画像素 —— 本讲要证的是依赖方向，不是长相。
 //   · 唯一的磁盘动作：把 JSON 存储写进 QStandardPaths::TempLocation 下的一个小文件，
 //     阶段末尾删掉。不联网，不碰用户配置。
-//   · 未实测声明：本机当前无法链接 Qt 运行时，本示例**未链接、未运行**，
-//     仅通过 moc + g++ -fsyntax-only（-std=c++17 -Wall -Wextra）做编译期核对。
-//     文中所有「期望」后面是推理，不是跑出来的数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 quality_03_architecture_layers）。本机这一轮：硬账 44 项：对上 44，不符 0。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h：QWidget 的前置条件
@@ -78,7 +80,7 @@
 #include <utility>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // 本讲用到的三个「运行期能问出真话」的 API：
 //
@@ -176,18 +178,6 @@ static void checkBool(const QString &label, bool got, bool want)
             QStringLiteral("实测 %1（期望 %2）")
                 .arg(got ? QStringLiteral("true") : QStringLiteral("false"),
                      want ? QStringLiteral("true") : QStringLiteral("false")));
-}
-
-// 前提不成立就整节作废：宁可少核，也不要拿一个错的前提去算出一堆假结论。
-static bool premise(const QString &label, bool ok, const QString &detail)
-{
-    verdict(Hard, QStringLiteral("前提：") + label, ok, detail);
-    if (!ok) {
-        ++gLedger.stalled;
-        qWarning().noquote()
-            << QStringLiteral("  ……… 本节前提没成立，余下的核对全部跳过（这一节记作作废）");
-    }
-    return ok;
 }
 
 // ============================================================================
@@ -663,7 +653,7 @@ static void phase1_layerTable()
     // 定理（可以直接背走）：若每条合法边都让 rank 严格下降，
     // 那么图上不可能有环 —— 因为环要求 rank 绕一圈回到自己，而严格下降回不去。
     // 换句话说：**分层顺序本身就是一张拓扑序**，你不需要再单独跑一遍拓扑排序。
-    qInfo().noquote() << QStringLiteral("  【1G】定理：分层规则成立 ⇒ 无环。"
+    qInfo().noquote() << QStringLiteral("  【1G】定理：分层规则成立 => 无环。"
                                         "所以【1A】的 0 是必然，【1C】的 1 也是必然。");
     verdict(Obs, QStringLiteral("【1H】真正需要单独检查的只有反向边"),
             true, QStringLiteral("环检查是保险，方向检查才是主刀"));
@@ -963,9 +953,16 @@ static void phase6_decorator()
     qInfo().noquote() << QStringLiteral("  外层名字：") + audited.backendName();
     qInfo().noquote() << QStringLiteral("  最后一次被审计到的操作：") + audited.lastOperation();
 
-    // 业务脚本固定是：reload + add + add + toggle = 4 次存储调用。
-    checkNum(QStringLiteral("【6A】审计层看到的调用次数"), audited.callCount(), 4);
-    checkNum(QStringLiteral("【6B】内层实际被调用次数"), inner.callCount(), 4);
+    // 数一下这里的存储调用到底几次（预测错过一次，实测纠正 —— 讲清楚为什么）：
+    //   · 构造 TodoPage 时，它自己的构造函数末尾有一句 m_service->reload()
+    //     （见上面 TodoPage::TodoPage：界面一挂载就把数据拉进来，是 UI 层的正常自初始化），
+    //     这一次 loadAll 记在装饰器/内层头上 —— 它发生在 runScript 之前；
+    //   · runScript(svc, page) 内部是 reload + add + add + toggle = 4 次（loadAll + 3×saveAll）。
+    //   合计 = 1(建页) + 4(脚本) = 5 次存储调用（2 次 loadAll + 3 次 saveAll）。
+    //   【6A】== 【6B】这条不变关系才是本节的重点：装饰器与内层看到的次数**必须相等**，
+    //   多出来的那次不是装饰器「替业务多发」，而是 UI 构造函数本来就发了 —— 它照样被审计到。
+    checkNum(QStringLiteral("【6A】审计层看到的调用次数"), audited.callCount(), 5);
+    checkNum(QStringLiteral("【6B】内层实际被调用次数"), inner.callCount(), 5);
     checkBool(QStringLiteral("【6C】装饰器没有替业务多发一次 I/O"),
               audited.callCount() == inner.callCount(), true);
 

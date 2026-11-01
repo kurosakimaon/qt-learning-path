@@ -59,14 +59,14 @@ window.STEPS = [
       <svg viewBox="0 0 760 420" role="img" aria-label="事件过滤器的三种安装位置">
         <rect class="svg-box-accent" x="270" y="20" width="220" height="60" rx="10"/>
         <text class="svg-title" x="380" y="48" text-anchor="middle">qApp（应用对象）</text>
-        <text class="svg-small" x="380" y="70" text-anchor="middle">影响整个程序</text>
+        <text class="svg-small" x="380" y="70" text-anchor="middle">影响主线程的每一次分发</text>
 
         <path class="svg-arrow svg-flow" d="M340 80 L180 110"/>
         <path class="svg-arrow svg-flow" d="M420 80 L580 110"/>
 
         <rect class="svg-box-warn" x="60" y="110" width="240" height="70" rx="10"/>
         <text class="svg-small" x="180" y="138" text-anchor="middle">装在 qApp 上</text>
-        <text class="svg-small" x="180" y="160" text-anchor="middle">所有对象的所有事件都过你手</text>
+        <text class="svg-small" x="180" y="160" text-anchor="middle">只拦主线程分发的事件</text>
 
         <rect class="svg-box-good" x="460" y="110" width="240" height="70" rx="10"/>
         <text class="svg-small" x="580" y="138" text-anchor="middle">装在目标对象上</text>
@@ -82,11 +82,11 @@ window.STEPS = [
         <text class="svg-mono" x="80" y="364">target-&gt;installEventFilter(this);</text>
         <text class="svg-mono" x="80" y="386">qApp-&gt;installEventFilter(this);</text>
       </svg>`,
-    caption: '<code>installEventFilter(filter)</code> 是<strong>装在「被监视对象」身上</strong>的方法，参数才是过滤器自己。装在 <code>qApp</code> 上 = 看全程序；装在某个控件上 = 只看它；装在自己身上 = 看「自己被谁碰了」。影响面越大越要有分寸——全程序过滤器里做重活，等于给每个事件加税。',
+    caption: '<code>installEventFilter(filter)</code> 是<strong>装在「被监视对象」身上</strong>的方法，参数才是过滤器自己。装在 <code>qApp</code> 上 = 看<strong>主线程</strong>分发的每一个事件，不是「全程序」——其他线程里 <code>notify()</code> 的事件压根不走应用级过滤器：判据在 <code>qcoreapplication.cpp</code> 第 1257~1277 行（<code>sendThroughApplicationEventFilters</code> 开头一句 <code>Q_ASSERT(QThread::isMainThread())</code>，注释写着 "application event filters are only called for objects in the GUI thread"）和第 1311~1317 行（<code>notify_helper</code> 用 <code>if (QThread::isMainThread() && …)</code> 包住这个调用，注释 "only does anything in the main thread"）。同一段还有一条：过滤器自己如果不在主线程，会被一句 <code>qWarning("QCoreApplication: Application event filter cannot be in a different thread.")</code> 跳过（第 1268~1271 行）——对象级过滤器有一模一样的检查（第 1286~1289 行，前缀是 <code>QCoreApplication:</code>）。装在某个控件上 = 只看它；装在自己身上 = 看「自己被谁碰了」。影响面越大越要有分寸——应用级过滤器里做重活，等于给主线程的每个事件加税。',
     code: `// 只看这个输入框
 m_edit->installEventFilter(this);
 
-// 看整个程序（谨慎）
+// 看主线程分发的每一个事件（谨慎；其他线程的事件不走这里）
 qApp->installEventFilter(this);
 
 // 同一个过滤器可以装多处，eventFilter 里用 watched 区分
@@ -117,28 +117,34 @@ bool MyFilter::eventFilter(QObject *watched, QEvent *event) { /* … */ }`,
         <text class="svg-small" x="50" y="238">应用级在前，是因为它装的是「全局策略」</text>
         <text class="svg-small" x="50" y="262">（比如全局快捷键、调试日志）</text>
         <text class="svg-small" x="50" y="288">对象级在后，装的是「这个控件的特殊规矩」</text>
-        <text class="svg-small" x="50" y="314">★ 应用级与对象级的先后属于实现顺序，</text>
+        <text class="svg-small" x="50" y="314">★ 先后是实现顺序，别用它保证业务逻辑</text>
 
         <rect class="svg-box-bad" x="390" y="180" width="340" height="150" rx="10"/>
         <text class="svg-title" x="560" y="208" text-anchor="middle">别踩的坑</text>
         <text class="svg-small" x="408" y="238">· 两个过滤器都处理同一个事件 → 混乱</text>
         <text class="svg-small" x="408" y="262">· 依赖「谁先跑」来保证业务顺序</text>
         <text class="svg-small" x="408" y="288">· 用过滤器实现本该由控件自己做的逻辑</text>
-        <text class="svg-small" x="408" y="314">→ 半个月后没人说得清事件走的哪条路</text>
+        <text class="svg-small" x="408" y="314">· 跨线程装过滤器 → 压根没装上</text>
 
         <rect class="svg-box-warn" x="30" y="345" width="700" height="55" rx="10"/>
         <text class="svg-small" x="50" y="370">写过滤器时的自检问题：这个事件我处理了，用户还可能想让它继续往下走吗？</text>
         <text class="svg-small" x="50" y="390">想清楚这一条，顺序问题就基本不用管了。</text>
       </svg>`,
-    caption: '顺序是：<strong>应用级过滤器 → 对象级过滤器 → <code>receiver-&gt;event()</code> → 具体处理器</strong>；同一层里<strong>后装的先跑</strong>（文档明确写了这一条，因为后装的通常更具体）。应用级与对象级的先后细节属于实现顺序，<strong>不要靠它保证业务逻辑</strong>——写过滤器时只问一句：这个事件我拦下之后，还该不该往下走。',
+    caption: '顺序是：<strong>应用级过滤器 → 对象级过滤器 → <code>receiver-&gt;event()</code> → 具体处理器</strong>；同一层里<strong>后装的先跑</strong>——这不是「实现细节」而是文档明确规则（<code>qobject.cpp</code> 第 2387~2388 行 "the filter that was installed last is activated first"），实现上就是 <code>prepend</code> 进列表（第 2434 行）再从头往后遍历（<code>qcoreapplication.cpp</code> 第 1282~1283 行）；重复安装同一个过滤器会把它挪到「最后装」的位置（第 2390~2391 行 + 第 2433 行的 <code>removeIf</code>）。但<strong>应用级与对象级之间的先后属于实现顺序，不要靠它保证业务逻辑</strong>——写过滤器时只问一句：这个事件我拦下之后，还该不该往下走。另一个坑：给「不在同一线程」的对象装过滤器，<code>installEventFilter</code> 打一句 <code>qWarning("Cannot filter events for objects in a different thread.")</code> 就 <code>return</code>（<code>qobject.cpp</code> 第 2422~2427 行）——是<strong>压根没装上</strong>，不是「装了不生效」，排查时最容易看漏。',
     code: `// 装三个过滤器在同一个控件上
 edit->installEventFilter(filterA);   // 先装 → 最后被调用
 edit->installEventFilter(filterB);
 edit->installEventFilter(filterC);   // 后装 → 最先被调用
 
+// 同一个过滤器重复装 = 被挪到「最后装」那一档，优先级变最高
+edit->installEventFilter(filterA);
+
+// 跨线程装过滤器：一句 qWarning 之后直接 return，列表里根本没有它
+otherThreadObj->installEventFilter(this);   // ← 静默失败，最难查的一种
+
 // 调试时打印谁先跑，比背规则可靠
 qInfo() << watched->objectName() << event->type();`,
-    highlight: [1, 3, 6]
+    highlight: [1, 3, 6, 9]
   },
   {
     title: 'return true 之后，事件就死在你手里',
@@ -163,12 +169,12 @@ qInfo() << watched->objectName() << event->type();`,
         <rect class="svg-field" x="30" y="200" width="700" height="195" rx="10"/>
         <text class="svg-small" x="50" y="228">两个真实例子，正好一真一假：</text>
 
-        <rect class="svg-box-good" x="50" y="244" width="320" height="70" rx="8"/>
+        <rect class="svg-box-good" x="50" y="244" width="320" height="78" rx="8"/>
         <text class="svg-small" x="68" y="268">回车提交：拦下 KeyPress，返回 true</text>
         <text class="svg-small" x="68" y="290">否则 QLineEdit 可能会吃掉它 / 响铃</text>
         <text class="svg-small" x="68" y="310">（也可以就返回 false 让编辑框继续处理）</text>
 
-        <rect class="svg-box-warn" x="390" y="244" width="320" height="70" rx="8"/>
+        <rect class="svg-box-warn" x="390" y="244" width="320" height="78" rx="8"/>
         <text class="svg-small" x="408" y="268">日志/埋点：返回 false</text>
         <text class="svg-small" x="408" y="290">你只是想知道「发生过」</text>
         <text class="svg-small" x="408" y="310">拦下来 = 界面直接失灵（最经典的过滤器 bug）</text>
@@ -188,7 +194,7 @@ qInfo() << watched->objectName() << event->type();`,
     }
     return QObject::eventFilter(watched, event);   // 放行
 }`,
-    highlight: [6, 7, 9]
+    highlight: [4, 6, 9]
   },
   {
     title: '典型用途：四个值得用的场合',
@@ -253,7 +259,7 @@ qApp->installEventFilter(spy);   // 装在应用对象上，才看得到全程�
         <text class="svg-title" x="565" y="58" text-anchor="middle">过滤器对象先析构</text>
         <text class="svg-small" x="420" y="88">Qt 会把它从被监视对象上摘掉</text>
         <text class="svg-small" x="420" y="112">这是运行时清理，别当成契约来用</text>
-        <text class="svg-text" fill="#b45309" x="420" y="142">风险在别处：过滤器里存了别人的指针</text>
+        <text class="svg-warn-text" x="420" y="142">风险在别处：过滤器里存了别人的指针</text>
         <text class="svg-small" x="420" y="172">那个「别人」死了，你的过滤器就悬垂</text>
 
         <rect class="svg-field" x="30" y="220" width="700" height="110" rx="10"/>

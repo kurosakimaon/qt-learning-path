@@ -10,9 +10,11 @@
 
 它们有一个共同点：**把「我觉得应该没问题」换成机器能判定的结论。**
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。目标名 `quality_0N_xxx`，已在顶层 `CMakeLists.txt` 登记，本组额外链 `Qt6::Test` 与 `Qt6::Concurrent`；顶层把每个示例注册成 CTest 用例并强制 `QT_QPA_PLATFORM=offscreen` 运行。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。目标名 `quality_0N_xxx`，已在顶层 `CMakeLists.txt` 登记，本组额外链 `Qt6::Test` 与 `Qt6::Concurrent`；顶层把每个示例注册成 CTest 用例并强制 `QT_QPA_PLATFORM=offscreen` 运行。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，7 个示例**都未在本机实测运行**（两个 QtTest 用例还没在 CTest 里跑过）。每个类、函数、宏、枚举都对着本机 `C:\msys64\ucrt64\include\qt6` 里真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。**性能数字不编造**：示例只承诺相对关系，具体毫秒数以你的机器打印为准。
+> 实测口径：**7 个示例都在本机真实编译、链接、无头运行过**（Qt 6.12.0 + MinGW 13.1.0；`ctest -R "^quality_"` → 7/7 绿，输出存档 `runlogs/quality_0N_*.log`；原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。**两个 QtTest 用例也早就在 CTest 里跑着了**（这一版之前那句「还没跑过」是过期话）：第 1 讲 `Totals: 21 passed, 0 failed, 0 skipped`，第 2 讲 `Totals: 15 passed, 0 failed, 1 skipped, 82ms`——那唯一一条 skip 是**故意**的：`keyboardLatin1AbortsProcess()` 会 abort 整个进程，留在默认列表里等于把整份测试判红，所以要 `QTEST_FORCE_NON_LATIN1=1` 点名才跑（示例里把这句话打给你看了）。第 3~7 讲的台账分别是硬账 44 / 41 / 32/32 / 30 / 24 项，本机全对上、不符 0。每个类、函数、宏、枚举都对着本机 `D:\Qt\6.12.0\mingw_64\include` 里真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。
+>
+> **性能数字仍然不编造**：能跑不等于那台机器的毫秒数对你的机器成立。示例只承诺**相对关系**（A 比 B 快、行数涨十倍耗时不涨十倍这类），具体毫秒数以你自己屏幕打印的那一行为准；本讲义里出现的所有毫秒数都标了「本机那一轮」。
 
 ## 二、学习目标
 
@@ -21,7 +23,7 @@
 1. 写一个 QtTest 测试类（`QObject` + `private slots`），说得清 `initTestCase` / `init` / `cleanup` / `cleanupTestCase` 谁每轮跑、谁只跑一次
 2. 解释 `QCOMPARE` 与 `QVERIFY` 的输出差别，会用数据驱动（`f_data()` + `QTest::newRow`）把同一逻辑铺成多组用例
 3. 用 `QSignalSpy` + `spy.wait(期限)` 测异步信号，用 `QTRY_VERIFY` / `QTRY_COMPARE` 代替固定 `qWait`
-4. 在无头机器上把按钮点下去，并知道 `QTest::keyClicks` 只认 Latin-1 这个边界
+4. 在无头机器上把按钮点下去，并知道 `QTest::keyClicks` 只认 Latin-1 这个边界——而且越过边界**不是失败，是崩溃**
 5. 画出自己的分层（UI / 应用 / 领域 / 基础设施），并守住「依赖只朝一个方向」
 6. 为每一个 `new` 说出它的所有者，会用 `QPointer` 检测悬空、用 `deleteLater` 延迟销毁、用 `connect` 的 context 参数绑定连接寿命
 7. 分清 Qt 的返回值型错误与 C++ 的异常型错误，会写一个带「错误码 + 消息 + 可恢复性 + 上下文」的 `Result<T>`
@@ -47,7 +49,21 @@
     重点：QTEST_MAIN 与 QTEST_GUILESS_MAIN 只差一行，差的是「要不要 QApplication
           与平台插件」；QTest::keyClicks(QWidget*, ...) 只操作你递过去的控件、
           不依赖焦点（qtestkeyboard.h 第 194~197 行，widget 为空才回去找焦点）；
-          ★ 它只认 Latin-1：sequence.at(i).toLatin1()（第 265 行），中文敲不进去；
+          ★ 但别把「不依赖焦点」写成「它一定没焦点」：本机 offscreen 实测 show() 之后
+            hasFocus() 是 true。断言要落在「clearFocus() 之后仍然敲得进去」，
+            那才是这条规则本身，不是窗口管理器的脾气；
+          ★ 它只认 Latin-1：sequence.at(i).toLatin1()（第 265 行）之后还要拿那个字节
+            去查 QTest::asciiToKey 的表（qtestcase.h:515）。表里没有就是
+            `default: QTEST_ASSERT(false)` → **整个测试进程 abort**（qasciikey.cpp:192，
+            本机实测退出码 0xc0000602）。两条容易踩歪的：
+              · `QTEST_ASSERT` 在 qtestassert.h:11 **没有 QT_NO_DEBUG 保护**，release 的 Qt 一样炸；
+              · 表只覆盖 0x08~0x7f、0xa0~0xdf 加 0xe5 0xe6 0xf7 0xf8 0xff，
+                所以**连 é (0xe9) 都炸** —— 「Latin-1 能表示的就敲得进去」是错的，
+                带重音的小写字母基本都不在表里。原本这一讲的「café 是对照组」正是会崩的那一个；
+            想输入中文：用 `Qt::Key` 重载，或自己 `QApplication::sendEvent` 一个
+            带 text 的 QKeyEvent —— 本机实测这条真能插入「中文」，已钉成断言。
+            崩溃本身留在 `keyboardLatin1AbortsProcess()`，默认 QSKIP，
+            要亲眼看得 `QTEST_FORCE_NON_LATIN1=1`（或 `=latin1_eacute`）单跑那一个用例
           QSignalSpy 数次数与参数，spy.wait(期限) 等异步信号；
           模态 exec() 开新事件循环 → QTimer::singleShot(0, &dlg, &QDialog::accept) 关掉；
           QTRY_VERIFY / QTRY_COMPARE 按步长重试，成功立刻过
@@ -60,15 +76,23 @@
           每一层用运行期证据钉住，而不是一句「要有架构」；
           业务里 include <QWidget> 的三个代价：只能在有窗口的进程里跑、
           换存储要改界面、写测试要连数据库；
-          FakeStore 证明「换掉一层，别的层不用动」
+          FakeStore 证明「换掉一层，别的层不用动」；
+          装饰器那条【6A】/【6B】实测是 5 不是 4：脚本 reload+add+add+toggle 只有 4 次，
+          但 TodoPage 的构造函数自己先跑了一句 m_service->reload()（UI 一挂载就拉数据），
+          这一次也被审计到——数调用次数时，「谁在构造里偷偷调了一次」正是最容易漏的一笔；
+          不变的结论是【6A】==【6B】：装饰器没有替业务多发 I/O
     诚实标注：分层是边界纪律，不是框架；本讲不引入第三方 DI 容器
 
   04_ownership_and_lifetime.cpp ← 所有权与生命周期
     重点：六件工具逐个量：parent/child 树 + children()、std::unique_ptr、
           deleteLater + DeferredDelete、QPointer（裸指针做不到悬空检测）、
           connect 的 context 参数、QObject 禁止拷贝（编译期事实）；
-          ★ 销毁顺序是「实现细节」不是契约——本讲只承诺「父析构会收走子」，
-          不承诺子对象之间的先后；
+          ★ 分清两件事：**兄弟之间**的销毁顺序是「实现细节」不承诺（别依赖，换个 Qt 版本
+          就可能变）；**父子之间**的次序却是确定契约——「父对象的派生析构函数体」永远
+          早于「它的子对象析构」。原因：子对象是在基类 ~QObject() 里被 delete 的
+          （qobject.cpp 1058 进 ~QObject、1189~1190 才 deleteChildren()），而 C++ 析构
+          次序是「派生析构体 → 基类析构」。所以删 root 打印出的顺序是 a → a1 → b，
+          a（父）排在 a1（子）前面；本讲【1J】就把这条钉成一道硬账。
           每个阶段都落到一道能红的账上（删除计数、悬空检测、连接失效计数）
     诚实标注：DeferredDelete 何时处理取决于事件循环，本讲用事件循环回到空闲作为观测点
 
@@ -77,10 +101,18 @@
           QJsonDocument::fromJson + QJsonParseError 出参、QSqlQuery::exec + lastError()，
           **一个异常都不抛**；
           抛异常型：std::vector::at 越界（std::out_of_range）、operator new 失败
-          （std::bad_alloc）、某些配置下 QVariant::to<T>() 的 QtException 家族；
+          （std::bad_alloc）；QVariant 转换失败**不抛**（本机实测，且 Qt 6 没有 `to<T>()`，
+          只有 `value<T>()`——旧稿在这里写的「QtException 家族」查无此名，见 05 的勘误）；
           本讲把 catch 计数摆成 0、同一函数里越界 at() 抓到 1 次，两种风格一次对齐；
-          层间传错自己写 Result<T>：错误码 + 消息 + 是否可恢复 + 上下文字段
-    诚实标注：Qt 的异常支持依赖构建配置（QT_EXCEPTIONS）；本讲只对「本机头文件里
+          层间传错自己写 Result<T>：错误码 + 消息 + 是否可恢复 + 上下文字段；
+          日志取证用消息处理器数「泄漏了几行原始路径」：反面写法（target 原样进日志）
+          漏 1 行、正面写法（describeLog 打码）漏 0 行——但**全流程累计是 2 不是 1**：
+          另一行是「讲解时把特征串 dir 原样 qInfo 打出去」的那条取证 header，探针一视同仁
+          照单计数。这条实测纠正很值钱：现实里的路径/密钥泄漏，大半就来自这种「顺手 debug 打印」
+    诚实标注：Qt 的异常支持依赖构建配置（真名是 **`QT_NO_EXCEPTIONS`**，
+              qcompilerdetection.h:1515/1518 在编译器关掉异常时定义它；旧稿写的
+              `QT_EXCEPTIONS` 在 Qt 安装树 + Src 全树 grep 是 0 处，没这个开关。  name-ok:QT_EXCEPTIONS 本行正在说这个开关不存在（真名 QT_NO_EXCEPTIONS）
+              本机 MinGW 构建没定义它，也就是异常开着的）；本讲只对「本机头文件里
               声明会抛的」下断言，并注明它可能在别的配置下不同
 
   06_performance_profiling.cpp  ← 性能：先量，再猜
@@ -148,7 +180,7 @@
 
 1. **给现有代码加测试**：挑你之前写的一个函数，先写出 3 个用例，再故意改坏它，看测试是否变红。红不了，说明测试没测到点子上。
 2. **数据驱动**：把第 1 讲的折扣用例改成 5 组数据，用 `addRow("%d", n)` 命名，观察失败时输出里能否直接看出是哪一组。
-3. **无头点按钮**：把第 2 讲的用例跑在 `offscreen` 下，然后试着用 `keyClicks` 敲中文，确认它敲不进去——这就是边界。
+3. **无头点按钮**：把第 2 讲的用例跑在 `offscreen` 下，然后 `QTEST_FORCE_NON_LATIN1=1` 单跑 `keyboardLatin1AbortsProcess`，看它把进程炸在哪一行（`qasciikey.cpp:192`）。再把 `mode` 换成 `latin1_eacute`，确认 `café` 也一样炸——这就是边界，而且它比「敲不进去」严重：整份测试的汇总都没了。
 4. **依赖方向检查**：在你的项目里搜 `#include <QWidget>`，看看业务文件里有没有。有就说明分层漏了。
 5. **悬空指针**：写一个 `QPointer` 与裸指针的对照实验：对象销毁后分别读它们。
 6. **误用异常**：写一段 `try { QFile f("/nonexistent"); f.open(...); } catch (...)`，确认 catch 一次都没进。

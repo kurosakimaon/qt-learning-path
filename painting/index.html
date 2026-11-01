@@ -28,8 +28,8 @@
       QGraphicsScene / QGraphicsView</strong>。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。本组 8 个目标统一
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>。本组 8 个目标统一
       <code>target_link_libraries(... PRIVATE Qt6::Widgets Qt6::Svg)</code>（Svg 是给第 8 讲之后的项目留的，
       前几讲只用到 Widgets）。每讲都<strong>无人值守自动跑完</strong>：
       <code>QTimer::singleShot</code> 排动作 → 画进 <code>QImage</code> → <code>save("painting_0N_xxx.png")</code> →
@@ -37,13 +37,17 @@
       <strong>没有 <code>QDialog::exec()</code>、没有裸 <code>QEventLoop::exec()</code>、没有静态 MessageBox。</strong>
       跑完到 <code>build/bin</code> 下看图，图在就在证据在。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（Qt 运行时库版本不匹配），所以本模块
-      <strong>未链接、未运行，PNG 与所有打印数字都还没被任何机器验证过</strong>。
-      能做到的核对做到底：每个 API 都对着 <code>C:\msys64\ucrt64\include\qt6</code> 的真实头文件逐个查过
-      （行号写在用到的地方），第 5~8 讲还过了编译期这一关——
-      <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 加 <code>moc</code>，<strong>零 error、零 warning</strong>。
-      编得过 ≠ 画面对：文中凡「预期」都是推理，<strong>数字请你自己跑出来抄回注释里</strong>。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 8 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 73/73 里；
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      API 行号对着 <code>D:\Qt\6.12.0\mingw_64\include</code> 逐个查过。
+      <strong>27 张 PNG 现在是真的落到了 <code>build/bin</code> 下、一张 0 字节都没有</strong>，
+      打印数字的原始输出存档在 <code>runlogs/&lt;目标名&gt;.log</code>
+      （重跑：<code>bash _tools/run_all.sh '^painting'</code>）。
+      ★ 但要说清楚边界：<code>offscreen</code> 那批 PNG 是 <code>QImage</code> 上画出来再存盘的证据，
+      <strong>不等于你在显示器上看到的那一帧</strong>——DPR、字体 hinting、合成器都会改观感。
+      「像素对不对」这件事仍然要靠肉眼开一次窗口；数字对不对，按上面那些打印复核。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -157,7 +161,9 @@
       <li><strong>第 6 讲的坎要用「计数」过</strong>：在 <code>paintEvent</code> 里放一个 static 计数器，然后循环调 <code>update()</code> 一万次，看打印出来的 paint 次数——这个实验比任何文档都能说明「事件循环会合并重绘请求」。</li>
       <li><strong>API 有疑问就查头文件，别查记忆</strong>：本模块每个示例顶部都有一份「本机头文件签名清单」（带行号）。<code>QImage</code> 没有 <code>useCount()</code>、<code>QWidget</code> 没有 <code>setUpdateInterval()</code>、<code>Qt::ClipOperation</code> 没有 <code>UnionClip</code>、路径布尔不叫 <code>unitedPath()</code>——这些坑都是<strong>查头文件 + 编译期核对</strong>抓出来的，不是背出来的。</li>
       <li><strong>Qt5 → Qt6 的差异记三条就行</strong>：<code>QFontMetrics::width()</code> 没了（用 <code>horizontalAdvance()</code>）；<code>QPainter::RenderHint</code> 里没有 <code>HighQualityAntialiasing</code>；Qt6 没有 <code>QtGui/qgradient.h</code> 这份实现头（渐变声明在 <code>qbrush.h</code>）。三处都在第 1/3/4 讲里实测过。</li>
-      <li><strong>诚实对待「编没编过」</strong>：第 5~8 讲过了 <code>g++ -fsyntax-only -Wall -Wextra</code>（含 moc），零 error 零 warning；但本机链接不了，<strong>谁也没运行过这些程序</strong>。你到能编译的机器上第一次跑，重点看两件事：PNG 是不是生成了、打印数字跟你预期的对不对得上。</li>
+      <li><strong>诚实对待「编没编过」</strong>：这一条本模块自己走过回头路。早期写的是「第 5~8 讲只过了 <code>g++ -fsyntax-only -Wall -Wextra</code>，本机链接不了，<strong>谁也没运行过这些程序</strong>」——<strong>那句现在已经不成立了</strong>：八讲全部在本机（Qt 6.12.0 + MinGW 13.1.0）编译、链接、<code>-platform offscreen</code> 跑过，<code>ctest -R "^painting_"</code> → 8/8 绿，<code>build/bin</code> 下实际落了 <strong>27 张 PNG</strong>，输出存档 <code>runlogs/painting_0N_*.log</code>。留这条更正不是为了表功，是为了让你看见<strong>环境事实的保质期</strong>：一句「本机编不动」躺在那里，等环境好了，它盖住的那一半结论就全成了空话。</li>
+      <li><strong>「跑过」不等于「验过」</strong>：跑通只证明没崩。这一模块里真正的证据是两类数字——<strong>生成的 PNG</strong>（画面）和<strong>打印出来的像素计数/采样值</strong>（数）。两者都要看，而且要以数为准：画面会骗人，非透明像素数不会。换机器重跑时重点比对这两样。</li>
+      <li><strong>本机有一行无害的字体警告</strong>：<code>QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts</code>。Qt 6 不再自带字体，第 4 讲的文字度量照样能出数（走系统字体），但<strong>换一台没装字体的机器，度量数字会变</strong>——第 4 讲里那些具体像素宽度是「本机这一轮」的环境事实，别当常数抄。</li>
     </ul>
   </div>
 

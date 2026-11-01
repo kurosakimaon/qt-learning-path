@@ -11,7 +11,8 @@
 //     5) 老的 SIGNAL()/SLOT() 字符串式：为什么它把错误从编译期推到运行期
 //   外加两件实操硬活：
 //     · 重载信号怎么消歧义：qOverload<T>() / 显式成员指针类型 / qConstOverload
-//     · Qt::UniqueConnection 到底能不能配 lambda（头文件里那条 Q_ASSERT_X 就是答案）
+//     · Qt::UniqueConnection 到底能不能配 lambda（能拒，但拒的方式分两种：
+//       Release 是 qWarning + 静默不连，Debug 是断言 abort —— 本讲现场演的是前者）
 //
 // 对应构建目标名：metaobject_02_connect_variants
 //   add_executable(metaobject_02_connect_variants 02_connect_variants.cpp)
@@ -22,29 +23,10 @@
 //   · 只建 QApplication 不显示窗口；结论全部 qInfo() 打出来；QTimer 驱动 + 自动 quit()。
 //   · 文件里凡标了「【反面教材】」的片段都留在注释里，别取消注释——那是本讲要教的报错，
 //     取消了就构建失败或运行期断言。
-//   · 本机当前无法编译链接 Qt 程序，本示例**未在本机实测编译**；API 全部对本机头文件核对过：
-//       QtCore/qobject.h     —— connect 各重载：字符串式 212~213 行、QMetaMethod 式 215~217 行、
-//                               成员指针式 224 行、带 context 的 lambda 式 228 行 + 模板实现
-//                               231~276 行、无 context 版 278~286 行（被
-//                               QT_NO_CONTEXTLESS_CONNECT 包住）；static_assert 文案在
-//                               242/250/254/258 行；UniqueConnection 的 Q_ASSERT_X 在 268~270 行
-//       QtCore/qobjectdefs.h —— SIGNAL()/SLOT() 宏 50~60 行、qFlagLocation 第 38 行、
-//                               QSIGNAL_CODE/QSLOT_CODE/QMETHOD_CODE 第 41~43 行、
-//                               checkConnectArgs 278~280 行、normalizedSignature 第 281 行
-//       QtCore/qobjectdefs_impl.h —— AreArgumentsCompatible 的部分特化 272~286 行，
-//                               第 285 行 `AreArgumentsCompatible<A, void> = true`
-//                               就是「槽可以有返回值而信号是 void」也能连的依据
-//       QtCore/qnamespace.h  —— enum ConnectionType 第 1313~1320 行
-//       QtCore/qoverload.h   —— QNonConstOverload 26~36 行、QConstOverload 38~48 行、
-//                               QOverload 50~65 行、三个 constexpr 变量 67~69 行
-//       QtCore/qmetaobject.h —— QMetaMethod::fromSignal 第 222 行、methodSignature 第 26 行、
-//                               methodType 第 48 行、enclosingMetaObject 第 56 行
-//     另外两件事是**本机实测**出来的（不是凭记忆）：
-//       · 全棵 C:\msys64\ucrt64\include\qt6 树 grep `qMetaTypeClass` 零命中——qoverload.h 里
-//         没有这个东西，网上把它当 Qt API 的文章是讹传，本讲不用。
-//       · 对 `Q_SIGNALS: void bad();`（非 void 信号）跑了一遍 moc 6.12.0，它**不报错**、
-//         照样生成 `int E::bad() { QMetaObject::activate<...>(...); }`。所以「信号必须是
-//         void」是约定而非语法强制，见第五节。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_02_connect_variants，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_02_connect_variants.log）。
 // ============================================================================
 
 #include <QApplication>
@@ -281,14 +263,42 @@ int main(int argc, char *argv[])
     // 已经存在的重复记录一条都不删。想让连接幂等，先 disconnect 再 connect，
     // 或者把连接收敛到一个只跑一次的初始化函数里。
     //
-    // 而且 **lambda 用不了 UniqueConnection**，头文件里写死了（qobject.h 第 268~270 行）：
-    //   Q_ASSERT_X((type & Qt::UniqueConnection) == 0, "",
-    //       "QObject::connect: Unique connection requires the slot to be a pointer to "
-    //       "a member function of a QObject subclass.");
+    // 而且 **lambda 用不了 UniqueConnection**。Qt 自己的话（本机 qobject.cpp 第 5482~5483 行）：
+    //   "Qt::UniqueConnections do not work for lambdas, non-member functions and functors;
+    //    they only apply to connecting to member functions."
     // 为什么？去重要比「槽的身份」：成员函数指针每次都是同一个地址，可比；
-    // lambda 每写一次都是一个新的闭包类型/新对象，没有可比的身份，所以直接断言拦下。
-    // 【反面教材】别取消注释，跑起来是断言崩溃：
-    //   QObject::connect(&sensor, &Sensor::tick, &col, []{ }, Qt::UniqueConnection);
+    // lambda 每写一次都是一个新的闭包类型/新对象，没有可比的身份，所以 Qt 直接拒掉。
+    //
+    // ★ 但「怎么拒」取决于构建类型，这一点比「会被拒」更容易坑到人。分水岭是 QT_NO_DEBUG：
+    //   · 定义 QT_NO_DEBUG（本仓库的 Release 就是这样，见
+    //     build/CMakeFiles/metaobject_02_connect_variants.dir/flags.make 里那排 -D）
+    //     → qobject.h 第 268~270 行那句 Q_ASSERT_X **整个被编译掉**（qassert.h 第 44~50 行），
+    //       控制流走到 qobject.cpp 第 5578~5581 行的运行期守卫：那里调 connectWarning()
+    //       （本机同文件第 2773~2784 行，里面是 qCWarning(lcConnect, …)，**不是**裸 qWarning，
+    //        所以这行前面带类别前缀 qt.core.qobject.connect:），
+    //       然后 return 一个**无效**的 Connection。程序照常往下跑，回调永远不被叫。
+    //   · 不定义 QT_NO_DEBUG（Debug 语义）→ 断言活着，同一句直接 abort 掉进程。
+    //   本机各编一遍跑过，原文：
+    //     Release: qt.core.qobject.connect: QObject::connect(Sensor, Collector): unique
+    //              connections require a pointer to member function of a QObject subclass
+    //     Debug  : ASSERT failure in : "QObject::connect: Unique connection requires the slot
+    //              to be a pointer to a member function of a QObject subclass.",
+    //              file D:/Qt/6.12.0/mingw_64/include/QtCore/qobject.h, line 268（退出码 127）
+    // 所以下面这一小段只在 Release 里现场演；Debug 里现场演会把这一讲崩掉，那不算教学算捣乱。
+#ifdef QT_NO_DEBUG
+    int lambdaUniqueHits = 0;
+    const QMetaObject::Connection lambdaUnique =
+        QObject::connect(&sensor, &Sensor::tick, &col,
+                         [&lambdaUniqueHits] { ++lambdaUniqueHits; },
+                         Qt::UniqueConnection);
+    sensor.fireTick();
+    qInfo() << "  lambda+Unique（Release：断言被编译掉的那条路）连接有效 ="
+            << bool(lambdaUnique) << "｜触发 tick 后 lambda 命中 =" << lambdaUniqueHits
+            << "（两个都该是 false / 0；上面那句 qWarning 就是它的尸检报告）";
+#else
+    qInfo() << "  lambda+Unique：这一版没定义 QT_NO_DEBUG，qobject.h 第 268 行的断言还活着，"
+            << "现场连一次会当场 abort，所以只报配置不演。想演：CMAKE_BUILD_TYPE=Debug 重编本讲。";
+#endif
 
     qInfo() << "=== 6. 带 context object 的 lambda 式 ===";
     QObject::connect(&sensor, qOverload<const QString &>(&Sensor::valueChanged),

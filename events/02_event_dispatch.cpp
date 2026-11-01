@@ -21,8 +21,10 @@
 // 运行前须知：
 //   · 无鼠标键盘：所有输入事件都是代码构造的 QMouseEvent / QKeyEvent，
 //     再用 QCoreApplication::sendEvent() 投给控件（第 1 讲的手法）。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     每个签名都对着 C:\msys64\ucrt64\include\qt6 的真实头文件核对（注释里给了文件与行号）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 events_02_event_dispatch，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/events_02_event_dispatch.log）。
 //   · 本示例无人值守跑完：约 4 秒自动演示 + qInfo() 打结论 + QCoreApplication::quit()。
 //   · 重绘事件（paintEvent）依赖平台插件真派发：在 -platform offscreen 下同样会收到，
 //     但**次数**与窗口管理器和脏区合并有关，以你打印的数字为准。
@@ -221,7 +223,7 @@ protected:
     void mousePressEvent(QMouseEvent *) override
     {
         ++mouseFromChild;
-        qInfo().noquote() << QStringLiteral("      ↳ 父控件 %1 竟然收到了鼠标事件（子控件没要它）第 %2 次")
+        qInfo().noquote() << QStringLiteral("      -> 父控件 %1 竟然收到了鼠标事件（子控件没要它）第 %2 次")
                                 .arg(objectName()).arg(mouseFromChild);
     }
 };

@@ -145,7 +145,7 @@ void Child::someHandler(const QPoint &parentPoint)
 
 // 一句话检验方向对不对：把结果 map 回去，应该等于原值
 Q_ASSERT(mapTo(parentWidget(), mine) == parentPoint);`,
-    highlight: [4, 6, 9]
+    highlight: [4, 5, 9]
   },
   {
     title: 'pos / geometry / frameGeometry：三个矩形别混',
@@ -162,7 +162,7 @@ Q_ASSERT(mapTo(parentWidget(), mine) == parentPoint);`,
         <text class="svg-small" x="110" y="190">你自己的绘制区域 = rect()</text>
         <text class="svg-small" x="110" y="216">原点 (0,0) 在这里</text>
 
-        <rect class="svg-field" x="500" y="45" width="235" height="260" rx="10"/>
+        <rect class="svg-field" x="500" y="45" width="250" height="260" rx="10"/>
         <text class="svg-small" x="520" y="73">三个 API 的关系：</text>
         <text class="svg-mono" x="520" y="105">pos()</text>
         <text class="svg-small" x="520" y="128">= geometry().topLeft()</text>
@@ -278,7 +278,7 @@ p.restore();`,
 
     p.drawRect(0, 0, 100, 100);   // 仍然在未变换的坐标系里
 }`,
-    highlight: [5, 6, 7, 10]
+    highlight: [5, 6, 9, 11]
   },
   {
     title: '反向变换：命中测试要把鼠标「送进去」',
@@ -316,7 +316,7 @@ p.restore();`,
         <text class="svg-small" x="50" y="370">★ 三者都要注意：paintEvent 里的临时变换，必须在 paintEvent 之外能重算出来，</text>
         <text class="svg-small" x="50" y="392">  否则你根本没法反推 —— 把变换参数存成成员，别只写在绘制函数里。</text>
       </svg>`,
-    caption: '鼠标事件给的是<strong>控件坐标</strong>，而元素矩形是<strong>变换之后</strong>的——两套坐标不能直接相交判断。三种做法：只平移就减去偏移；有旋转缩放就<strong>用逆变换把鼠标点送回元素本地坐标</strong>；形状不规则就用 <code>QPainterPath::contains()</code>。<strong>关键前提是把变换参数存成成员</strong>，否则你没法在 <code>paintEvent</code> 之外重算它。',
+    caption: '鼠标事件给的是<strong>控件坐标</strong>，而元素矩形是<strong>变换之后</strong>的——两套坐标不能直接相交判断。三种做法：只平移就减去偏移；有旋转缩放就<strong>用逆变换把鼠标点送回元素本地坐标</strong>；形状不规则就用 <code>QPainterPath::contains()</code>。<strong>关键前提是把变换参数存成成员</strong>，否则你没法在 <code>paintEvent</code> 之外重算它。写逆变换时看清签名：<code>QTransform::inverted(bool *invertible = nullptr) const</code>（qtransform.h 第 81 行）——<strong>返回值才是逆变换</strong>，参数只是「可不可逆」的出口，而且它带 <code>[[nodiscard]]</code>，写成 <code>if (!t.inverted(&amp;inv))</code> 这种「返回 bool」的形态在 Qt6 里根本编不过（本讲正文 painting/02 第 210 行用的就是正确写法）。',
     code: `// 绘制与命中共用同一份变换参数
 QTransform Canvas::itemTransform(int i) const
 {
@@ -329,14 +329,16 @@ QTransform Canvas::itemTransform(int i) const
 int Canvas::hitTest(const QPoint &widgetPos) const
 {
     for (int i = 0; i < m_items.size(); ++i) {
-        QTransform inv;
-        if (!itemTransform(i).inverted(&inv)) continue;
+        bool invertible = false;
+        // inverted() 返回的是「逆变换」本身，出参是 bool*（qtransform.h 第 81 行），还带 [[nodiscard]]
+        const QTransform inv = itemTransform(i).inverted(&invertible);
+        if (!invertible) continue;
         const QPoint local = inv.map(widgetPos);   // 变回元素本地坐标
         if (QRectF(0, 0, 80, 40).contains(local)) return i;
     }
     return -1;
 }`,
-    highlight: [15, 16, 17, 18]
+    highlight: [15, 16, 17]
   },
   {
     title: '四类症状对照：这次错在哪套坐标',

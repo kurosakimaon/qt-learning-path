@@ -50,9 +50,10 @@
 //     最后一个批次用 QDir::removeRecursively() 删干净并打印删除结果与残留检查。
 //   · 大文件那一节只造 4 MiB（在临时目录里现写现删），不读任何现成的大文件；
 //     涉及的耗时只承诺**相对关系**，具体毫秒请你自己跑。
-//   · 未实测声明：**本文件未在本机实测编译运行**；
-//     已做的是 moc + g++ -fsyntax-only 通过，0 error 0 warning；未链接、未运行。
-//     本机头文件：C:\msys64\ucrt64\include\qt6，Qt 6.12.0。文中「预期」均为推理。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 storage_02_file_io，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/storage_02_file_io.log）。
 // ============================================================================
 
 #include <QCoreApplication>          // QtCore/qcoreapplication.h
@@ -153,7 +154,10 @@
 //   第 78/79 行 QFile();  QFILE_MAYBE_EXPLICIT QFile(const QString &name);
 //        ← ★ 第 64~68 行：Qt ≥ 6.9 时 QFILE_MAYBE_EXPLICIT 展开成 **explicit**，
 //          所以 `QFile f = path;` 这种隐式写法在新版编不过，一律 `QFile f(path);`
-//   第 48~62 行 QFILE_MAYBE_NODISCARD 宏：Qt ≥ 6.10 时 QFile::open 带 **[[nodiscard]]**
+//   第 48~62 行 QFILE_MAYBE_NODISCARD 宏——注意它在 **qfiledevice.h**，不在 qfile.h：
+//        48~54 行按版本决定（QT_VERSION < 6.10 走 QT_NO_USE_NODISCARD_FILE_OPEN，
+//        ≥ 6.10 才 define QT_USE_NODISCARD_FILE_OPEN），59 行才真的展开成 [[nodiscard]]。
+//        所以「QFile::open 带 nodiscard」是**从 6.10 起**这件事，本讲 6.12 命中。
 //   第 271 行 QFILE_MAYBE_NODISCARD bool open(OpenMode flags) override;
 //   第 272 行 bool open(OpenMode flags, Permissions permissions);
 //   第 273/274 行 bool open(FILE *f, OpenMode ioFlags, FileHandleFlags handleFlags = DontCloseHandle);
@@ -200,10 +204,12 @@
 //
 // QtCore/qlockfile.h（★ 它**不是** QObject，第 18 行没有继承、没有 Q_OBJECT）：
 //   第 21 行 explicit QLockFile(const QString &fileName);  第 22 行 ~QLockFile()（析构自动 unlock）
-//   第 24 行 bool lock();               ← **阻塞**式：一直等到拿到锁。自动演示里**别用**
+//   第 24 行 QString fileName() const;
+//   第 26 行 bool lock();               ← **阻塞**式：一直等到拿到锁。自动演示里**别用**
 //   第 36 行 bool tryLock(std::chrono::milliseconds timeout = std::chrono::milliseconds::zero());
-//   第 31/28 行 bool tryLock(int timeout);        ← 兼容版，第 60~64 行内联转成 chrono
-//   第 30 行 void unlock();            第 41 行 bool isLocked() const;
+//   第 27~28 行 bool tryLock(int timeout);   ← 27 行是 QT_CORE_INLINE_SINCE(6, 10)，
+//        兼容版，第 60~64 行内联转成 chrono
+//   第 29 行 void unlock();             第 41 行 bool isLocked() const;
 //   第 42 行 bool getLockInfo(qint64 *pid, QString *hostname, QString *appname) const;
 //        ← 拿到锁的人是谁：pid / 主机名 / 应用名。**排查「上一个进程没退干净」就靠它**
 //   第 45~51 行 enum LockError { NoError=0, LockFailedError=1, PermissionError=2,
@@ -276,22 +282,34 @@
 //   第 166/167 entryList(...)；**第 170/171 entryInfoList(Filters, SortFlags) 与
 //        entryInfoList(const QStringList &nameFilters, Filters, SortFlags)**
 //   第 178 mkdir(name, std::optional<Permissions> = nullopt)（★ Qt6 多了可选权限参数）
-//   第 180 rmdir / 第 183 mkpath(name, optional<Permissions>) / 第 184 rmpath
+//   第 179 rmdir / 第 183 mkpath(name, optional<Permissions>) / 第 184 rmpath
+//        （180~182 行是 `#if QT_CORE_REMOVED_SINCE(6, 10)` 包住的老 mkpath(QString) 重载，
+//         6.12 里它还在，但新代码用 183 行那份）
 //   **第 186 bool removeRecursively();**  ← 本讲收尾就靠它
 //   第 189 exists() / 第 203 remove(file) / 第 204 rename / 第 205 exists(name)
 //   第 218 separator()（Windows 给 '\\'，POSIX 给 '/'）/ 第 235 temp() / 236 tempPath()
 //   第 243 cleanPath(path)（**不碰磁盘**，只做字符串整理：// → /、去掉 ./）
-//   qfileinfo.h 第 37~44：QFileInfo(const QString&) 默认 **explicit**；
-//   第 87 exists / 91 filePath / 92 absoluteFilePath / 93 canonicalFilePath
-//   第 102 fileName / 103 baseName / 104 completeBaseName / 105 suffix / 107 completeSuffix
+//   qfileinfo.h 的构造函数（第 33~44 行）：`QFileInfo(const QString &file)` 在**第 40 行**，
+//        它前面带的是宏 QFILEINFO_MAYBE_EXPLICIT，而宏由 33~37 行决定：
+//        定义了 QT_IMPLICIT_QFILEINFO_CONSTRUCTION 就变 Q_IMPLICIT（可隐式转），
+//        否则就是 explicit —— 所以「QFileInfo 一律 explicit」这句是**有条件的**，别背死。
+//   ★ 勘误：这一串旧稿整体偏 +4/+5（例如 filePath 写 91、实际 87），是按别的 Qt 版本抄的。
+//     下面全部是**本机 6.12.0 数出来的**，改版本时要重新数。
+//   第 83 exists() const / 第 84 static exists(const QString &file)
+//   第 87 filePath / 88 absoluteFilePath / 89 canonicalFilePath
+//   第 98 fileName / 99 baseName / 100 completeBaseName / 101 suffix / 103 completeSuffix
+//        （102 行夹着一个 bundleName()，macOS 用，别被它带偏行号）
 //        ← "a.tar.gz"：suffix() = "gz"，completeSuffix() = "tar.gz"，
 //           baseName() = "a.tar"，completeBaseName() = "a"。拆包名一定要用 complete 版。
-//   第 109 path / 118 dir()；第 132/133 isFile()/isDir()；第 134/135 isSymLink()/isSymbolicLink()
-//   第 163/164 permission(QFile::Permissions) / permissions()
-//   第 166 qint64 size() const;   ← **静态拿大小**：QFileInfo(path).size()，不用开文件
-//   第 168~172 birthTime / metadataChangeTime / lastModified / lastRead / fileTime(FileTime)
-//   第 180/181 caching()/setCaching()；第 182 stat()（强制刷新缓存）
-//   第 199 typedef QList<QFileInfo> QFileInfoList;
+//   第 105 path / 115 dir() / 116 absoluteDir()
+//   第 128 isFile() / 129 isDir() / 130 isSymLink() / 131 isSymbolicLink() / 132 isOther()
+//   第 159 permission(QFile::Permissions) / 160 permissions()
+//   第 162 qint64 size() const;   ← **静态拿大小**：QFileInfo(path).size()，不用开文件
+//   第 164~168 不带时区的一组：birthTime / metadataChangeTime / lastModified / lastRead
+//        / fileTime(QFile::FileTime)（164~167 都是内联转调 fileTime，168 才是本体）
+//   第 170~174 同一组函数的 QTimeZone 重载（174 fileTime(time, tz)）
+//   第 176 caching() / 177 setCaching() / 178 stat()（强制刷新缓存）
+//   第 193 Q_DECLARE_SHARED(QFileInfo)；第 195 typedef QList<QFileInfo> QFileInfoList;
 // ============================================================================
 
 // ============================================================================
@@ -337,16 +355,6 @@ static QString kb(qint64 bytes)
     //   要格式化小数就老实用 asprintf。
     return QString::asprintf("%lld B (%.1f KiB)",
                              static_cast<long long>(bytes), double(bytes) / 1024.0);
-}
-
-// entryInfoList → 名字串（用来把遍历结果打成一行）
-static QStringList names(const QFileInfoList &list, int limit = -1)
-{
-    QStringList out;
-    const qsizetype n = (limit < 0) ? list.size() : qMin(limit, list.size());
-    for (qsizetype i = 0; i < n; ++i)
-        out << list.at(i).fileName();
-    return out;
 }
 
 // 数行数（不看编码，只看换行符，用来和数据条数对得上）

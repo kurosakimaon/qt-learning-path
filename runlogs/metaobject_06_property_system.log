@@ -1,0 +1,139 @@
+=== 1. 属性表长什么样：moc 真给你登记了条目 ===
+  propertyCount() = 7  本类属性段起点 propertyOffset() = 1
+    [1] level : int  读=√ 写=√ 常量=× 终态=× 可复位=√ 有NOTIFY=√ 是枚举=× 可绑定=× 是user=√
+    [2] raw : int  读=√ 写=√ 常量=× 终态=× 可复位=× 有NOTIFY=√ 是枚举=× 可绑定=× 是user=×
+    [3] fullScale : double  读=√ 写=× 常量=√ 终态=√ 可复位=× 有NOTIFY=× 是枚举=× 可绑定=× 是user=×
+    [4] peak : int  读=√ 写=× 常量=× 终态=× 可复位=× 有NOTIFY=√ 是枚举=× 可绑定=× 是user=×
+    [5] state : Gauge::Mode  读=√ 写=√ 常量=× 终态=× 可复位=× 有NOTIFY=√ 是枚举=√ 可绑定=× 是user=×
+    [6] label : QString  读=√ 写=√ 常量=× 终态=× 可复位=× 有NOTIFY=√ 是枚举=× 可绑定=× 是user=×
+  userProperty()（第一个 USER=true）= "level"
+      · [对] userProperty() 落到了第一个 USER=true 的 level 上：得到 1，期望 1
+      · [对] 本类登记的属性条数（propertyCount - propertyOffset）：得到 6，期望 6
+=== 2. 改属性 → 通知信号 → 界面刷新：把证据链打出来 ===
+  起点：level = 20  Panel 刷新次数 = 0
+  A 调 setter：level = 55  刷新次数 = 1
+      · [对] A 调 setter 后 Panel 刷新次数：得到 1，期望 1
+  B setProperty("level",88) 返回 = true  level = 88  刷新次数 = 2  ← 这条链是「按名字 → 元对象表 → WriteProperty → switch 调 setLevel → Q_EMIT → activate」
+  C QMetaProperty::write(120) 返回 = true  读回 = 120  刷新次数 = 3
+  同一个值再写一次：level 仍 = 120  刷新次数增量 = 0 （0 = 通知被 setter 里的相等判断挡住了——Qt 不禁止你重复通知，也不替你判断）
+      · [对] 三条写路径（setProperty / QMetaProperty::write）都返回 true：得到 1，期望 1
+      · [对] 同一个值再写一次 → 刷新增量为 0：得到 0，期望 0
+=== 3. Qt 不替你发 NOTIFY：raw 属性就是铁证 ===
+  setProperty("raw",7) → raw = 7  rawChanged 触发次数 = 0 （0！setRaw 里没有 Q_EMIT，属性照写、通知不发）
+      · [对] setProperty("raw") 值写进去了：得到 7，期望 7
+      · [对] 但 rawChanged 触发次数：得到 0，期望 0
+  level 的 notifySignalIndex() = 4  名字 = "levelChanged"  而 indexOfSignal("levelChanged(int)") = 4  ← 两个数相等：属性表存的就是**方法表里那个信号的索引** 。QML 引擎、QPropertyAnimation、绑定系统拿这一个整数去 connect， 不需要知道你类里的任何东西——这就是「自动连接」的全部真相。
+      · [对] 属性表存的就是信号表里那个索引（两个整数相等）：得到 1，期望 1
+=== 4. RESET / CONSTANT / FINAL / DESIGNABLE 的真实后果 ===
+  reset() 返回 = true  isResettable = true  level 现在 = 20 （回到 kInitialLevel=20）  Panel 刷新次数 = 4  ← 注意 resetLevel() 里没有 Q_EMIT，所以**复位是不通知的**（工程陷阱）
+      · [对] reset() 把 level 拉回 kInitialLevel：得到 20，期望 20
+      · [对] 而 reset 不通知：reset 前后 Panel 刷新增量：得到 0，期望 0
+  给 CONSTANT FINAL 的 fullScale 写 999 → write() = false  isWritable = false  isConstant = true  isFinal = true  读回 = 300 （CONSTANT 还告诉绑定系统「这个值不会变，别为它装监听」）
+      · [对] 给 CONSTANT 属性写值：write() 返回 false（不是崩）：得到 0，期望 0
+  level 的 isDesignable = true  isUser = true （这两个位是 Q_PROPERTY 里 DESIGNABLE true / USER true 落到属性表里的标记）
+  blockSignals 期间 setLevel(260)：level = 260  但刷新增量 = 0 （改值成功、通知被哑——批量初始化时用这个避免 N 次刷新）
+      · [对] blockSignals 期间：值改了：得到 260，期望 260
+      · [对] blockSignals 期间：刷新增量 0：得到 0，期望 0
+=== 5. Qt6 的属性绑定：头文件里有什么、没有什么（实测核对）===
+  objectName：isBindable = true  notifySignal = "objectNameChanged" （objectNameChanged 带 QPrivateSignal，见 qobject.h 353 行 ——  这个信号只能 Qt/绑定系统发，你在类外 Q_EMIT 不了）
+  QBindable<QString> 建出来了：isValid = true  isBindable = true  isReadOnly = false  当前 value = ""
+  bindable.setValue("主表针") 之后 objectName = "主表针"  property("objectName") = "主表针" （同一条链：Bindable::setValue → WRITE 函数 → NOTIFY）
+      · [对] bindable.setValue 走的确实是 WRITE（两条读法一致）：得到 1，期望 1
+  —— ① 访问器属性（Gauge::level，READ+WRITE+NOTIFY，**没有** BINDABLE）——
+      · [对] objectName 有 BINDABLE → QMetaProperty::isBindable：得到 1，期望 1
+    同一个 level，两个 isBindable 各说各话：  QMetaProperty::isBindable = false （它只回答「Q_PROPERTY 里有没有 BINDABLE 关键字」）  / QBindable::isBindable = true  isValid = true
+      · [对] level 没写 BINDABLE → QMetaProperty::isBindable 是 false：得到 0，期望 0
+      · [对] 但 QBindable(level) 照样 isValid && isBindable（能绑）：得到 1，期望 1
+    挂绑定（还没读）：level = 3000  求值 = 1  NOTIFY 增量 = 1  hasBinding = true （绑定落值走的就是你的 WRITE，所以里面那句 Q_EMIT 照发）
+      · [对] 挂绑定那一刻就求值 1 次（不是惰性）：得到 1，期望 1
+      · [对] 并且立刻落值：level = 3 * 1000：得到 3000，期望 3000
+    写依赖 levelDep=4：level = 4000  求值 = 2  NOTIFY 增量 = 2
+      · [对] 写依赖立刻重算并落值：level = 4000：得到 4000，期望 4000
+    [路径 A] 直接 setLevel(999)：level = 999  hasBinding = true  ← 和 ③ 相反：**绑定还在**
+      · [对] [A] 调自己的 WRITE：绑定还在（hasBinding=true）：得到 1，期望 1
+    写依赖 levelDep=5：level = 5000  求值 = 3  ← 999 被绑定**冲掉了**。你的 setLevel 里只有一句 m_level = v， 绑定系统不知道有人手动动过值
+      · [对] [A] 的 999 被依赖变化冲掉：level 变回 5000：得到 5000，期望 5000
+    [路径 B] setProperty("level", 999)：level = 999  hasBinding = true  ← 转手调 WRITE，绑定同样还在
+      · [对] [B] setProperty 也不解除绑定：得到 1，期望 1
+    写依赖 levelDep=6：level = 6000  求值 = 4  ← 又被冲掉一次（「通过元对象写就等于用户写」这个想当然也不成立）
+      · [对] [B] 写进去的值同样被覆盖：level = 6000：得到 6000，期望 6000
+    [路径 C] levelBindable.setValue(999)：level = 999  hasBinding = false  求值 = 4  ← **这条才解除绑定**（qproperty.cpp 2563 行）
+      · [对] [C] bindable.setValue：hasBinding 变 false（真解除）：得到 0，期望 0
+    写依赖 levelDep=7：level = 999  求值 = 4  ← 冻在 999 了：① 里「赋值 = 解除绑定」只对 bindable.setValue 成立
+      · [对] [C] 之后写依赖：值冻在 999：得到 999，期望 999
+      · [对] [C] 之后写依赖：求值次数不再涨：得到 4，期望 4
+  —— 只读属性（Gauge::peak，READ+NOTIFY，**没有** WRITE）——
+    元属性说的是实话：isReadable = true  isWritable = false ；而 QBindable::isReadOnly = false  ← 它问的是「能不能挂绑定」（773 行），不是「有没有 WRITE」，别看错
+      · [对] 只读属性：QMetaProperty::isWritable=false：得到 0，期望 0
+      · [对] 同一条属性：QBindable::isReadOnly=false（它不回答有没有 WRITE）：得到 0，期望 0
+    挂上绑定后写依赖 peakDep=3：peak = 0  求值 = 2  hasBinding = true  peakChanged 次数 = 0  value() = 0  ← 求值函数**真的在跑**（计数从 1 涨到 2），结果没有任何地方落下来（没有 WRITE）； value() 也不给绑定的结果，它走 READ 访问器
+      · [对] 只读属性挂绑定：求值函数跑了 2 次：得到 2，期望 2
+      · [对] 但 peak 一个数都没变（还是 0）：得到 0，期望 0
+      · [对] 而且一个 NOTIFY 都没发：得到 0，期望 0
+    类内部 recordPeak(88)：peak = 88  peakChanged 次数 = 1  value() = 88  ← 只读属性能变，但变的路线在类内部；绑定对它毫无影响力 （全程零警告、零报错，是最容易白写的一种）
+      · [对] 类内部改成 88 后 value() 也读到 88（走 READ，不走绑定）：得到 1，期望 1
+  —— 无 NOTIFY（Gauge::fullScale，READ+CONSTANT）——
+qt.qproperty.binding: QUntypedBindable: Property fullScale has no notify signal
+    isValid = false  isBindable = true  ← 手柄「看着能用」（isBindable=true）但 data 是空的； 上面那行 qt.qproperty.binding 警告就是它发的，判断只认 isValid()
+      · [对] 没有 NOTIFY 的属性：QBindable::isValid=false（不碰其它成员）：得到 0，期望 0
+  setBinding 之后（还没人读过）：hasBinding = true  求值次数 = 1  ← 挂上就求值，不是惰性
+  连读两次 derived = 30 / 30  求值次数 = 1  ← 值缓存着，读不会重算（应为 30/30、1）
+  执行 source = 40 **之后、读之前**：求值次数 = 2  ← 这一行就是「什么时候算」的答案：写在依赖方身上立刻传播，无需观察器
+  再读 derived = 120  求值次数 = 2 （应为 120、2）
+      · [对] ② 挂绑定那一刻就求值 1 次（不是惰性）：得到 1，期望 1
+      · [对] ② 连读两次：值都是 30：得到 1，期望 1
+      · [对] ② 连读两次：求值次数没涨（值缓存）：得到 1，期望 1
+      · [对] ② 写 source=40 之后、读之前计数就已经 +1：得到 2，期望 2
+      · [对] ② 再读 derived = 120：得到 120，期望 120
+  条件绑定第一轮（读 flag）： 2  求值次数 = 1
+  改成不读 flag 后写 flag=50 → cond = 7  求值次数 = 2  ← 这次还是重算了（上一轮登记过 flag），结果走到常量分支
+  再写 flag=60 → cond = 7  求值次数 = 2  ← **不再重算**：上一轮没读 flag，依赖已经换掉了。这就是「条件依赖」的代价，也是绑定系统只登记「本轮真正读过的那些」的原因（qproperty.cpp 372 行 evaluateRecursive）
+      · [对] ② 条件依赖：上一轮读过的 flag，本轮写它仍会重算：得到 2，期望 2
+      · [对] ② 上一轮没读 flag → 再写 flag 不再重算（依赖换掉了）：得到 2，期望 2
+  takeBinding() 摘掉之后 hasBinding = false  值仍是最后一次求值的结果 = 120 （摘绑定**不会**把值改回绑定之前的初值，也不会再随 source 变）
+  摘完再写 source=999 → derived = 120  ← 没绑定了，值冻住；想恢复自动跟随就重新 setBinding
+      · [对] ② takeBinding 后值仍是最后一次的 120：得到 120，期望 120
+      · [对] ② 摘完再写 source=999：值不动：得到 1，期望 1
+  PROBE bindableRpm().setBinding → 返回的绑定 isNull = true 求值次数 = 1 rpm = 2000 NOTIFY 次数 = 1
+  PROBE 写依赖 gear=3 之后：求值次数 = 2 rpm = 3000 NOTIFY 次数 = 2
+  PROBE 再写一次同样的 gear=3：求值次数 = 2 rpm = 3000 NOTIFY 次数 = 2
+  PROBE 写 gear=4：求值次数 = 3 rpm = 4000 NOTIFY 次数 = 3
+  PROBE 直接 setManual(1234)：rpm = 1234 NOTIFY 次数 = 4 ← 这一写**就把绑定摘了**（成员属性的规矩：给带绑定的 QProperty 赋值 = 解除绑定； 普通访问器属性不遵守这条，见上面 ① 的路径 A/B/C）
+      · [对] ③ 成员属性上 setManual 之后 hasBinding=false：得到 0，期望 0
+      · [对] ③ 而 ① 里同样的「调自己的 WRITE」当时绑定仍在（accessorWriteKeepsBinding）：得到 1，期望 1
+  PROBE 之后再写 gear=9：rpm = 1234 求值次数 = 3 NOTIFY 次数 = 4 ← 求值次数冻在 3：依赖照旧有人改，但这个属性已经不跟它走了
+  PROBE 重新挂绑定：again.isNull（= 挂上去之前那条）= true rpm = 9000 求值次数 = 4 NOTIFY 次数 = 5 ← 挂上的那一刻值从 1234 跳到 9000，NOTIFY 就是在这里 +1 的（不是下面那两次写）
+  PROBE 断绑定 setBinding(QPropertyBinding<int>()) → dropped.isNull（= 断掉的那条）= false hasBinding = false rpm = 9000 求值次数 = 4
+      · [对] ③ 断绑定返回的是「刚被断掉的那条」→ isNull=false：得到 0，期望 0
+      · [对] ③ 断完 hasBinding=false：得到 0，期望 0
+      · [对] ③ 断完值停在最后一次求值的 9000（不退 0）：得到 9000，期望 9000
+  PROBE 断完之后写 gear=20：rpm = 9000 求值次数 = 4 断前后 NOTIFY 增量 = 0 （三个都不该动：QProperty gear 还在，但它已经不是这个属性的依赖了）
+      · [对] ③ 断完再写依赖：rpm 仍是 9000：得到 9000，期望 9000
+      · [对] ③ 断完再写依赖：NOTIFY 增量为 0：得到 0，期望 0
+=== 6. 静态属性 vs 动态属性：拼错名字时两种完全不同的失败 ===
+  setProperty("serialNo") 返回 = false  读回 = "SN-2026"  dynamicPropertyNames() = QList("serialNo", "factoryYear")
+  动态属性名（转成 QString）= "serialNo, factoryYear"
+  已经写过 level= 999 ，但 dynamicPropertyNames 里有 "level" 吗？ 没有 （有 Q_PROPERTY 的名字走静态表，不会另存一份动态副本）
+  拼错的 setProperty("levl",4242)：gauge.property("levl") = 4242  而真属性 level = 999  ← **两个都存在、互不相干**：静态那个纹丝不动，动态那个凭空多出来。  这就是「按名字读写」把错误推到运行期的具体形状（第 1、5 讲说过的同一件事）。
+      · [对] 拼错的名字真的变成了一个动态属性（读回 4242）：得到 4242，期望 4242
+      · [对] 而静态 level 完全没被这个错名影响（仍是 999）：得到 999，期望 999
+      · [对] dynamicPropertyNames 里现在能查到 "levl"：得到 1，期望 1
+  反过来读一个既非静态也非动态的名字：property("不存在") 是无效 QVariant？ 是 （读不存在 = 无效 QVariant，返回默认值，不崩）
+      · [对] 读不存在的名字返回**无效** QVariant：得到 0，期望 0
+  给 int 属性 level 写 QString("not-a-number") → setProperty 返回 = false  level 现在 = 999 （QVariant 转换失败时的具体行为依 Qt 版本略有差别，本讲只把 API 用对、 结论留给你实测；能确定的是「编译期没人拦你」）
+=== 7. 枚举属性按名字读写（Q_ENUM 给属性系统开的门）===
+  state 属性 isEnumType = true  typeName = "Gauge::Mode"
+  write("Alarm") 返回 = true  读回 QVariant = QVariant(Gauge::Mode, Gauge::Alarm)  用 C++ 枚举比对 == Alarm  stateChanged 触发次数 = 1
+  write("不存在值") 返回 = false （按名字查表失败 → 不写）
+      · [对] 枚举属性按名字写：write("Alarm") 返回 true：得到 1，期望 1
+      · [对] 并且真的落到了 C++ 枚举上：得到 1，期望 1
+      · [对] stateChanged 触发 1 次：得到 1，期望 1
+      · [对] 按名字查不到 → write 返回 false：得到 0，期望 0
+=== 8. 事件循环里再改一次：属性系统没有任何特殊之处 ===
+  定时器里写属性：刷新增量 = 1  level = 275
+  MEMBER 属性 label：property("label") = "压力"  直接读成员 gauge.label = "压力"
+      · [对] 事件循环里写属性：Panel 刷新增量 1：得到 1，期望 1
+      · [对] setProperty("level",275) 落到 level()：得到 275，期望 275
+      · [对] MEMBER 属性：元对象写法直接改到了公有成员：得到 1，期望 1
+=== 第 6 讲演示结束，自动退出 ===
+自检台账：符合 61 项，不符 0 项（不符则退出码 1）

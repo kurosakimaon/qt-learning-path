@@ -18,8 +18,10 @@
 // 运行前须知：
 //   · 依赖 Qt6::Widgets；QPA 平台插件目录要在 PATH 里（Windows 上通常是
 //     <Qt>\bin，或程序旁边有 platforms/qwindows.dll、qoffscreen.dll）。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**，
-//     文中每一个 API 都对着 C:\msys64\ucrt64\include\qt6 里的真实头文件核对过。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 start_01_hello_window，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/start_01_hello_window.log）。
 //   · 本示例无人值守跑完：用 QTimer::singleShot 演示几步后自动 QCoreApplication::quit()。
 // ============================================================================
 

@@ -1,0 +1,6 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+This plugin does not support propagateSizeHints()
+[A counted] 收到信号，n = 1
+[B pinged] 来自 .cpp 内定义类的信号，seq = 42
+本讲要点回顾：Q_OBJECT 是给 moc 的标记；AUTOMOC 负责调度 moc；头文件里的类自动编译，.cpp 里的类要 #include "<本文件>.moc"

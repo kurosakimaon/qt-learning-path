@@ -1,0 +1,66 @@
+========== 第 8 讲 · 视图侧调优：10 万行为什么不卡 ==========
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① 「10 万行不卡」的真相：视图只问可见区
+  模型总行数=100000，视口=820×402 → 一次重绘的账：data=490(其中 SizeHint=0), index=70, parent=0, rowCount=1, columnCount=0, headerData=0, 被问到的不同行=14 个(区间 0..13)
+  对比：如果视图真的「把 10 万行都问一遍」，data() 至少是 500000 次量级 —— 差了三四个数量级，这就是拉取式（pull-based）的红利
+  rowHeight(0)=30 px、columnWidth(0)=100 px：视图是按这些几何量算出「哪些格在屏幕内」的
+② 滚一段，看「被问到的行区间」跟着挪（顺便读滚动条值）
+  滚动条 value：0 → 60000（scrollTo 到第 60000 行）
+  滚动前：data=490(其中 SizeHint=0), index=70, parent=0, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=14 个(区间 0..13)
+  滚动后：data=490(其中 SizeHint=0), index=70, parent=0, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=14 个(区间 60000..60013)
+  → 两次问的**格子数差不多**，只是行区间挪了：这就是「不卡」的第二条证据。
+③ resizeColumnsToContents()：一次调用 = 全表遍历（把次数数出来）
+  全表 5 列一起算：用时 12 ms，模型侧账本：data=40000(其中 SizeHint=5000), index=5000, parent=0, rowCount=5, columnCount=1, headerData=25, 被问到的不同行=1000 个(区间 0..999)
+  只算第 0 列（其余 4 列不动）：用时 2 ms，账本：data=8000(其中 SizeHint=1000), index=1000, parent=0, rowCount=1, columnCount=0, headerData=5, 被问到的不同行=1000 个(区间 0..999)
+  推理：一次全量列宽 = 对**每一行每一列**都要拿到 index 并问尺寸/文字，量级就是 行数×列数（本机 100000×5 = 500000 那个数量级），和「可见区只有几十格」形成鲜明对比
+  【注意】 所以：把它放进循环、放进 paint、或者每次数据变更都调一次，等于自愿把 O(可见格) 改成 O(全表)。
+④ QHeaderView::ResizeMode 四个值与两个重载
+  枚举真值（qheaderview.h 第 42~49 行）：Interactive=0 Stretch=1 Fixed=2 ResizeToContents=3，另有 Custom = Fixed（同值别名，第 48 行）
+  设完读回：sectionResizeMode(0)=0（Interactive=0），sectionResizeMode(ColName)=1（Stretch=1），defaultSectionSize=100, minimumSectionSize=16
+  动态 ResizeToContents 下改 **1** 格：用时 3 ms，账本：data=8490(其中 SizeHint=1000), index=1071, parent=1, rowCount=1, columnCount=0, headerData=860, 被问到的不同行=1000 个(区间 0..999)
+  换回 Interactive 后改 1 格：用时 0 ms，账本：data=7(其中 SizeHint=0), index=2, parent=1, rowCount=0, columnCount=0, headerData=35, 被问到的不同行=1 个(区间 4..4)
+  → 这就是「明明只改一个格子，界面却卡一下」的机制：ResizeToContents 是**模式**（每次 dataChanged 都重算），resizeColumnToContents() 是**动作**（你调一次它算一次）。
+  dataChanged 信号这边计到 2 次（模型老老实实发了，视图老老实实接了，接下来它要重算多少就是视图的设置决定的）
+  另两个常用旋钮：setStretchLastSection(true) 让最后一列吃掉余量；resizeSections(ResizeMode)（第 77 行）是「手动触发一次全量重算」的动作版。
+⑤ verticalHeader()->hide()：省的不止是一列宽度
+  隐藏前：isVisible=true，宽度=64，sectionSizeHint(0)=16
+  带竖表头时一次重绘：data=490(其中 SizeHint=0), index=70, parent=0, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=14 个(区间 0..13)
+  hide() 之后一次重绘：data=490(其中 SizeHint=0), index=70, parent=0, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=14 个(区间 0..13)
+  要点：竖表头每一行都要问 headerData(行号, Vertical)，而且它的宽度是**按最宽那格**算的；hide() 之后这一笔直接没了。行数上万时还能省掉一次「为算宽度而做的遍历」。
+⑥ ScrollMode：ScrollPerItem / ScrollPerPixel（注意它属于谁）
+  当前 verticalScrollMode=0，horizontalScrollMode=0（0=ScrollPerItem, 1=ScrollPerPixel；枚举在 qabstractitemview.h 第 92~95 行）
+  设成 ScrollPerPixel 之后：vertical=1, horizontal=1 → 滚动条一格走「像素」而不是「一行」，触摸板/长文本表更顺，但每滚一点都要重排可见区，行高不一致时开销更明显
+  resetVerticalScrollMode() 之后回到 0（视图会按样式/滚动条策略选默认值）
+  【注意】 再钉一遍：写 QAbstractScrollArea::ScrollPerPixel 编不过 —— 本机 qabstractscrollarea.h 里没有 ScrollMode 这个枚举。
+  updateThreshold=200（滚动时「挪多少像素才重画」的阈值，第 184/185 行；这是纯性能旋钮，改之前先确认你真的需要）
+⑦ EditTrigger / wordWrap / iconSize / grid / alternating
+  默认 editTriggers=0x1a（含 CurrentChanged=1、EditKeyPressed=8、AnyKeyPressed=16；AllEditTriggers=0x1f）
+  设成 DoubleClicked|SelectedClicked（2|4=6）→ editTriggers=0x06：「双击才进编辑」是这一行，但**模型的 flags() 不给 ItemIsEditable 照样进不去**（两道门，见 ../model_view/03）
+  【注意】 AnyKeyPressed(=16) 慎用：用户在表格里按一下字母就弹出编辑器盖住格子，这是新手最常见的「一打字就跳编辑框」来源。
+  wordWrap（属于 QTableView，第 69 行）默认=true，设 true 后读到=true，关回 false；【注意】 它和 ResizeToContents / resizeRowsToContents 组合起来就是「每格都要量文字折几行」，10 万行时非常疼
+  iconSize：默认 -1×-1 → 设 16×16 后 16×16；DecorationRole 有图时视图画这格要取 pixmap，图越大越多重绘越贵（本模型每 100 行放一个点）。顺带 showGrid=true、gridStyle=1、alternatingRowColors 设完读到=true
+  打开这些外观开关之后一次重绘的账：data=980(其中 SizeHint=0), index=140, parent=0, rowCount=0, columnCount=0, headerData=55, 被问到的不同行=14 个(区间 0..13)
+⑧ view->reset()：它清的是视图内部状态，不是你的数据
+  reset() 前：选中格=20，current 行=0，滚动值=5000；reset() 后：选中格=0，current 行=-1，滚动值=5000
+  数据一行没少：rowCount 仍=100000（第 3 讲说过：「整份换新」用 reset 是合法的，「改了几格」用 reset 就是把用户的滚动位置和选择全丢了）
+  官方文档对 reset() 的警告原话（大意）：会清掉打开着的编辑器、滚动条位置、选择等；未提交的编辑不会写回。所以日常开发**不要**调它，让模型的结构性信号（rowsInserted/dataChanged/modelReset）去驱动视图。
+  setModel() 之后再调 reset() 也是多余的：换模型时视图自己会重建状态（并造一个新的选择模型，见 ../model_view/06 证据①）。
+⑨ setUniformRowHeights：这条是 **QTreeView** 的（QTableView 没有）
+  uniformRowHeights 当前=true；rootIsDecorated=true；indentation=20
+  uniformRowHeights=true 重绘：1 ms，账本：data=770(其中 SizeHint=0), index=132, parent=110, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=22 个(区间 0..21)
+  uniformRowHeights=false 重绘：0 ms，账本：data=595(其中 SizeHint=0), index=102, parent=85, rowCount=0, columnCount=0, headerData=0, 被问到的不同行=17 个(区间 0..16)
+  语义：true = 「我保证各行一样高，你别逐行问了」，于是视图按第一行的高度推算，省掉逐行 sizeHint；行高真的不一样时设 true 会画错位——这条开关的价值全在「你真的保证」上。
+  树里顶层行数=100000（表格模型挂 QTreeView 时所有行都挂在根下，看到的是平的）
+⑩ 总账：同一份 10 万行，「默认设置」vs「调优后设置」
+  「自适应列宽 + 竖表头」：用时 13 ms，data=40980(其中 SizeHint=5000), index=5140, parent=0, rowCount=5, columnCount=0, headerData=80, 被问到的不同行=1000 个(区间 0..999)
+  「固定列宽 + 藏竖表头」：用时 1 ms，data=980(其中 SizeHint=0), index=140, parent=0, rowCount=0, columnCount=1, headerData=90, 被问到的不同行=14 个(区间 0..13)
+  关系（本讲承诺的那条）：两次**可见格子的 data() 次数应当同量级**，差的是「列宽全表遍历 + 表头」那些额外遍历；如果实测里前者远大于后者，凶手就是 resizeColumnsToContents。
+  （上面那行 setUniformRowHeightsIfAny 是我留下的**反面提醒**：
+   QTableView 根本没有 setUniformRowHeights()，那条只属于 QTreeView
+   （qtreeview.h 第 56/57 行）—— 想照抄树的调优清单到表格上就会编不过。
+   本讲把这句话原样打出来，不去调用它。）
+(11) 收尾自检
+  模型仍是 100000 行 × 5 列；视图 model()==&model ? true
+  全程 dataChanged 信号计到 2 次；verticalHeader 可见=false；horizontalHeader 第 0 列模式=0
+（事件循环正常退出，rc=0）

@@ -28,8 +28,10 @@
 //                           # 所以**必须**在文件末尾 #include "05_dialogs.moc"
 //
 // 运行前须知：
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     每个 API 都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对（行号见下）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_05_dialogs，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_05_dialogs.log）。
 //   · 【铁律】本文件的**主路径里没有任何阻塞调用**：
 //       - 不调 QDialog::exec()（qdialog.h 54 行：virtual int exec()，它会起一个嵌套事件循环，
 //         没人点按钮就永远停在那儿 → ctest 超时的第一名原因）；
@@ -74,7 +76,7 @@
 #include <QAbstractButton>
 #include <QIntValidator>        // QtGui/qvalidator.h：表单里那个数量字段用（第 2 讲讲过它住在 QtGui）
 // 想做「任务名格式」强校验时再请出 QRegularExpressionValidator（同一头文件第 141~156 行）：
-// Qt6 **没有** QRegExpValidator，别按老教程去 #include <QRegExpValidator>。
+// Qt6 **没有** QRegExpValidator，别按老教程去 #include <QRegExpValidator>。   name-ok:QRegExpValidator 说的就是「它不存在」
 #include <QFont>                // QtGui/qfont.h
 #include <QColor>               // QtGui/qcolor.h
 #include <QTimer>
@@ -198,7 +200,7 @@ public:
         qtyEdit = new QLineEdit(this);
         qtyEdit->setValidator(new QIntValidator(1, 99, this));   // 第 2 讲：QtGui/qvalidator.h 64 行
 
-        // 名字校验：用 QRegularExpressionValidator（Qt6 没有 QRegExpValidator，见第 2 讲）
+        // 名字校验：用 QRegularExpressionValidator（Qt6 没有 QRegExpValidator，见第 2 讲）   name-ok:QRegExpValidator 同上
         hint = new QLabel(QStringLiteral("提示：任务名只能含中文/字母/数字/空格"), this);
 
         auto *form = new QFormLayout;             // qformlayout.h 82 行 addRow(const QString &labelText, QWidget *field)
@@ -262,13 +264,13 @@ private slots:
                 << "（预期 false —— 别拿它当必填判据）"
                 << "（**校验失败时绝对不要 accept()**：对话框一关，用户输入就蒸发了）";
         if (!nameOk) {
-            hint->setText(QStringLiteral("❌ 任务名太短，请至少 3 个字符"));   // 就地提示，不弹窗
+            hint->setText(QStringLiteral("【失败】 任务名太短，请至少 3 个字符"));   // 就地提示，不弹窗
             hint->setWordWrap(true);
             nameEdit->setFocus();
             return;
         }
         if (!qtyOk) {
-            hint->setText(QStringLiteral("❌ 数量必填"));
+            hint->setText(QStringLiteral("【失败】 数量必填"));
             nameEdit->setFocus();
             return;
         }

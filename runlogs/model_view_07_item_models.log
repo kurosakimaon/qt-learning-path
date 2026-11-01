@@ -1,0 +1,24 @@
+========== 第 7 讲 · QStandardItemModel / 便利类三档判断 ==========
+Qt 版本串：6.12.0 —— 下面关于 QStandardItem 的结论按 6.x 的头文件说
+① 便利类最小用法：appendRow / setItem / item(r,c) / setData / setEditable
+  行数=4 列数=4（第 4 行只给了一格，其余格模型会补空 item 或留空）
+  item(0,2)：text=OPEN，flags=0x2d，ItemIsEditable(2) 位=无，UserRole=raw-0
+  新建 item 的默认 flags=0x2f（对照位值：Enabled=32、Editable=2、Selectable=1、DragEnabled=4、DropEnabled=8，见 QtCore/qnamespace.h）
+  item 的坐标是**相对父 item** 的：item(0,2)->row()=0 column()=2；模型侧则用 indexFromItem → (0,2)
+  交叉引用 ../model_view/03：模型的 flags 与视图的 editTriggers 是两道门，setEditable(false) 只关模型那道。
+② 「不用自己 emit dataChanged」到底是谁在做
+  只调 item->setText() 一次 → itemChanged 计 1 次、dataChanged 计 1 次（模型内部那个 _q_emitItemChanged 私有槽干的活，头文件第 390 行）
+  appendRow 之后：rowsInserted 计 1 次（视图因此能正确挪行，不用你管 begin/endInsertRows）
+  clear() 之后：modelReset 计 1 次（对照 ../model_view/03 证据⑤：reset 会让视图丢选择与滚动位置）
+  手写模型这边呢？../model_view/02/03 里这三个信号**全靠你自己发** —— 这就是便利类的第一笔收益。
+③ 同一个 QStandardItemModel：树上能展开，表里能平铺
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+  顶层 rowCount=3，第 0 项 hasChildren=true，它的 rowCount=2（孙子层 2）
+  item 侧：group 的 childCount=2，child(0,0)->text=  子类 0-0，它的 parent()->text=分组 0（父子指针都在，所以不需要另写模型类）
+  同一模型挂 QTableView：rowCount=3（只看见顶层 3 行，子层要展开才可见 —— 表格不会自己递归）
+  现象解释：QStandardItem 自带 children，所以一个类同时满足「表」和「树」两种结构；代价是**每格都背着 children 容器**，纯表格场景这份开销白付（证据⑤量化）。
+  takeRow(0)：行数 3 → 2，拿回 2 个 item（模型不再管它们，也不再去 hasChildren）
+  removeRow(0)：行数 → 1（这条是模型自己 delete，你不用接）
+  手动 delete 了 2 个 take 回来的 item（文档：take* 之后调用方成为所有者）
+（事件循环正常退出，rc=0）

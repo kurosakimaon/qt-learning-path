@@ -33,17 +33,25 @@
       「点一下才知道收没收到」这种示例，本模块一个都不写。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>（这是 Qt6 的最低要求）。
       每讲都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>
       （<code>QTimer::singleShot</code> 排脚本 + <code>qInfo()</code> 吐结论 + <code>quit()</code>）。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库不全），7 个示例
-      <strong>都未在本机实测编译</strong>；文中每一个类、函数、枚举、重载都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过，并在注释里写明了文件名与行号；
-      核对不上的一律不用。凡是依赖平台插件、依赖真实指针操作的行为，都在注释里标成
-      <strong>「文档语义」／「以你打印的数字为准」</strong>。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 7 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），<code>ctest -R events</code> <strong>7/7 全绿</strong>；
+      第 5、7 讲结尾各带一张<strong>自检台账</strong>（<code>[PASS]/[FAIL]/[SKIP]</code> 计数，本机那一轮
+      分别是 17 PASS / 0 FAIL / 0 SKIP 与 26 PASS / 0 FAIL / 0 SKIP），任何一条 FAIL 都会把退出码变成非 0，
+      所以「打印出来的结论」是被 ctest 盯着的。每个 .cpp 也过 <code>moc</code> +
+      <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），文中每一个类、函数、枚举、重载
+      都对着本机真实头文件与源码逐字核对过（<code>D:\Qt\6.12.0\mingw_64\include</code>、
+      <code>D:\Qt\6.12.0\Src\qtbase\src</code>），注释里给到文件名与行号，<code>perl _tools/audit_citations.pl</code>
+      会把每条「第 N 行」再核一遍。完整输出存档在 <code>runlogs/events_0N_*.log</code>
+      （UTF-8；重跑：<code>bash _tools/run_all.sh '^events'</code>）。
+      换 Qt 版本 / 换平台之后，带具体数字的预期以你自己那次打印为准；<strong>本机测不到的</strong>
+      （真实鼠标拖起的系统光标形状、跨进程 drop、Windows 上 <code>QDrag::exec()</code> 阻塞期间的界面表现）
+      在文中明确标成<strong>「文档语义」</strong>。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -147,9 +155,9 @@
       <li><strong>先跑第 1 讲再谈别的</strong>：事件循环是这 7 讲的地基。第 4 讲「没有 exec() 定时器一次都不响」、第 6 讲「postEvent 排到循环里才派发」、第 7 讲「QDrag::exec 自己开嵌套循环」，全是第 1 讲的复现。第 1 讲没跑通就往下走，后面只能靠背。</li>
       <li><strong>把第 2、3 讲对照着看</strong>：同一条链，一个从里面改（重写 <code>event()</code>/handler），一个从外面插手（事件过滤器）。看完你要能回答：「我要改一个<strong>不是自己写的</strong>控件的行为，该用哪招？」——答案只能是过滤器。</li>
       <li><strong>先答「事件还是信号」再动手</strong>：每写一段响应逻辑之前，先问自己接的是 <code>QEvent</code> 还是信号。分不清就把本模块 <a href="tutorial.md">学习指南</a> 第五节那张链图重看一遍。</li>
-      <li><strong>读打印出来的数字，别只读注释</strong>：每个示例都吐「到达顺序、进入次数、实测间隔」。数字和你的机器一致才算读懂；示例里凡是本机跑不出来的数，都写明了「以你终端上的数字为准」。</li>
+      <li><strong>读打印出来的数字，别只读注释</strong>：每个示例都吐「到达顺序、进入次数、实测间隔」，本机那一轮已经存进 <code>runlogs/events_0N_*.log</code>（例：第 4 讲 interval=0 时 150ms 内命中 10803 次、重复 <code>start()</code> 2000 次的 B/A = 1.000）。<strong>绝对值随机器变</strong>，你要对上的是相对关系；跑不出同样的数不算你错，把那一行打印出来对比即可。</li>
       <li><strong>Qt5/Qt6 的差异标在注释里，迁移老代码时先看它</strong>：第 5 讲末尾有一张 Qt5→Qt6 对照表（<code>pos()</code>→<code>position()</code>、<code>mouseButtons()</code>→<code>buttons()</code>、<code>QWheelEvent</code> 构造参数变化、<code>enterEvent</code> 改收 <code>QEnterEvent*</code> 等），网上抄来的旧代码八成踩在这里。</li>
-      <li><strong>记住「未在本机实测编译」</strong>：本机此刻编不动 Qt 程序，这 7 个示例没有可执行产物；但每个 API 都对着真实头文件核对过并写了行号。你换到能编译的环境，按注释里的 CMake 目标名 <code>events_0N_xxx</code> 构建即可。</li>
+      <li><strong>这 7 个目标本机都能跑</strong>：顶层 <code>ctest -R events</code> 就是它们的无人值守入口（强制 <code>-platform offscreen</code>，不需要显示器）；只想快速验证一份新机器上的源码，用 <code>bash _tools/check_syntax.sh events</code>（免链接）。自己改坏了也无妨——台账会把 FAIL 计数变成非 0 退出码，骗不过去。</li>
     </ul>
   </div>
 

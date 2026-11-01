@@ -30,7 +30,11 @@
 //     4) sort 与视图 setSortingEnabled 的关系：视图只负责「表头点一下 → 调 model->sort()」，
 //        真正被 sort 的是**视图当前绑的那个模型**（这里就是代理）；代理再决定是
 //        重排映射还是让源去排。dynamicSortFilter 这个开关管的是「源变了要不要自动重排/重筛」，
-//        默认 false，很多「数据一多就不筛了」的 bug 就卡在这。
+//        ★ 默认是 **true**（qsortfilterproxymodel.cpp 第 2994 行："The default value is true."），
+//        所以「自动跟着源变」是出厂行为；反过来的坑才常见：**你自己为了性能把它 set 成 false**，
+//        之后「数据一多就不筛了 / 排序不跟手」就卡在这。老资料里写「默认 false」的（本讲原稿也是）
+//        一律按实测改。同理：filterKeyColumn 默认 **0**（不是 -1）、sortRole/filterRole 默认
+//        **Qt::DisplayRole**（不是 EditRole）——三条都在证据① 打了硬账。
 //   配套：QTableView 显示、QElapsedTimer 计时、data() 计数器（第 2 讲的思路）看代理
 //   到底替视图问了多少次源模型。
 //
@@ -51,9 +55,11 @@
 //     映射一定成立（代理第 i 行 ↔ 源某一行）、不映射问源一定拿到空、
 //     改判据不失效则结果一定不变。
 //   · 图解页面：../visuals/model_view.html（「视图 → 代理 → 源」三层索引流向那张）。
-//   · 未实测声明：本机当前无法链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；下面每处「预期」后面写的是推理，不是实测数字。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_05_proxy_model）。本机这一轮：【硬账】45/45 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>              // QtWidgets/qapplication.h
@@ -116,23 +122,34 @@ void checkBool(const char *what, bool got, bool want = true)
 } // namespace
 
 // ============================================================================
-// 一、核对过的签名（本机 C:\msys64\ucrt64\include\qt6，QtCore 版本串 6.12.0）
+// 一、核对过的签名（本机 D:\Qt\6.12.0\mingw_64\include，QtCore 版本串 6.12.0）
 //     行号是我去头文件里逐行看的，改 Qt 版本请重新核。
 // ============================================================================
 // QtCore/qsortfilterproxymodel.h
 //   第 21 行   class Q_CORE_EXPORT QSortFilterProxyModel : public QAbstractProxyModel
-//   第 53 行   explicit QSortFilterProxyModel(QObject *parent = nullptr);
+//   第 52 行   explicit QSortFilterProxyModel(QObject *parent = nullptr);   （53 行是析构）
 //   第 55 行   void setSourceModel(QAbstractItemModel *sourceModel) override;   ← 父类的，代理自己实现
 //   第 57 行   QModelIndex mapToSource(const QModelIndex &proxyIndex) const override;
 //   第 58 行   QModelIndex mapFromSource(const QModelIndex &sourceIndex) const override;
 //   第 60/61 行 QItemSelection mapSelectionToSource(const QItemSelection &) const override;
 //              QItemSelection mapSelectionFromSource(const QItemSelection &) const override;
 //   第 66/67 行 int filterKeyColumn() const;  void setFilterKeyColumn(int column);
+//              ★ 默认值是 **0**，不是 -1（qsortfilterproxymodel.cpp 第 2732~2737 行属性文档原文：
+//                "The default value is 0. If the value is -1, the keys will be read from all columns."）
+//                -1 是「你显式要求全列匹配」才要写的值；证据① 实测钉这一条。
 //   第 71 行   void setFilterCaseSensitivity(Qt::CaseSensitivity cs);
 //   第 82/83 行 int sortColumn() const;  Qt::SortOrder sortOrder() const;
 //   第 85/86 行 bool dynamicSortFilter() const;  void setDynamicSortFilter(bool enable);
+//              ★ 默认 **true**（同文件第 2982~2994 行："The default value is true."），
+//                即「源一发 dataChanged 就自动重排/重筛」是**出厂行为**，不用你开。
+//                证据① 实测钉这一条；证据③ 反过来要**显式关掉**它才谈「不动态」的账。
 //   第 89/90 行 int sortRole() const;  void setSortRole(int role);
 //   第 93/94 行 int filterRole() const;  void setFilterRole(int role);
+//              ★ 两个 role 的默认都是 **Qt::DisplayRole**（第 3029~3033 行、第 3068~3072 行
+//                属性文档各写一句 "The default value is Qt::DisplayRole."）。
+//                网上「排序走 EditRole」是 Qt4/Qt5 时代 Qt::SortRole 的旧事；
+//                Qt6 的 ItemDataRole 枚举里确实**已经没有 Qt::SortRole**（qnamespace.h），
+//                但**没有**「改用 EditRole 顶上」这一步——role 的默认值一直是 DisplayRole。
 //   第 105~109 行 enum class Direction { Rows = 0x01, Columns = 0x02, Both = Rows | Columns };
 //   第 120~125 行 public Q_SLOTS:
 //                void setFilterRegularExpression(const QString &pattern);
@@ -259,7 +276,11 @@ public:
             case ColPrio:  return it.priority;
             }
             break;
-        case Qt::EditRole:                       // 排序默认读 EditRole 的语义靠它（见证据④）
+        case Qt::EditRole:                       // ★ 排序/过滤**不**读这里：sortRole/filterRole
+                                                 //   的默认都是 Qt::DisplayRole（见证据① 两条硬账，
+                                                 //   qsortfilterproxymodel.cpp 第 3033/3072 行）。
+                                                 //   这份 EditRole 是给委托/编辑器准备的，本讲不编辑，
+                                                 //   只是演示「同一个值两个 role 都给」长什么样。
             switch (indexArg.column()) {
             case ColId:    return it.id;
             case ColTitle: return it.title;
@@ -478,6 +499,8 @@ public:
     }
 
     // ---- 排序判据：默认 lessThan 是「拿两个 index 的 data(sortRole) 用 QVariant 比」，
+    //      ★ sortRole 默认 = Qt::DisplayRole（.cpp 第 3029~3033 行属性文档），不是 EditRole；
+    //      Qt6 也没有 Qt::SortRole 这个枚举值（qnamespace.h 里已删）。
     //      字符串列按字典序、整数列按数值序都能忍；但状态列我想按**业务顺序**排，
     //      就得自己写。参数同样是**源坐标**。签名见头文件第 130 行。----
     bool lessThan(const QModelIndex &source_left, const QModelIndex &source_right) const override
@@ -547,16 +570,29 @@ public slots:
     void step1_plainBasics()
     {
         qInfo().noquote() << QStringLiteral("① 代理的「默认长相」：判据字段当前值（没设过就该是文档默认）");
-        qInfo().noquote() << QStringLiteral("  filterKeyColumn()=%1  (约定 -1 = 所有列都参与匹配)")
+        qInfo().noquote() << QStringLiteral("  filterKeyColumn()=%1  (★ 默认就是 0；-1 要你自己显式设，"
+                                            "设了才「所有列都参与匹配」)")
                                  .arg(plain->filterKeyColumn());
         qInfo().noquote() << QStringLiteral("  filterRole()=%1 (=Qt::DisplayRole, 静态匹配拿这个 role 的字符串比)")
                                  .arg(plain->filterRole());
-        qInfo().noquote() << QStringLiteral("  sortColumn()=%1  dynamicSortFilter()=%2  (代理默认**不**动态)")
-                                 .arg(plain->sortColumn()).arg(plain->dynamicSortFilter() ? "true" : "false");
+        qInfo().noquote() << QStringLiteral("  sortColumn()=%1  dynamicSortFilter()=%2  (★ 默认**就是** true)"
+                                           "  sortRole()=%3  filterRole()=%4")
+                                 .arg(plain->sortColumn())
+                                 .arg(plain->dynamicSortFilter() ? "true" : "false")
+                                 .arg(plain->sortRole())
+                                 .arg(plain->filterRole());
         qInfo().noquote() << QStringLiteral("  源 rowCount=%1，代理 rowCount=%2，代理 columnCount=%3 —— 无判据时应当完全一致")
                                  .arg(source->rowCount()).arg(plain->rowCount()).arg(plain->columnCount());
-        check("① filterKeyColumn 默认（本讲设的）为 -1", plain->filterKeyColumn(), -1);
-        checkBool("① dynamicSortFilter 默认 false", plain->dynamicSortFilter(), false);
+        // ★ 原稿这三条预测全错，错因是「背下来的默认值」而不是查属性文档：
+        //   filterKeyColumn 默认 0（.cpp 第 2736 行）、dynamicSortFilter 默认 true（第 2994 行）、
+        //   sortRole/filterRole 默认 Qt::DisplayRole(0)（第 3033 / 3072 行）。
+        //   Qt6 的 ItemDataRole 里确实没有 Qt::SortRole 了（qnamespace.h），
+        //   但**没有**「所以改用 EditRole」这回事——两个 role 一直是 DisplayRole。
+        check("① filterKeyColumn 默认是 0（不是 -1）", plain->filterKeyColumn(), 0);
+        checkBool("① dynamicSortFilter 默认 true（自动跟源变是出厂行为）",
+                  plain->dynamicSortFilter(), true);
+        check("① sortRole 默认 = Qt::DisplayRole", plain->sortRole(), int(Qt::DisplayRole));
+        check("① filterRole 默认 = Qt::DisplayRole", plain->filterRole(), int(Qt::DisplayRole));
         check("① 无判据时代理行数 = 源行数", plain->rowCount(), source->rowCount());
         check("① 代理列数 = 源列数", plain->columnCount(), source->columnCount());
     }
@@ -577,18 +613,24 @@ public slots:
         plain->setFilterKeyColumn(IssueSourceModel::ColState);
         qInfo().noquote() << QStringLiteral("  清空判据 → 代理 rowCount=%1 又回到全量").arg(plain->rowCount());
         check("② 清空判据后回到 10000 行", plain->rowCount(), 10000);
-        qInfo().noquote() << QStringLiteral("  ⚠ 静态匹配是「字符串包含」：'0' 会命中编号 10、100、状态串里的 0。"
+        qInfo().noquote() << QStringLiteral("  【注意】 静态匹配是「字符串包含」：'0' 会命中编号 10、100、状态串里的 0。"
                                             "想要「值∈集合」或「两列 OR」→ 必须重写（见⑤）。");
     }
 
     void step3_dynamicSwitch()
     {
         qInfo().noquote() << QStringLiteral("③ dynamicSortFilter 这个开关到底管什么");
+        // ★ 原稿这里**漏了一句 setDynamicSortFilter(false)**：默认是 true（见证据① 那条硬账），
+        //   于是「以为在测 false、其实还在测 true」，源一发 dataChanged 代理立刻就重筛，
+        //   2500 变 2501，这条硬账全红。要谈「不动态」的账，必须先**显式关掉**它——
+        //   这一句本身就是本节要教的纪律：默认值不能靠背，要么用默认、要么自己 set 清楚。
+        plain->setDynamicSortFilter(false);
         plain->setFilterFixedString(QStringLiteral("BLOCKED"));
         const int before = plain->rowCount();
         source->setStateOfRow(0, QStringLiteral("BLOCKED"));   // 源第 0 行改成 BLOCKED（它本来状态是 OPEN）
         const int dynFalse = plain->rowCount();
-        qInfo().noquote() << QStringLiteral("  dynamicSortFilter=false：改完源，代理 rowCount %1 → %2（**没动**，判据变了源也变了但它不重筛）")
+        qInfo().noquote() << QStringLiteral("  dynamicSortFilter=false：改完源，代理 rowCount %1 → %2（**没动**，判据变了源也变了但它不重筛；"
+                                            "源第 0 行现在明明是 BLOCKED，代理里却还是没有它）")
                                  .arg(before).arg(dynFalse);
         plain->setDynamicSortFilter(true);
         source->setStateOfRow(1, QStringLiteral("BLOCKED"));
@@ -596,7 +638,20 @@ public slots:
         qInfo().noquote() << QStringLiteral("  设成 true 之后再改源第 1 行：代理 rowCount=%1（这次自动重筛了）").arg(dynTrue);
         check("③ dynamic=false 时改源不重筛", dynFalse, before);
         check("③ dynamic=true 时改源立刻多出一行", dynTrue, dynFalse + 1);
-        qInfo().noquote() << QStringLiteral("  注：setDynamicSortFilter(true) 不会立刻重跑历史账，它管的是「之后源发 dataChanged 时」跟不跟。");
+        qInfo().noquote() << QStringLiteral("  注：setDynamicSortFilter(true) 不会立刻重跑历史账，它管的是「之后源发 dataChanged 时」跟不跟。"
+                                            "（源码理由：.cpp 第 3015~3016 行开启时只调 d->sort()，"
+                                            "而 sort()（第 616~636 行）只是在**已有的映射**里重排行序，"
+                                            "一个 source row 都没有新增/删除，所以第 0 行不会被追认进来。）");
+        // ★ 那笔「漏掉的账」怎么补？把判据重新设一遍（filter_changed 会整表重筛）。
+        //   这就是第 9 节讲的「外部判据变了却没让代理失效」的正规补法：
+        //   要么 beginFilterChange()/endFilterChange()，要么重设一次判据。
+        plain->setFilterFixedString(QStringLiteral("BLOCKED"));
+        const int afterRefilter = plain->rowCount();
+        qInfo().noquote() << QStringLiteral("  把同一个判据重设一遍 → 代理 rowCount=%1"
+                                            "（源第 0 行这次被追认进来了：漏掉的账不会自己补上）")
+                                 .arg(afterRefilter);
+        check("③ 重设判据会补上 dynamic=false 期间漏掉的那一行",
+              afterRefilter, dynTrue + 1);
         plain->setFilterFixedString(QString());
         plain->setDynamicSortFilter(false);
     }
@@ -673,7 +728,7 @@ public slots:
 
         const int rowsWith74 = custom->rowCount();
         custom->setKeywordSilently(QStringLiteral("75"));   // 反面教材：只改判据不失效
-        qInfo().noquote() << QStringLiteral("  ⚠ setKeywordSilently('75') 不失效 → rowCount 仍是 %1（和关键字 '74' 时 %2 一样），"
+        qInfo().noquote() << QStringLiteral("  【注意】 setKeywordSilently('75') 不失效 → rowCount 仍是 %1（和关键字 '74' 时 %2 一样），"
                                             "证明「外部判据变了代理不知道」")
                                  .arg(custom->rowCount()).arg(rowsWith74);
         check("⑤ 不失效时行数一动不动", custom->rowCount(), rowsWith74);
@@ -720,18 +775,18 @@ public slots:
         // 错误行为演示：拿代理 index 直接问源模型
         const QModelIndex p0 = custom->index(0, IssueSourceModel::ColId);
         const QVariant wrong = source->data(p0, Qt::DisplayRole);
-        qInfo().noquote() << QStringLiteral("  ❌ source->data(代理 index) → isValid=%1 类型=%2 值=<%3>"
+        qInfo().noquote() << QStringLiteral("  【失败】 source->data(代理 index) → isValid=%1 类型=%2 值=<%3>"
                                             "（不抛异常、不报错，就是空）")
                                  .arg(wrong.isValid() ? "true" : "false")
                                  .arg(wrong.typeId())
                                  .arg(wrong.isNull() ? QStringLiteral("null") : wrong.toString());
         checkBool("⑥ source->data(代理 index) 是无效 QVariant", wrong.isValid(), false);
         check("⑥ source->rowCount(代理 index) = 0", source->rowCount(p0), 0);
-        qInfo().noquote() << QStringLiteral("  ❌ source->rowCount(代理 index)=%1，source->index(代理 row/col) 却**能**给出东西："
+        qInfo().noquote() << QStringLiteral("  【失败】 source->rowCount(代理 index)=%1，source->index(代理 row/col) 却**能**给出东西："
                                             "行号 0 在源里合法，但它指的是源的第 0 行（状态=%2），不是你要的那条 → 删错行就这么来的")
                                  .arg(source->rowCount(p0))
                                  .arg(source->data(source->index(p0.row(), IssueSourceModel::ColState)).toString());
-        qInfo().noquote() << QStringLiteral("  ✅ mapToSource 之后：源第 %1 行，编号=%2，状态=%3 —— 与代理格显示值一致")
+        qInfo().noquote() << QStringLiteral("  【通过】 mapToSource 之后：源第 %1 行，编号=%2，状态=%3 —— 与代理格显示值一致")
                                  .arg(custom->mapToSource(p0).row())
                                  .arg(source->idAtSourceRow(custom->mapToSource(p0).row()))
                                  .arg(source->data(custom->mapToSource(p0).sibling(
@@ -785,8 +840,8 @@ public slots:
         const int safeProxyRow = custom->index(0, 0).row();
         const int wrongTargetId = source->idAtSourceRow(safeProxyRow);
         const int rightTargetId = source->idAtSourceRow(custom->mapToSource(custom->index(0, 0)).row());
-        qInfo().noquote() << QStringLiteral("  ❌ 若按代理行号 %1 直接删源：删掉的是编号 %2；"
-                                            "✅ 映射后删的是编号 %3 —— 两个数字不同，就是「删错行」事故现场")
+        qInfo().noquote() << QStringLiteral("  【失败】 若按代理行号 %1 直接删源：删掉的是编号 %2；"
+                                            "【通过】 映射后删的是编号 %3 —— 两个数字不同，就是「删错行」事故现场")
                                  .arg(safeProxyRow).arg(wrongTargetId).arg(rightTargetId);
         checkBool("⑦ 「按代理行号直接删」会删错行（两个编号不同）", wrongTargetId != rightTargetId);
         qInfo().noquote() << QStringLiteral("  结论：源发 rowsAboutToBeInserted/rowsInserted/… 时**代理自己会跟**"
@@ -868,7 +923,7 @@ int main(int argc, char *argv[])
         QElapsedTimer t; t.start();
         const QModelIndex last = ev.custom->index(ev.custom->rowCount() - 1, 0);
         const QModelIndex lastSrc = ev.custom->mapToSource(last);
-        qInfo().noquote() << QStringLiteral("  末行映射耗时 %1 ns（代理第 %2 行 ↔ 源第 %3 行）")
+        qInfo().noquote() << QStringLiteral("  末行映射耗时 %1 ns（代理第 %2 行 <-> 源第 %3 行）")
                                  .arg(t.nsecsElapsed()).arg(last.row()).arg(lastSrc.row());
         checkBool("⑨ custom 仍挂着源模型", ev.custom->sourceModel() == ev.source);
         checkBool("⑨ 视图挂的是 custom", ev.view->model() == ev.custom);

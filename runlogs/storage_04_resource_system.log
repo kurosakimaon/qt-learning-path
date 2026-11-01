@@ -1,0 +1,305 @@
+================================================================
+storage 第 4 讲 · Qt 资源系统（Qt = 6.12.0 ，平台 = "offscreen" ）
+================================================================
+  临时目录（结尾会删） = "C:/Users/Kuros/AppData/Local/Temp/qtc_storage04"
+【证据①】资源树：":/" 下面是 prefix 的集合，不是磁盘目录
+  QDir(":/").exists() = true ｜顶层条目（含 . / ..）= 4 ｜只列目录且去掉 . 和 .. = QList("brand", "qpdf", "qt-project.org", "storage") ← 这两个就是我 qrc 里写的 /storage 与 /brand
+  资源里的文件总数 = 254 （预期 3：hello.txt 一次、logo.svg 两次）
+    - ":/brand/qt-style-logo.svg" ｜QFileInfo.size() = 940
+    - ":/qpdf/sRGB2014.icc" ｜QFileInfo.size() = 3024
+    - ":/qt-project.org/gui/painting/shaders/backingstorecompose.frag.qsb" ｜QFileInfo.size() = 1657
+    - ":/qt-project.org/gui/painting/shaders/backingstorecompose.vert.qsb" ｜QFileInfo.size() = 1408
+    - ":/qt-project.org/qmessagebox/images/qtlogo-64.png" ｜QFileInfo.size() = 1219
+    - ":/qt-project.org/styles/commonstyle/images/arrow-down-128.png" ｜QFileInfo.size() = 279
+    - ":/qt-project.org/styles/commonstyle/images/arrow-down-16.png" ｜QFileInfo.size() = 206
+    - ":/qt-project.org/styles/commonstyle/images/arrow-down-32.png" ｜QFileInfo.size() = 766
+    - ":/qt-project.org/styles/commonstyle/images/arrow-left-128.png" ｜QFileInfo.size() = 279
+    - ":/qt-project.org/styles/commonstyle/images/arrow-left-16.png" ｜QFileInfo.size() = 207
+    - ":/qt-project.org/styles/commonstyle/images/arrow-left-32.png" ｜QFileInfo.size() = 733
+    - ":/qt-project.org/styles/commonstyle/images/arrow-right-128.png" ｜QFileInfo.size() = 264
+    - ":/qt-project.org/styles/commonstyle/images/arrow-right-16.png" ｜QFileInfo.size() = 196
+    - ":/qt-project.org/styles/commonstyle/images/arrow-right-32.png" ｜QFileInfo.size() = 805
+    - ":/qt-project.org/styles/commonstyle/images/arrow-up-128.png" ｜QFileInfo.size() = 261
+    - ":/qt-project.org/styles/commonstyle/images/arrow-up-16.png" ｜QFileInfo.size() = 205
+    - ":/qt-project.org/styles/commonstyle/images/arrow-up-32.png" ｜QFileInfo.size() = 629
+    - ":/qt-project.org/styles/commonstyle/images/cdr-128.png" ｜QFileInfo.size() = 16418
+    - ":/qt-project.org/styles/commonstyle/images/cdr-16.png" ｜QFileInfo.size() = 845
+    - ":/qt-project.org/styles/commonstyle/images/cdr-32.png" ｜QFileInfo.size() = 2016
+    - ":/qt-project.org/styles/commonstyle/images/cleartext-128.png" ｜QFileInfo.size() = 3638
+    - ":/qt-project.org/styles/commonstyle/images/cleartext-16.png" ｜QFileInfo.size() = 985
+    - ":/qt-project.org/styles/commonstyle/images/cleartext-32.png" ｜QFileInfo.size() = 1310
+    - ":/qt-project.org/styles/commonstyle/images/closedock-10.png" ｜QFileInfo.size() = 284
+    - ":/qt-project.org/styles/commonstyle/images/closedock-16.png" ｜QFileInfo.size() = 299
+    - ":/qt-project.org/styles/commonstyle/images/closedock-20.png" ｜QFileInfo.size() = 374
+    - ":/qt-project.org/styles/commonstyle/images/closedock-32.png" ｜QFileInfo.size() = 368
+    - ":/qt-project.org/styles/commonstyle/images/closedock-48.png" ｜QFileInfo.size() = 468
+    - ":/qt-project.org/styles/commonstyle/images/closedock-64.png" ｜QFileInfo.size() = 541
+    - ":/qt-project.org/styles/commonstyle/images/computer-16.png" ｜QFileInfo.size() = 782
+    - ":/qt-project.org/styles/commonstyle/images/computer-32.png" ｜QFileInfo.size() = 1807
+    - ":/qt-project.org/styles/commonstyle/images/critical-128.png" ｜QFileInfo.size() = 2938
+    - ":/qt-project.org/styles/commonstyle/images/critical-16.png" ｜QFileInfo.size() = 835
+    - ":/qt-project.org/styles/commonstyle/images/critical-32.png" ｜QFileInfo.size() = 1148
+    - ":/qt-project.org/styles/commonstyle/images/desktop-16.png" ｜QFileInfo.size() = 773
+    - ":/qt-project.org/styles/commonstyle/images/desktop-32.png" ｜QFileInfo.size() = 1103
+    - ":/qt-project.org/styles/commonstyle/images/dirclosed-128.png" ｜QFileInfo.size() = 1386
+    - ":/qt-project.org/styles/commonstyle/images/dirclosed-16.png" ｜QFileInfo.size() = 231
+    - ":/qt-project.org/styles/commonstyle/images/dirclosed-32.png" ｜QFileInfo.size() = 474
+    - ":/qt-project.org/styles/commonstyle/images/dirlink-128.png" ｜QFileInfo.size() = 5155
+    - ":/qt-project.org/styles/commonstyle/images/dirlink-16.png" ｜QFileInfo.size() = 416
+    - ":/qt-project.org/styles/commonstyle/images/dirlink-32.png" ｜QFileInfo.size() = 1046
+    - ":/qt-project.org/styles/commonstyle/images/diropen-128.png" ｜QFileInfo.size() = 2075
+    - ":/qt-project.org/styles/commonstyle/images/diropen-16.png" ｜QFileInfo.size() = 248
+    - ":/qt-project.org/styles/commonstyle/images/diropen-32.png" ｜QFileInfo.size() = 633
+    - ":/qt-project.org/styles/commonstyle/images/dvd-128.png" ｜QFileInfo.size() = 14941
+    - ":/qt-project.org/styles/commonstyle/images/dvd-16.png" ｜QFileInfo.size() = 892
+    - ":/qt-project.org/styles/commonstyle/images/dvd-32.png" ｜QFileInfo.size() = 2205
+    - ":/qt-project.org/styles/commonstyle/images/file-128.png" ｜QFileInfo.size() = 3997
+    - ":/qt-project.org/styles/commonstyle/images/file-16.png" ｜QFileInfo.size() = 423
+    - ":/qt-project.org/styles/commonstyle/images/file-32.png" ｜QFileInfo.size() = 713
+    - ":/qt-project.org/styles/commonstyle/images/filecontents-128.png" ｜QFileInfo.size() = 8109
+    - ":/qt-project.org/styles/commonstyle/images/filecontents-16.png" ｜QFileInfo.size() = 766
+    - ":/qt-project.org/styles/commonstyle/images/filecontents-32.png" ｜QFileInfo.size() = 1712
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_end-128.png" ｜QFileInfo.size() = 1393
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_end-16.png" ｜QFileInfo.size() = 686
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_end-32.png" ｜QFileInfo.size() = 787
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_start-128.png" ｜QFileInfo.size() = 1326
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_start-16.png" ｜QFileInfo.size() = 677
+    - ":/qt-project.org/styles/commonstyle/images/filedialog_start-32.png" ｜QFileInfo.size() = 761
+    - ":/qt-project.org/styles/commonstyle/images/fileinfo-128.png" ｜QFileInfo.size() = 12002
+    - ":/qt-project.org/styles/commonstyle/images/fileinfo-16.png" ｜QFileInfo.size() = 849
+    - ":/qt-project.org/styles/commonstyle/images/fileinfo-32.png" ｜QFileInfo.size() = 2010
+    - ":/qt-project.org/styles/commonstyle/images/filelink-128.png" ｜QFileInfo.size() = 5601
+    - ":/qt-project.org/styles/commonstyle/images/filelink-16.png" ｜QFileInfo.size() = 566
+    - ":/qt-project.org/styles/commonstyle/images/filelink-32.png" ｜QFileInfo.size() = 1192
+    - ":/qt-project.org/styles/commonstyle/images/floppy-128.png" ｜QFileInfo.size() = 5074
+    - ":/qt-project.org/styles/commonstyle/images/floppy-16.png" ｜QFileInfo.size() = 602
+    - ":/qt-project.org/styles/commonstyle/images/floppy-32.png" ｜QFileInfo.size() = 1019
+    - ":/qt-project.org/styles/commonstyle/images/fontbitmap-16.png" ｜QFileInfo.size() = 537
+    - ":/qt-project.org/styles/commonstyle/images/fonttruetype-16.png" ｜QFileInfo.size() = 442
+    - ":/qt-project.org/styles/commonstyle/images/fusion_groupbox.png" ｜QFileInfo.size() = 485
+    - ":/qt-project.org/styles/commonstyle/images/harddrive-128.png" ｜QFileInfo.size() = 11250
+    - ":/qt-project.org/styles/commonstyle/images/harddrive-16.png" ｜QFileInfo.size() = 802
+    - ":/qt-project.org/styles/commonstyle/images/harddrive-32.png" ｜QFileInfo.size() = 1751
+    - ":/qt-project.org/styles/commonstyle/images/information-128.png" ｜QFileInfo.size() = 2099
+    - ":/qt-project.org/styles/commonstyle/images/information-16.png" ｜QFileInfo.size() = 697
+    - ":/qt-project.org/styles/commonstyle/images/information-32.png" ｜QFileInfo.size() = 874
+    - ":/qt-project.org/styles/commonstyle/images/media-pause-128.png" ｜QFileInfo.size() = 678
+    - ":/qt-project.org/styles/commonstyle/images/media-pause-16.png" ｜QFileInfo.size() = 181
+    - ":/qt-project.org/styles/commonstyle/images/media-pause-32.png" ｜QFileInfo.size() = 249
+    - ":/qt-project.org/styles/commonstyle/images/media-play-128.png" ｜QFileInfo.size() = 780
+    - ":/qt-project.org/styles/commonstyle/images/media-play-16.png" ｜QFileInfo.size() = 200
+    - ":/qt-project.org/styles/commonstyle/images/media-play-32.png" ｜QFileInfo.size() = 272
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-backward-128.png" ｜QFileInfo.size() = 969
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-backward-16.png" ｜QFileInfo.size() = 217
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-backward-32.png" ｜QFileInfo.size() = 293
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-forward-128.png" ｜QFileInfo.size() = 957
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-forward-16.png" ｜QFileInfo.size() = 217
+    - ":/qt-project.org/styles/commonstyle/images/media-seek-forward-32.png" ｜QFileInfo.size() = 291
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-backward-128.png" ｜QFileInfo.size() = 964
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-backward-16.png" ｜QFileInfo.size() = 240
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-backward-32.png" ｜QFileInfo.size() = 310
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-forward-128.png" ｜QFileInfo.size() = 977
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-forward-16.png" ｜QFileInfo.size() = 222
+    - ":/qt-project.org/styles/commonstyle/images/media-skip-forward-32.png" ｜QFileInfo.size() = 318
+    - ":/qt-project.org/styles/commonstyle/images/media-stop-128.png" ｜QFileInfo.size() = 500
+    - ":/qt-project.org/styles/commonstyle/images/media-stop-16.png" ｜QFileInfo.size() = 159
+    - ":/qt-project.org/styles/commonstyle/images/media-stop-32.png" ｜QFileInfo.size() = 191
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-128.png" ｜QFileInfo.size() = 1956
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-16.png" ｜QFileInfo.size() = 334
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-32.png" ｜QFileInfo.size() = 549
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-muted-128.png" ｜QFileInfo.size() = 1201
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-muted-16.png" ｜QFileInfo.size() = 249
+    - ":/qt-project.org/styles/commonstyle/images/media-volume-muted-32.png" ｜QFileInfo.size() = 375
+    - ":/qt-project.org/styles/commonstyle/images/networkdrive-128.png" ｜QFileInfo.size() = 18075
+    - ":/qt-project.org/styles/commonstyle/images/networkdrive-16.png" ｜QFileInfo.size() = 885
+    - ":/qt-project.org/styles/commonstyle/images/networkdrive-32.png" ｜QFileInfo.size() = 2245
+    - ":/qt-project.org/styles/commonstyle/images/newdirectory-128.png" ｜QFileInfo.size() = 7503
+    - ":/qt-project.org/styles/commonstyle/images/newdirectory-16.png" ｜QFileInfo.size() = 870
+    - ":/qt-project.org/styles/commonstyle/images/newdirectory-32.png" ｜QFileInfo.size() = 1590
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-10.png" ｜QFileInfo.size() = 138
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-16.png" ｜QFileInfo.size() = 256
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-20.png" ｜QFileInfo.size() = 143
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-32.png" ｜QFileInfo.size() = 273
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-48.png" ｜QFileInfo.size() = 279
+    - ":/qt-project.org/styles/commonstyle/images/normalizedockup-64.png" ｜QFileInfo.size() = 291
+    - ":/qt-project.org/styles/commonstyle/images/parentdir-128.png" ｜QFileInfo.size() = 8093
+    - ":/qt-project.org/styles/commonstyle/images/parentdir-16.png" ｜QFileInfo.size() = 938
+    - ":/qt-project.org/styles/commonstyle/images/parentdir-32.png" ｜QFileInfo.size() = 1603
+    - ":/qt-project.org/styles/commonstyle/images/question-128.png" ｜QFileInfo.size() = 2770
+    - ":/qt-project.org/styles/commonstyle/images/question-16.png" ｜QFileInfo.size() = 797
+    - ":/qt-project.org/styles/commonstyle/images/question-32.png" ｜QFileInfo.size() = 1063
+    - ":/qt-project.org/styles/commonstyle/images/refresh-24.png" ｜QFileInfo.size() = 1654
+    - ":/qt-project.org/styles/commonstyle/images/refresh-32.png" ｜QFileInfo.size() = 2431
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-apply-128.png" ｜QFileInfo.size() = 5298
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-apply-16.png" ｜QFileInfo.size() = 735
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-apply-32.png" ｜QFileInfo.size() = 1219
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-cancel-128.png" ｜QFileInfo.size() = 7039
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-cancel-16.png" ｜QFileInfo.size() = 689
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-cancel-32.png" ｜QFileInfo.size() = 1573
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-clear-128.png" ｜QFileInfo.size() = 3094
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-clear-16.png" ｜QFileInfo.size() = 456
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-clear-32.png" ｜QFileInfo.size() = 866
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-close-128.png" ｜QFileInfo.size() = 4512
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-close-16.png" ｜QFileInfo.size() = 366
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-close-32.png" ｜QFileInfo.size() = 780
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-128.png" ｜QFileInfo.size() = 1657
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-16.png" ｜QFileInfo.size() = 674
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-32.png" ｜QFileInfo.size() = 819
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-down-128.png" ｜QFileInfo.size() = 1599
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-down-16.png" ｜QFileInfo.size() = 666
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-down-32.png" ｜QFileInfo.size() = 810
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-hover-128.png" ｜QFileInfo.size() = 1660
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-hover-16.png" ｜QFileInfo.size() = 675
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-closetab-hover-32.png" ｜QFileInfo.size() = 822
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-delete-128.png" ｜QFileInfo.size() = 5414
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-delete-16.png" ｜QFileInfo.size() = 722
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-delete-32.png" ｜QFileInfo.size() = 1541
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-help-128.png" ｜QFileInfo.size() = 10765
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-help-16.png" ｜QFileInfo.size() = 840
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-help-32.png" ｜QFileInfo.size() = 2066
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-no-128.png" ｜QFileInfo.size() = 6437
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-no-16.png" ｜QFileInfo.size() = 673
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-no-32.png" ｜QFileInfo.size() = 1476
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-ok-128.png" ｜QFileInfo.size() = 4414
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-ok-16.png" ｜QFileInfo.size() = 584
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-ok-32.png" ｜QFileInfo.size() = 1246
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-open-128.png" ｜QFileInfo.size() = 5415
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-open-16.png" ｜QFileInfo.size() = 629
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-open-32.png" ｜QFileInfo.size() = 1154
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-save-128.png" ｜QFileInfo.size() = 4398
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-save-16.png" ｜QFileInfo.size() = 583
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-save-32.png" ｜QFileInfo.size() = 1092
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-yes-128.png" ｜QFileInfo.size() = 6484
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-yes-16.png" ｜QFileInfo.size() = 661
+    - ":/qt-project.org/styles/commonstyle/images/standardbutton-yes-32.png" ｜QFileInfo.size() = 1529
+    - ":/qt-project.org/styles/commonstyle/images/stop-24.png" ｜QFileInfo.size() = 1267
+    - ":/qt-project.org/styles/commonstyle/images/stop-32.png" ｜QFileInfo.size() = 1878
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-contexthelp-16.png" ｜QFileInfo.size() = 396
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-contexthelp-32.png" ｜QFileInfo.size() = 661
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-contexthelp-48.png" ｜QFileInfo.size() = 891
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-max-16.png" ｜QFileInfo.size() = 158
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-max-32.png" ｜QFileInfo.size() = 163
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-max-48.png" ｜QFileInfo.size() = 167
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-min-16.png" ｜QFileInfo.size() = 166
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-min-32.png" ｜QFileInfo.size() = 171
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-min-48.png" ｜QFileInfo.size() = 175
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-shade-16.png" ｜QFileInfo.size() = 253
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-shade-32.png" ｜QFileInfo.size() = 282
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-shade-48.png" ｜QFileInfo.size() = 339
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-unshade-16.png" ｜QFileInfo.size() = 244
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-unshade-32.png" ｜QFileInfo.size() = 294
+    - ":/qt-project.org/styles/commonstyle/images/titlebar-unshade-48.png" ｜QFileInfo.size() = 336
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-128.png" ｜QFileInfo.size() = 1765
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-16.png" ｜QFileInfo.size() = 349
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-32.png" ｜QFileInfo.size() = 568
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-8.png" ｜QFileInfo.size() = 220
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-rtl-128.png" ｜QFileInfo.size() = 1740
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-rtl-16.png" ｜QFileInfo.size() = 128
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-rtl-32.png" ｜QFileInfo.size() = 148
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-h-rtl-8.png" ｜QFileInfo.size() = 114
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-v-10.png" ｜QFileInfo.size() = 387
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-v-20.png" ｜QFileInfo.size() = 625
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-v-5.png" ｜QFileInfo.size() = 223
+    - ":/qt-project.org/styles/commonstyle/images/toolbar-ext-v-80.png" ｜QFileInfo.size() = 2035
+    - ":/qt-project.org/styles/commonstyle/images/trash-128.png" ｜QFileInfo.size() = 3296
+    - ":/qt-project.org/styles/commonstyle/images/trash-16.png" ｜QFileInfo.size() = 419
+    - ":/qt-project.org/styles/commonstyle/images/trash-32.png" ｜QFileInfo.size() = 883
+    - ":/qt-project.org/styles/commonstyle/images/viewdetailed-128.png" ｜QFileInfo.size() = 4743
+    - ":/qt-project.org/styles/commonstyle/images/viewdetailed-16.png" ｜QFileInfo.size() = 499
+    - ":/qt-project.org/styles/commonstyle/images/viewdetailed-32.png" ｜QFileInfo.size() = 1092
+    - ":/qt-project.org/styles/commonstyle/images/viewlist-128.png" ｜QFileInfo.size() = 4069
+    - ":/qt-project.org/styles/commonstyle/images/viewlist-16.png" ｜QFileInfo.size() = 490
+    - ":/qt-project.org/styles/commonstyle/images/viewlist-32.png" ｜QFileInfo.size() = 1006
+    - ":/qt-project.org/styles/commonstyle/images/warning-128.png" ｜QFileInfo.size() = 1625
+    - ":/qt-project.org/styles/commonstyle/images/warning-16.png" ｜QFileInfo.size() = 660
+    - ":/qt-project.org/styles/commonstyle/images/warning-32.png" ｜QFileInfo.size() = 799
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-10.png" ｜QFileInfo.size() = 238
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-16.png" ｜QFileInfo.size() = 288
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-20.png" ｜QFileInfo.size() = 303
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-32.png" ｜QFileInfo.size() = 333
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-48.png" ｜QFileInfo.size() = 492
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_closedock-64.png" ｜QFileInfo.size() = 617
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-10.png" ｜QFileInfo.size() = 234
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-16.png" ｜QFileInfo.size() = 314
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-20.png" ｜QFileInfo.size() = 342
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-32.png" ｜QFileInfo.size() = 413
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-48.png" ｜QFileInfo.size() = 487
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_normalizedockup-64.png" ｜QFileInfo.size() = 579
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-10.png" ｜QFileInfo.size() = 167
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-16.png" ｜QFileInfo.size() = 141
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-20.png" ｜QFileInfo.size() = 176
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-32.png" ｜QFileInfo.size() = 214
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-48.png" ｜QFileInfo.size() = 179
+    - ":/qt-project.org/styles/fusionstyle/images/fusion_titlebar-min-64.png" ｜QFileInfo.size() = 190
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-10.png" ｜QFileInfo.size() = 195
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-16.png" ｜QFileInfo.size() = 578
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-20.png" ｜QFileInfo.size() = 344
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-32.png" ｜QFileInfo.size() = 474
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-48.png" ｜QFileInfo.size() = 721
+    - ":/qt-project.org/styles/macstyle/images/closedock-down-macstyle-64.png" ｜QFileInfo.size() = 920
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-10.png" ｜QFileInfo.size() = 309
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-16.png" ｜QFileInfo.size() = 516
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-20.png" ｜QFileInfo.size() = 579
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-32.png" ｜QFileInfo.size() = 938
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-48.png" ｜QFileInfo.size() = 1236
+    - ":/qt-project.org/styles/macstyle/images/closedock-macstyle-64.png" ｜QFileInfo.size() = 1495
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-10.png" ｜QFileInfo.size() = 246
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-16.png" ｜QFileInfo.size() = 406
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-20.png" ｜QFileInfo.size() = 363
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-32.png" ｜QFileInfo.size() = 416
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-48.png" ｜QFileInfo.size() = 622
+    - ":/qt-project.org/styles/macstyle/images/dockdock-down-macstyle-64.png" ｜QFileInfo.size() = 771
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-10.png" ｜QFileInfo.size() = 339
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-16.png" ｜QFileInfo.size() = 438
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-20.png" ｜QFileInfo.size() = 555
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-32.png" ｜QFileInfo.size() = 654
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-48.png" ｜QFileInfo.size() = 915
+    - ":/qt-project.org/styles/macstyle/images/dockdock-macstyle-64.png" ｜QFileInfo.size() = 1212
+    - ":/qt-project.org/styles/macstyle/images/toolbar-ext-macstyle.png" ｜QFileInfo.size() = 516
+    - ":/qt-project.org/styles/macstyle/images/toolbar-ext-macstyle@2x.png" ｜QFileInfo.size() = 505
+    - ":/storage/demo/hello.txt" ｜QFileInfo.size() = 523
+    - ":/storage/demo/logo.svg" ｜QFileInfo.size() = 940
+  同一张 logo 的两个入口，字节数相同 = true ｜路径不同但内容是同一份：**rcc 存了两份字节**（alias 只改路径，不省空间）
+  对照：磁盘上的文件路径 "C:/Users/Kuros/Documents/Qoder/2026-10-31/c6d4ea7f/qt-learning-path" 里根本没有 ":/"，这套前缀只存在于 Qt 的文件抽象层（QFileDevice → QAbstractFileEngine → 资源引擎）。
+【证据②】从 :/ 读文本：字节数、首行、以及只读这件事
+   ":/storage/demo/hello.txt" ：QFile::readAll() 字节数 = 523 ｜QFileInfo.size() = 523 （两个数应当相等：前者是读到的，后者是包里的账）
+  首行 = "Qt 资源系统演示文件（storage/demo/hello.txt）"
+  UTF-8 字节数 523 比字符数 243 多出来的那部分就是中文（一个汉字 3 字节）——资源里放中文文本时，记得**自己指定编码**（这里用 fromUtf8），别指望系统 locale。
+  只读性质：isFile = true ｜exists = true ｜isWritable = false ｜isSymLink = false
+  试着以 ReadWrite 打开资源本体 = false ，errorString = "Unknown error"
+  → 结论：**别想着往 :/ 里写**。要改就先 copy 到磁盘（证据⑤）。
+【证据③】QResource 的可用字段（6.12 通读全文的结果）
+  fileName() = ":/storage/demo/hello.txt" ｜absoluteFilePath() = ":/storage/demo/hello.txt" （两个都还带 ":"，它不是磁盘路径；语义以实测为准，此处标「待复核」）
+  isValid() = true （无效 = 这个路径没注册，多半是 qrc 没编进本目标）
+  locale() = "zh_CN" ｜qrc 里的 lang= 机制在 Qt6 就叫 locale，**不叫 lang**（没有 lang() 这个方法）
+  compressionAlgorithm() = "NoCompression（原样存）"
+  size() = 523 ｜uncompressedSize() = 523 ｜比值 = 1 ← 「compressedSize()」这个名字**不存在**，要看的这对：存进去的 / 解出来的
+  uncompressedData().size() = 523 ｜头两个字节 = "5174" ｜data() 指针是否非空 = true （data() 返回的是**包里那一坨**，压缩时不是明文，别直接当内容用）
+  lastModified() = QDateTime(2026-10-31 08:47:46.203 GMT+8 Qt::LocalTime) ｜isValid = true （本机实测：isValid 是 true，值 = 构建那一刻的时间戳，不是磁盘文件的修改时间。所以「能不能拿到值」和「能不能拿来判断」是两件事——重新构建它就变，别用它做逻辑；但 size() 不一样，那是包里真实字节数，可以和 readAll() 对上账）
+  alias 的运行时真相：两个路径各自 isValid = true true ｜字节数（size）= 940 940 ｜明文长度 = 940 940 → 没有 alias() 可以问「这是不是个别名」，只能看到「两条路径、两份相同字节」
+  用德语 locale 问同一个路径：isValid = true ｜locale = "de_DE" ｜size 仍 = 523 （qrc 里没写 lang="de" 的条目 → 回落到无语言的那份，这就是 lang 机制的行为）
+  【注意】 这一版 QResource 的 isDir()/isFile()/children() 在 **protected**（第 54~60 行），外面调不到；想列目录请走 QDir/QDirIterator（证据①）。老教程里 `res.children()` 那种写法编不过。
+【证据④】资源里的 SVG 真能渲染出像素（这是「资源可用」最硬的证据）
+  SVG 源字节数 = 940 ｜前 5 字节 = "3c3f786d6c" （"<?xml" 的十六进制，说明 qrc 没动内容）
+  QSvgRenderer::load(QByteArray) = true ｜isValid() = true ｜defaultSize() = QSize(128, 128) （这张 svg 里写了 width/height=128，所以预期 defaultSize 是 128×128）
+  渲染结果：尺寸 = QSize(96, 96) ｜格式 = 5 ｜中心像素 (48,48) RGBA = 126 231 135 255
+  角落像素 (2,2) RGBA = 0 0 0 0 ← 中心应当是「亮的绿、alpha 满」，角落是「深绿底、alpha 满」；两者 alpha 若都是 255，说明资源里那张图**真的被解出来并画了**
+  QPixmap::fromImage 后 size = QSize(96, 96) ｜isNull = false
+  QIcon 用渲染结果构造：isNull = false ｜availableSizes 个数 = 1 ｜pixmap(32×32) 尺寸 = QSize(32, 32) （图标从资源来是常态，但**位图尺寸要备齐**，否则放大靠插值，糊的是用户界面）
+  QImageReader 支持的格式个数 = 15 ｜其中含 "svg" = true （这是 qsvg **imageformats 插件**在不在，跟链没链 Qt6::Svg 是两回事）
+  直接 QPixmap(":/brand/qt-style-logo.svg")：isNull = false ｜size = QSize(128, 128)
+  主题图标：QIcon::themeName() = "" ｜hasThemeIcon("application-exit") = false （Windows/MSYS2 上一般没有 icon theme，themeName 为空是**正常**的；跨平台产品不能假设 fromTheme 有货，必须留回落到资源的份儿）
+  fromTheme(name, fallback) 拿到的是回落图标吗 = "非空（来自回落）"
+【证据⑤】把资源释放到磁盘再改（唯一正解），并证明资源本体不变
+  QFile::copy(:/storage/demo/hello.txt → "C:/Users/Kuros/AppData/Local/Temp/qtc_storage04/hello.txt" ) = true ｜磁盘副本字节数 = 523 ｜资源里那份字节数 = 523 （预期相等）
+  磁盘副本 isWritable = false ｜资源本体 isWritable = false ← 这一对比就是「为什么要先释放再改」的全部理由
+  以 Append 打开磁盘副本 = false
+  读回磁盘副本：打开成功 = true ｜字节数 = 523 ｜前 523 字节与资源原文完全相同 = true ｜副本是否变长 = false
+  **再读一次资源本体**：字节数 = 523 ｜与最初那份相同 = true ｜与磁盘副本相同 = true ← 期望是「与最初相同、与副本不同」：改的是副本，资源是只读的、也不可能是只改一半的
+【证据⑥】QResource::registerResource：什么时候用得上、失败长什么样
+  registerResource(不存在的 .rcc 文件 "C:/Users/Kuros/AppData/Local/Temp/qtc_storage04/nope.rcc" ) = false ｜unregisterResource(同一个) = false
+  → 返回 false 是**正常的失败**（文件不存在/不是 rcc 格式）。工程上你只有两种场景会调它：① 加载编译期产物 .rcc（registerResource(const uchar *data,...) 那份，第 51 行）；② 运行时热插一包资源（带 resourceRoot 参数指定挂到哪个前缀下）。**普通 .qrc 不该用这条路**——那是 AUTORCC 的活。
+  Q_INIT_RESOURCE 的边界（背下来）：可执行程序 = AUTORCC 自动注册，别手写；静态库/需要防止链接器丢目标文件的场合 = 在库外显式调一次 Q_INIT_RESOURCE(名字)，名字是 .qrc 去掉后缀的文件名（本讲即 resource_demo）。写错的典型后果是「重复注册 / 注册与清理次数不配对」，而不是当场崩——这类 bug 最难查，所以纪律是**不该写就不写**。
+【收尾】清理： "C:/Users/Kuros/AppData/Local/Temp/qtc_storage04" ｜hello.txt 已删 = false ｜整个目录 removeRecursively 成功 = true ｜目录还在吗 = false
+【收尾】这一讲四句话：① 资源路径是 ":/" + prefix + 条目名/alias 拼出来的，跟磁盘无关；② QResource 只有第一节列那十来个成员，alias()/lang()/compressedSize()/registeredResourcePaths() 在 Qt 6.12 都不存在；③ Q_INIT_RESOURCE 只在静态库/特殊场合用，可执行文件里 AUTORCC 已经注册好了；④ 要改就先 QFile::copy 到磁盘改副本，资源本体永远只读。
+（事件循环正常退出，rc = 0 ）

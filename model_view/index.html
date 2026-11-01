@@ -35,17 +35,20 @@
       用 <code>qInfo()</code> 打印结论，最后 <code>QCoreApplication::quit()</code>。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。构建目标名就写在各文件顶部注释块里
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>。构建目标名就写在各文件顶部注释块里
       （形如 <code>model_view_05_proxy_model</code>），8 个目标在顶层 <code>CMakeLists.txt</code> 的
       「第陆阶段 · 模型/视图与委托（model_view/）」一节里已登记。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级）。本模块示例
-      <strong>未链接、未运行</strong>；但每个 .cpp 都过了 <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
-      的编译期核对（零 error、零 warning），文中每一个类、函数、重载、枚举值都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件逐字核对过，查不到签名的一律不写。
-      示例里出现的「预期」都是推理，不是实测数字。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 8 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），全部包含在顶层 <code>ctest</code> 的 73/73 里；
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      文中每一个类、函数、重载、枚举值都对着本机真实头文件逐字核对过
+      （<code>D:\Qt\6.12.0\mingw_64\include</code>），查不到签名的一律不写。
+      各目标自己那行「硬账 / 合账」结论写在了源码头部，原始输出存档在
+      <code>runlogs/&lt;目标名&gt;.log</code>（UTF-8；重跑：<code>bash _tools/run_all.sh '^model_view'</code>）。
+      换 Qt 版本 / 换平台 / 换窗口大小之后，带具体数字的预期请以下面这些打印为准。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -160,7 +163,7 @@
       <li><strong>签名逐字抄头文件，别凭记忆</strong>：第 2 步的五个虚函数、第 5 步的 filterAcceptsRow/filterAcceptsColumn/lessThan，都要带 <code>const</code> 并写 <code>override</code>；写错不是「不工作」，是「变成另一个函数」。</li>
       <li><strong>跑之前先想清楚要拿什么证据</strong>：本模块每讲都是「计数器 + 计时 + 打印区间」的取证式示例。你改代码时也要留这套习惯——性能问题、坐标系问题的结论只能来自被数出来的东西。</li>
       <li><strong>把四道坎各撞一遍</strong>：第 1 步的观念（格子不是控件）、第 2 步的 internalPointer 悬垂、第 4 步的 setEditorData/setModelData 方向、第 5 步的「拿代理 index 问源」，每道坎都亲手改错一次再改回来。</li>
-      <li><strong>记住「未链接未运行」</strong>：本机此刻编不动 Qt 运行时，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，换到能链接的环境按注释里的目标名构建即可（<code>-platform offscreen</code> 可无头跑）。</li>
+      <li><strong>先跑再看结论</strong>：这 8 个目标本机都已编译、链接、无头跑过（<code>ctest -R model_view</code>，或 <code>bash _tools/run_all.sh '^model_view'</code>），输出存档在 <code>runlogs/</code>。示例里那些「几行被调用、几个信号 fired」的计数都是打印出来的，不是你肉眼数出来的——你自己改过之后，重跑一遍再下判断。</li>
     </ul>
   </div>
 

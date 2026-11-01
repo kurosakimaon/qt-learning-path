@@ -57,7 +57,8 @@
 //   · 无人值守：阶段推进由一次 0ms 的 QTimer 触发，前七节在里面同步跑完，
 //     第八节交给事件循环 + 一颗 600ms 的核对定时器。
 //     正常路径约 3 秒，最坏路径（会合全部走满 300ms 期限）约 5 秒 ——
-//     这两个数是**按每节的等待期限加出来的预算**，不是实测（见下面「未实测声明」）。
+//     正常路径这一条已实测：本机 Qt 6.12.0 + MinGW 13.1.0、offscreen 下一次 3.24 s
+//     （最坏路径是**按每节等待期限加出来的预算**，没人为制造过全部会合超时）。
 //   · 总闸 15 秒：约为最坏预算的三倍，到点强制收尾并把退出码置 1（watchdogFired = true）。
 //   · ★ **退出码 = 硬账**：任何一项 Hard 没对上、或者一项都没核过（Ledger::total == 0）、
 //     或者整节作废过（stalled > 0）、或者总闸跳过一次 → 返回 1。根目录 CMakeLists.txt 的
@@ -76,9 +77,11 @@
 //     那是「进程当场没了、日志一行都不留」的失败形状，不值得用一次崩溃去换一句确认。
 //   · 可以无头跑：`threads_06_qrunnable_threadpool` 用的是 QCoreApplication，
 //     不需要显示设备（CMake 里给 ctest 设的 QT_QPA_PLATFORM=offscreen 对它无影响）。
-//   · 未实测声明：**本文件未在本机实测编译运行**。已通过的检查是 moc +
-//     g++ -fsyntax-only -std=c++17 -fPIC -Wall -Wextra 编译期核对（0 error 0 warning），
-//     **未链接、未运行**；文中「应当/期望」后面全是推理或本机头文件源码，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_06_qrunnable_threadpool）。本机这一轮：硬账：核对 36 项，不符 0 项。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QCoreApplication>
@@ -101,7 +104,7 @@
 #include <functional>
 
 // ============================================================================
-// 一、对着本机头文件核过的签名（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、对着本机头文件核过的签名（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtCore/qrunnable.h
 //   第 18 行 class Q_CORE_EXPORT QRunnable            ← **不是** QObject 的子类，没有 Q_OBJECT
@@ -257,11 +260,6 @@ static void checkBool(const QString &label, bool got, bool want)
             QStringLiteral("实测 %1（期望 %2）")
                 .arg(got ? QStringLiteral("true") : QStringLiteral("false"),
                      want ? QStringLiteral("true") : QStringLiteral("false")));
-}
-
-static void expectNum(const QString &label, qint64 got, qint64 want)
-{
-    verdict(Soft, label, got == want, QStringLiteral("%1（应当 %2）").arg(got).arg(want));
 }
 
 // ============================================================================
@@ -796,18 +794,40 @@ static void phase5_tryStartDoesNotQueue()
     });
     checkBool(QStringLiteral("【5B】同一前提下 tryStart(lambda) 也返回 false"), startedB, false);
     if (!startedB) {
-        // 这里**故意不 delete 任何东西**：源码第 100 行已经删了那个 QGenericRunnable，
-        // 连带把捕获里的 Probe 也销毁。探针计数应当恰好是 1，而且 lambda 体一次没进。
+        // ★★ 实测是 2 次析构，不是 1 次 —— 而且这**不是** Qt 替你 double-free，是两个不同对象各删一次：
+        //   ① 你在这一行写的临时 lambda 对象本身（调用方栈上的那个右值），它的捕获 probe 在
+        //      **本条语句结束（分号）时**随临时对象析构 → 第 1 次 ~Probe；
+        //   ② QRunnable::create 里 `new QGenericRunnable(std::forward<Callable>(fn))` 把你的 lambda
+        //      **搬进** CompactStorage（qrunnable.h 92 行 / qfunctionaltools_impl.h 的 StorageByValue）。
+        //      Probe 因为**用户声明了析构函数**，其隐式移动构造函数被抑制（C++ 规则：有用户声明的
+        //      dtor ⇒ 不生成隐式 move ctor），只剩拷贝构造。于是这次「移动」实际是**拷贝**——
+        //      存储里另有一份 Probe。tryStart(QRunnable*) 返回 false 后，源码第 100 行
+        //      `delete runnable;`（qthreadpool.h 94~102）删掉 QGenericRunnable → 存储里的 lambda 析构
+        //      → 第 2 次 ~Probe。
+        //   所以：若 Qt **不**执行第 100 行那句 delete，就只有①那一次析构（计数 1）；正因为它删了，
+        //   我们才看到第 2 次 → 这个「2」恰恰是「Qt 替你 delete 了那个 QRunnable」的铁证，
+        //   而多出来的另一次只是调用方临时 lambda 的正常收尾。二次释放会让进程当场崩，这里没有崩，
+        //   两个对象地址也不同 —— 是「两份拷贝各自析构」，不是「同一份删两次」。
         QThread::msleep(1);                    // 等一拍：万一被接了，让 run 有时间进场
-        checkNum(QStringLiteral("【5B】失败时探针析构次数（=Qt 在第 100 行替你 delete 的证据）"),
-                 gProbeDtor.loadRelaxed(), 1);
+        checkNum(QStringLiteral("【5B】失败时探针析构次数（2 = 调用方临时 lambda 1 次 + Qt 第 100 行 delete 那份拷贝 1 次）"),
+                 gProbeDtor.loadRelaxed(), 2);
         checkNum(QStringLiteral("【5B】失败时 lambda 体执行次数"), gProbeRun.loadRelaxed(), 0);
         qInfo().noquote() << QStringLiteral("      ★ 这就是「两族长得很像的重载，所有权规矩不一样」：\n"
                                             "        A 族给你裸指针，失败归你删；B 族自己 new 自己删（源码 94~102 行）。\n"
                                             "        抄错族的后果一边是泄漏、一边是二次释放，编译器都不帮你 ——\n"
                                             "        所以这一节把两族都投一遍，各数一遍析构。\n"
-                                            "      顺带：B 族失败时那个 lambda 里的捕获也一起没了，\n"
-                                            "        别把「必须清理一次」的事写在捕获对象的析构里，那是运气。");
+                                            "      ★★ 为什么这一节是 2 不是 1（本讲第一版就栽在这儿）：\n"
+                                            "        探针被【拷贝】进了 QGenericRunnable，而不是【移动】——\n"
+                                            "        因为 Probe 自带析构函数，按 C++ 规则它就没了隐式移动构造，\n"
+                                            "        只能走拷贝。于是世上同时有两份 Probe：调用方那枚临时 lambda 里一份、\n"
+                                            "        存进池任务里一份。临时 lambda 在语句末尾自己析构（第 1 次），\n"
+                                            "        存进任务的那份被第 100 行 delete 掉（第 2 次）。\n"
+                                            "        要证的「Qt 删了任务」= 那份拷贝的析构，它确实在；\n"
+                                            "        多出来的一次是调用方临时对象该做的收尾，不是重复释放。\n"
+                                            "      反面教训：**别把「析构次数 == 1」当成「只 new 了一次」的证据**，\n"
+                                            "        值语义类型（拷贝 vs 移动）会改变对象份数。想只数 Qt 那一次，\n"
+                                            "        就给 Probe 补一个 `Probe(Probe&&) noexcept = default;`（连同析构，\n"
+                                            "        见 Rule of Five），移动就不产生第二份了。");
     } else {
         ++gLedger.stalled;
         pool.waitForDone(2000);                // 被接了的话让池把这条收干净，别把尸体留到下一节

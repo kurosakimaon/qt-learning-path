@@ -396,8 +396,18 @@ pre.code .ln.hl {
 .svg-arrow-bad { fill: none; stroke: #ef4444; stroke-width: 2; stroke-dasharray: 6 5; }
 .svg-dot { fill: #6d28d9; }
 .svg-cross { stroke: #ef4444; stroke-width: 2.6; }
-.svg-good-text { fill: #047857; font-weight: 700; }
-.svg-bad-text { fill: #b91c1c; font-weight: 700; }
+.svg-good-text { fill: #047857; font-size: 12.5px; font-weight: 700; }
+.svg-bad-text { fill: #b91c1c; font-size: 12.5px; font-weight: 700; }
+/* 【勘误·两条一起记】
+   1) 这两个类原先**没有 font-size**，于是去继承 UA 默认的 16px，比同页的 .svg-text(12.5)
+      和 .svg-small(11) 大一圈——不是设计，是漏写。本机实测（resource_pipeline 的 `#step-4`）：
+      `getComputedStyle` 对 .svg-good-text 那行给的是 fontSize=16px，同一屏 .svg-text 是 12.5px。
+      后果直接体现在排版上：那两行比自己的盒子宽 15px，看着就是「字顶出盒子」。
+   2) `<text class="svg-text" fill="#b45309">` 这种写法**颜色是无效的**：
+      表现属性（presentation attribute）的优先级低于 CSS 类选择器，所以 .svg-text 的
+      `fill:#334155` 赢了。本机实测 computed fill = rgb(51, 65, 85) = #334155，
+      那个琥珀色 #b45309 一次都没渲染出来。要换色就用下面这个类，别写 fill 属性。 */
+.svg-warn-text { fill: #b45309; font-size: 12.5px; }
 
 /* ---------- step animations ---------- */
 

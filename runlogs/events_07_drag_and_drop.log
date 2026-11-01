@@ -1,0 +1,118 @@
+事实① 拖动阈值：QApplication::startDragDistance()=10 px，startDragTime()=500 ms（qapplication.h 111/113 行）→ 这两个值来自系统/样式，**别在代码里写死 10 像素**，用 API 取。
+  [PASS] 事实① startDragDistance() 是正数（阈值为 0 就成了「按下即起拖」，鼠标抖一下东西就飞出去）
+事实② 一个 QMimeData 可以同时装多种格式：formats()=[text/plain, text/html, application/x-qt-learning-item, text/uri-list] hasText=1 hasUrls=1 hasHtml=1 hasFormat(自定义)=1 自定义 data 长度=3
+  [PASS] 事实② 同一份数据同时以 4 种格式对外（自定义 MIME 不会挤掉标准格式）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+
+=== 演示① 进程内合成一次拖放（没有鼠标）===
+  投递 QDragEnterEvent（位置=(30,30)）→
+    接收盒 dragEnter：位置=(30,30) possibleActions=0x3 proposedAction=0x1 formats=text/plain, application/x-qt-learning-item, text/uri-list
+      → 表态完：isAccepted=1 dropAction=0x1
+    enter 之后 isAccepted=1 dropAction=0x1
+      接收盒 dragMove：位置=(30,30) isAccepted=1 dropAction=0x1 answerRect=(4,4,100,20)
+    move 之后 isAccepted=1 dropAction=0x1
+  投递 QDropEvent（位置=(30,30)，构造后未表态：isAccepted=0 dropAction=0x1）→
+    接收盒 取到自定义 MIME 数据，长度=54 内容=内部拖放特权：随意的 MIME 名与任意字节
+    接收盒 取到 2 个 URL：C:/Temp/示例文件.txt, https://doc.qt.io
+    接收盒 dropEvent：text=「第 7 讲的载荷」 dropAction=0x1 位置=(30,30) source=<nullptr：合成事件/跨程序拖动都可能是空>
+    drop 之后 isAccepted=1 dropAction=0x1
+演示① 结果：接收盒 enter 累计=1、本轮 move 增量=1、本轮 drop 增量=1；接到文本=「第 7 讲的载荷」 来源=<nullptr：合成事件/跨程序拖动都可能是空>
+  [PASS] 演示① 一轮 enter+move+drop 之后接收盒真的收到 1 次 drop，文本与 dropAction 都对
+  [PASS] 演示① dragMove 也进了（Enter 之后 currentTarget 已登记，Move 才会被改投给它），并且 answerRect 回读得到 (4,4,100,20)
+  [PASS] 演示① source() 是 nullptr（qevent.h 743 行 friend class QApplication：合成事件没人填它）
+  [PASS] 演示① 投递给 box 的坐标 (30,30) 原样到达（box 自己就开了 acceptDrops，不用上溯父链）
+
+=== 演示② 没开关的控件 vs 开了开关的祖先 ===
+  投递 QDragEnterEvent（位置=(30,30)）→
+    enter 之后 isAccepted=0 dropAction=0x1
+    move 之后 isAccepted=0 dropAction=0x1
+  投递 QDropEvent（位置=(30,30)，构造后未表态：isAccepted=0 dropAction=0x1）→
+    drop 之后 isAccepted=0 dropAction=0x1
+演示②a 结果：「没开acceptDrops」的 dragEnter 增量=0、drop 累计=0（父窗口也没开 → 一路上溯没人接，事件蒸发）
+  [PASS] 演示②a 自己和父窗口都没开 acceptDrops → 处理器一次都不进（qapplication.cpp 2997 行的门槛）
+    父·投放点 dragEnter：位置=(20,20) possibleActions=0x3 proposedAction=0x1 formats=text/plain
+      → 表态完：isAccepted=1 dropAction=0x1
+演示②b 结果：投给「子·没开关」，「父·投放点」的 dragEnter 增量=1，父看到的位置=(20,20)（我投的是子局部 (10,10)）
+    → 规则（qapplication.cpp 2996~3008 行）：DragEnter 从接收者开始**沿父链往上走**，第一个 isEnabled() && acceptDrops() 的祖先接手；每上一层 m_pos 就 mapToParent 一次（3006 行），所以 handler 里读到的 position() 是**接手者**的局部坐标。
+  [PASS] 演示②b 子控件没开关，事件被开了开关的父控件接走（不是「吞掉」，是「上移一级」）
+  [PASS] 演示②b 交接手时坐标被重算：子局部 (10,10) 变成父局部 (20,20)（子本身在父的 (10,10)）
+    【注意】 顺手记一笔**状态**：这发 Enter 被父控件接住了，于是 QDragManager 把 currentTarget **登记成了父·投放点**（2999~3001 行），而我这一轮没有投 Drop 去清空它。演示⑤ 一开头就要先处理这个**残留目标**——真实程序里「上一次拖到 A 没松手／A 只接了 Enter」之后的下一发 Drop 落进 A，就是这个残留。
+
+=== 演示③ 表态三写法的真值表（别再背错公式）===
+  A 造出来没表态           isAccepted=0 dropAction=0x1 proposedAction=0x1
+  B 只 accept()            isAccepted=1 dropAction=0x1 proposedAction=0x1
+  C acceptProposedAction() isAccepted=1 dropAction=0x1 proposedAction=0x1
+  D setDropAction+accept   isAccepted=1 dropAction=0x2 proposedAction=0x1
+  E setDropAction+Proposed isAccepted=1 dropAction=0x1 proposedAction=0x1
+  F 只 setDropAction       isAccepted=0 dropAction=0x2 proposedAction=0x1
+  读法：构造函数（qevent.cpp 3198~3207）已经把 m_dropAction 和 m_defaultAction **同时**设成默认动作，只多干了一件坏事：ignore()。所以 B 与 C 一模一样（qevent.h 734 行那句 m_dropAction = m_defaultAction 在这里是空操作），真正能换动作的是 D 那一行的 setDropAction()；E 行说明 acceptProposedAction() 会**覆盖**你刚 set 的动作。
+  [PASS] 演示③ A：新鲜事件的 dropAction 已经是 0x1（构造时预置），isAccepted 是 false
+  [PASS] 演示③ B 与 C 完全等价：isAccepted 与 dropAction 两个字段一模一样
+  [PASS] 演示③ D：setDropAction(Move)+accept() 才真的把动作换成 0x2
+  [PASS] 演示③ E：acceptProposedAction() 把刚 set 的 Move 又覆盖回默认的 0x1
+  [PASS] 演示③ F：只 setDropAction 不 accept → 动作改了但 isAccepted 仍为 false（路由看的是后者）
+
+=== 演示④ 修饰键 → proposedAction（qplatformdrag.cpp 75~118）===
+  无修饰键 (Copy|Move|Link)       possibleActions=0x7 → proposedAction=0x1 （dropAction 初值同 0x1）
+  Ctrl   (Copy|Move|Link)         possibleActions=0x7 → proposedAction=0x1 （dropAction 初值同 0x1）
+  Shift  (Copy|Move|Link)         possibleActions=0x7 → proposedAction=0x2 （dropAction 初值同 0x2）
+  Ctrl+Shift (Copy|Move|Link)     possibleActions=0x7 → proposedAction=0x4 （dropAction 初值同 0x4）
+  Alt    (Copy|Move|Link)         possibleActions=0x7 → proposedAction=0x4 （dropAction 初值同 0x4）
+  Ctrl   (只有 Move，Copy 不合法)  possibleActions=0x2 → proposedAction=0x2 （dropAction 初值同 0x2）
+  读法：起点是 drag->defaultAction()（此刻没有真 drag → IgnoreAction → 兜底 CopyAction），再按修饰键覆盖 Ctrl→Copy / Shift→Move / Ctrl+Shift→Link / Alt→Link；最后一步「不在 possibleActions 里就按 Copy→Move→Link→Ignore 回退」就是最后一行从 Copy 变成 Move 的原因。
+  [PASS] 演示④ 无修饰键与 Ctrl 都提议 Copy(0x1)；Shift 提议 Move(0x2)
+  [PASS] 演示④ Ctrl+Shift 与 Alt 都提议 Link(0x4)（前提是 possibleActions 里有 Link）
+  [PASS] 演示④ possibleActions 只有 Move 时，Ctrl 想要的 Copy 被回退成 Move(0x2)（107~116 行的回退链）
+
+=== 演示⑤ Drop 发给谁，不由你说了算 ===
+  先把坐标换算的底数打出来：主窗 mapToGlobal(0,0)=(2,2)（离屏平台给顶层窗口摆的位置），孤儿盒在窗内的 pos=(20,150)。
+    父·投放点 dropEvent：text=「孤儿 Drop」 dropAction=0x1 位置=(27,157) source=<nullptr：合成事件/跨程序拖动都可能是空>
+  ① 【残留目标】只投 Drop（投给孤儿盒）：孤儿盒增量=0、父·投放点增量=1、isAccepted=1
+    → qapplication.cpp 3021 行把 w 换成 QDragManager::self()->currentTarget()，而 currentTarget 还是演示②b 里那个**上一轮的接手者**。所以这一发 Drop 落进了父·投放点：孤儿盒一次没进。真实程序里「上一发拖到 A 结果 A 只回了 Enter／没松手」之后的下一发 Drop 就是这么凭空进错地方的。
+  [PASS] 演示⑤① 残留的 currentTarget 会**跨轮留任**：Drop 投给孤儿盒，却落进上一轮接手 Enter 的父控件
+    接收盒 dragEnter：位置=(8,8) possibleActions=0x3 proposedAction=0x1 formats=text/plain
+      → 表态完：isAccepted=1 dropAction=0x1
+    接收盒 dropEvent：text=「孤儿 Drop」 dropAction=0x1 位置=(8,8) source=<nullptr：合成事件/跨程序拖动都可能是空>
+  ② 【清场】给接收盒投完整一轮 enter+drop：接收盒 drop 累计=2（Drop 处理完就把 currentTarget 清空）
+  ③ 【真空目标】再投一发孤儿 Drop：handler 增量=0、isAccepted=0（连控件都没到达）
+    → 没有 currentTarget 时 3023~3031 行直接 break，DragMove/Drop 就这样被丢掉；只有 DragLeave 有退回 receiver 的待遇（3028~3029 行）。这就是「断点在 dropEvent 里却不进」的一种成因。
+  [PASS] 演示⑤③ 清场之后再没有登记的 Enter，孤儿 Drop 事件**凭空蒸发**（handler 不进、isAccepted 保持假）
+    接收盒 dragEnter：位置=(12,12) possibleActions=0x3 proposedAction=0x1 formats=text/plain
+      → 表态完：isAccepted=1 dropAction=0x1
+    接收盒 dropEvent：text=「孤儿 Drop」 dropAction=0x1 位置=(27,157) source=<nullptr：合成事件/跨程序拖动都可能是空>
+  ④ 【同轮改投】Enter 投给接收盒并接住，Drop 投给孤儿盒：接收盒增量=1（它看到的位置=(27,157)），孤儿盒增量=0
+    → Drop 被**改投**给 currentTarget（接收盒），而且 m_pos 被 3036~3039 行的循环换算过：我投的是孤儿盒局部 (5,5)，接收盒读到的是 (27,157) = 孤儿盒窗口坐标 (25,155) 再加上主窗的全局偏移。处理完这发 Drop，3042~3047 行又把 currentTarget 清空 → **每一轮「进→落」都必须重新过一次 Enter**。
+  [PASS] 演示⑤④ Drop 落到 Enter 时被登记的那个控件（不是你 sendEvent 的对象）
+  [PASS] 演示⑤④ 转发时坐标被重写：投 (5,5) 给孤儿盒，接收盒看到的是换算后的值
+
+=== 演示⑥ 只给一个我们不认识的数据类型 ===
+    接收盒 dragEnter：位置=(30,30) possibleActions=0x1 proposedAction=0x1 formats=application/vnd.something-else
+      → 数据格式不认识，ignore()
+  接收盒拒绝次数增量=1，enter.isAccepted=0，dropAction=0x1（没人改过它，所以还是 0x1——但路由看的是 isAccepted）
+    → 之后用户真落下也不会有 dropEvent（拖动方拿到 IgnoreAction）。结论：**dragEnter 里的判断要尽量便宜**，别在这里做 I/O 或解析大对象，因为拖动过程中它会反复被调（dragMove 更频繁）。
+  [PASS] 演示⑥ 不认识的格式走 ignore()：拒绝计数 +1，isAccepted 为假
+
+=== 演示⑦ 合成鼠标事件驱动真实起拖路径 ===
+    拖动源 移动 manhattanLength=9 < 阈值 10 → 不起拖
+  按下 (2,2) 后移动 9 px（阈值 10）：起拖次数增量=0（期望还没起拖）
+    拖动源 起拖：移动 18 px，exec() 返回动作=0x0，exec 之后 defaultAction=0x2 supportedActions=0x3
+  继续移动到累计 18 px（≥ 阈值）：这一跳起拖次数=1，exec() 返回=0x0
+  按住继续乱动（同一次按下）：起拖累计=1 → 应当**不再增加**
+    → exec() 返回 0x0 是**本机离屏平台的桩**（QOffscreenDrag::drag 直接 return IgnoreAction，qoffscreencommon.h 58~61），不是「拖放失败」的业务含义；换 windowsplatform 才会真跑 OLE 拖放。
+  [PASS] 演示⑦ 移动不足阈值 → 不起拖（阈值取的是 startDragDistance()，不是硬编码）
+  [PASS] 演示⑦ 越过阈值 → 恰好起拖一次，且 exec() 真的跑到了（本机返回 IgnoreAction）
+  [PASS] 演示⑦ 同一次按下里继续移动不再起第二次拖（m_dragFired 守卫；别拿 QPoint()==(0,0) 当「按下过」的标志）
+  [PASS] 演示⑦ exec(Copy|Move, IgnoreAction) 之后 defaultAction 被换算成 Move(0x2)——Move > Copy > Link（qdrag.cpp 241~248 行）
+
+=== 事实⑧ 两种拖放的差别 ===
+  内部（同进程）：QMimeData **对象指针**直接递过去，数据不序列化，自定义 MIME 名随便用，source() 是真实的 QObject*，还能传只在本进程有意义的复杂对象；拖动过程可以很快（没有编解码）。
+  跨程序：数据要经 QPA 走平台的机制（Windows 是 OLE 拖放，X11/Wayland 是各自的 DnD 协议），于是——① MIME 名必须是对方认得的（text/plain、text/uri-list 这类标准名）；② 数据要能变成 QByteArray，即 retrieveData(mimetype, QMetaType) 得给得出（qmimedata.h 53 行；Qt5 这里是 QVariant::Type，重写它的老代码必改）；③ 对方是另一个进程，你无法在它 drop 之前问它要不要，所以**在 dragEnter 就把 supportedActions 收得越窄越好**，别把「移动」这种破坏性动作开放给外部数据；④ 大对象请用 URL/文件路径传，别把整个字节流塞进拖放（会卡）。
+  一句话：**内部拖放比的是对象指针，跨进程拖放比的是 MIME 名。**
+
+=== 结论 ===
+接收盒：enter=4 move=1 leave=0 drop=3 拒绝=1 最后一次 dropAction=0x1
+没开开关的盒子：enter=0 drop=0；父·投放点：enter=1；子·没开关：enter=0
+孤儿盒：enter=0 drop=0；拖动源：起拖次数=1
+一句话：**QMimeData 谈格式、isAccepted 谈态度、dropAction 谈动作、currentTarget 谈收件人、startDragDistance 谈时机。**
+=== 自检台账：PASS=26 FAIL=0 SKIP=0 ===

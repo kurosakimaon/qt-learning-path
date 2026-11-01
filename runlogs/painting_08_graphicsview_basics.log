@@ -1,0 +1,63 @@
+===============================================================
+painting 第 8 讲 · QGraphicsView 框架（平台 = "offscreen" ）
+===============================================================
+【证据①】场景 / 视图 / 图元的分工
+  scene->items().size() = 2003 （2000 个 DotItem + hero + legend + 1 个内建 addRect 的图元）
+  开了 DeviceCoordinateCache 的图元个数 = 250 其中 hero 的 cacheMode() 回读 = 0 （0=NoCache 1=ItemCoordinateCache 2=DeviceCoordinateCache，名字和顺序都以 qgraphicsitem.h 111~115 行为准 —— 头文件里第一档叫 NoCache，不叫 None）
+  sceneRect（我显式 setSceneRect 过的）= QRectF(-40,-40 1280x1040)
+  itemsBoundingRect（图元自己的并集）= QRectF(-31,-31 1262x1022)
+  view->scene() 就是上面那个 scene 吗 = true
+  view->size() = QSize(640, 420) viewport() 非空 = true （视图自己是个 QWidget，画在它的 viewport 上）
+  → 记住分工：**scene 只管「有什么、在哪、谁被点到」，view 只管「这块看到多少、多大、往哪移」，item 只管「我占多大、我怎么画」**。
+【证据②】图元坐标 → 场景坐标 → 视图（设备）坐标 → 全局坐标
+  hero->pos()（场景坐标）= QPointF(600,480) scenePos()= QPointF(600,480)
+  图元角点 QPointF(-17,-17) --mapToScene--> 场景点 QPointF(583,463) --mapFromScene--> 回到 QPointF(-17,-17) （往返差 = 0 ）
+  场景点 --view.mapFromScene--> 设备点 QPoint(312,202) --view.mapToScene--> 回到 QPointF(582.4,462.8) （设备→场景→设备 的整点往返误差应为 0，因为 mapFromScene 返回 QPoint）
+  设备点 --mapToGlobal--> 全局 QPoint(314,204) --mapFromGlobal--> 回到 QPoint(312,202) （全局坐标由窗口管理器给，offscreen 下只看往返一致，别拿它当绝对位置）
+  view->transform() 的 m11（当前缩放）= 0.384615
+【证据③】命中测试：scene->items / scene->itemAt / view->itemAt
+  scene->items(场景点) 命中数 = 3 顶到底 = "type=3/z=0 type=65537/z=0 type=65537/z=0" （hero 的自定义 Type = UserType+1 = 65537 ，legend = 65538 ，内建 QGraphicsRectItem 的 Type = 3，见 qgraphicsitem.h 628 行）
+  第一个（最上层）是 hero 吗 = false —— 为什么不是：这一批图元**谁都没设过 zValue**（全是 0 ），z 相同时后加入场景的在上面，而背景那条 addRect 是本讲**最后**加进场景的（就在 hero、legend 之后那句 scene.addRect）。所以「items().first()」给的是你以为的那个图元吗，得看加入顺序，别猜。
+  scene->itemAt(pos, deviceTransform) 返回 = "最上面那个（type=3，与 items().first() 一致：1）" ——注意它**必须**传 deviceTransform，因为「谁在上」跟视图变换有关
+  view->itemAt(设备点) 与上面一致吗 = true （这条最省事：把鼠标事件的 pos() 直接丢给它）
+  场景左上角那种空白处：items(far).size = 0 （0 才说明命中测试按 shape() 走，不是按「整个场景都算」）
+  一个矩形范围里有多少图元：items(QRectF 100x100).size = 26  vs 全场景 2003 （这就是「批量命中/框选」的入口，第 6 讲的自绘控件要自己做这件事）
+【证据④】缩放与变换锚点
+  scale(2,2) 之后 transform().m11 = 0.769231
+  hero 的场景位置没动（ QPointF(600,480) ），但它**离视口中心的设备距离**从 QPoint(1,1) 变成 QPoint(175,185) （离中心越远挪得越多；缩放全落在设备坐标上，图元自己完全不知道，这就是框架的价值）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+  【ItemIgnoresTransformations 实测】paint() 里 painter->worldTransform().m11()：
+    图例两轮各被画 1 次、 1 次；设备位置 QPoint(319,209) → QPoint(312,202) ，视口 = QSize(624, 404) （同一轮普通图元 = 487 次、 118 次）
+    视图 m11=1 时：普通图元 DotItem = 1 ｜图例 LegendItem = 1
+    视图 m11=2 时：普通图元 DotItem = 2 ｜图例 LegendItem = 1 ← 视图翻了倍，图例承受的那份**没跟着翻**：框架在画它之前把视图变换抵消掉了，paint() 里的 worldTransform 还是 1 倍 → 它的 80x24 在设备上就是 80x24 像素。这就是 56 行那个标志的全部作用，也是它唯一的可验证落点
+    图例每次被要求画的 option->rect： QRectF(-40,-12 80x24) -> QRectF(-40,-12 80x24) （它的 boundingRect = QRectF(-40,-12 80x24) ；qgraphicsitem.cpp 1440 行就是把 boundingRect().toRect() 塞进 option->rect，所以两轮都是包围盒本身，跟缩放无关 —— 想知道「设备上多大」要读上面那个 m11，不是读这个 rect。上一版拿 mapToScene 反推出的 80x24→61x18 就是读错了地方）
+  resetTransform 后 m11 = 1
+  fitInView(sceneRect, KeepAspectRatio) 后 m11 = 0.384615 （由 640x420 的视口与 QSizeF(1280, 1040) 的场景算出来；KeepAspectRatio 取小比例，所以一定装得下）
+  换成 IgnoreAspectRatio 后 m11 = 0.484375 、m22 = 0.384615 （两个方向各自拉伸 → 圆变椭圆；本模块第 2 讲的坑在框架层重现）
+【证据⑤】CacheMode 与视口裁剪：把 paint() 次数数出来
+  第 1 轮（fitInView 后全场景可见，场景没改过）：没开缓存的图元 paint = 1751 次｜开了 DeviceCoordinateCache 的 = 0 次（后者共 250 个）
+  第 2 轮（什么都没改，再来一遍）：没开缓存 = 1751 次｜开了缓存 = 0 次 ← 这一对数字就是缓存的全部意义：同一份内容，开了缓存的第二遍**一次 paint 都不走**
+  第 3 轮（view.scale(3,3) 之后）：没开缓存 = 289 次｜开了缓存 = 41 次｜图元总数 = 2003 —— 两件事同时发生：视口外的图元**根本不画**（第一层节省，看没开缓存那列从 1751 跌到 289 ），而按设备像素存的那份因为变换变了就对不上了，被要求重画（第二层代价，开了缓存那列从 0 又活了，这一轮 41 个；不是 250 个全作废，只有真被画到的那批要重来）
+  本轮 m11 = 1.15385 ，场景左上/右下投到设备上 = QPoint(0,-22) / QPoint(1477,1178) ，视口 = QSize(624, 404) （超出视口的那部分图元本轮不参与，这就是上面那列数字跌下来的原因）
+  第 4 轮（ 2003  个图元全改 ItemCoordinateCache）：啥也没改的一轮 paint = 0 次｜再缩放 1.5x 的一轮 = 0 次 ← 按**图元坐标**存的那份，缩放不需要重画（重新采样就行）；对照第 3 轮里按设备像素存的那列（0 → 41 ）—— 两档的差别就在这两行数字里
+  三种 CacheMode 的取舍（qgraphicsitem.h 111~115 行）：
+    NoCache                   —— 每次重绘都真的走一遍 paint()，最省内存；
+    ItemCoordinateCache       —— 把 paint() 的结果按**图元坐标系**缓存，缩放时只需重新采样（第 4 轮实测：缩放一轮重画 0 次），平移免费；代价是缓存按当前缩放比预放大，图元多时占内存；
+    DeviceCoordinateCache     —— 按**设备像素**缓存，平移时最省事；但视图一变换，按像素存的那份就对不上了，要重画（第 3 轮实测：scale(3) 那一轮这列从 0 又跳回非 0）。注意是**重画受影响的那部分**，不是整批清零重画。
+    → 什么时候开：图元的 paint() 很贵（渐变/阴影/文字/复杂路径）+ 图元多 + 经常整体平移；什么时候别开：图元本来就简单（内存换不到时间），或者你频繁缩放。
+    → 还有一条硬警告：QGraphicsItem 在 qgraphicsitem.h 408 行写了**Q_DISABLE_COPY(QGraphicsItem)**（内建图元也一样，如 637 行的 QGraphicsRectItem）—— 拷贝构造和赋值在**编译期**就不存在，所以图元只能 new 出来放指针：QVector<QGraphicsItem *> 【通过】、QVector<QGraphicsItem> 【失败】（编不过）。顺带一句：QGraphicsItem **不是** Q_DECLARE_SHARED 的那类值类型（那个宏在 qgraphicsitem.h 里一次都没出现），别把「共享隐式detach」那套记到这里。
+【证据⑥】场景事件：sendEvent(QGraphicsSceneMouseEvent)
+    （槽收到 clicked，itemId = 999999 ）
+  投一次按下后：DotItem::s_clicks 0 -> 1 hero 的 clicked() 信号次数 = 1 （信号是**图元**发的，槽在 main 的 lambda 里）
+  被选中的图元数（ItemIsSelectable 生效）= 1
+  mouseGrabberItem() 非空 = true
+  抬起之后 mouseGrabberItem 还非空吗 = false
+  → 对比第 6 讲：那边要点中得自己算角度/包围盒，这里 setFlag(ItemIsSelectable) + shape() 就够了；图元一多，这笔账一定划算。
+【证据⑦】把框架画进 QImage（两条路）
+  scene.render 版: QSize(560, 360) 非透明像素 = 201600 / 面积 = 201600 中心像素 = "#ffeef2f8"
+  view.render 版: QSize(640, 420) 非透明像素 = 200196 / 面积 = 268800 中心像素 = "#ffeef2f8"
+  → 两张图的「非透明像素数」差很多是正常的：scene.render 连背景矩形都算，view.render 只画视口里看得见的部分。**要比较请比较内容，别比较像素总数**。
+  四轮对照（这一讲真正要记住的是这一行）：全可见 1751 次 → 场景没改的第二轮 1751 次（开了设备缓存那批 0 次）→ scale(3) 后 289 次（视口外的不画）→ 全开 ItemCoordinateCache 再缩放 0 次。 四轮之和 = 3832 次、图元 2003 个 —— 光看这个「累计数」得不出任何结论（上一版只报累计数，还据此吹「远小于图元数×轮数」，而存档 log 里那个数正好等于图元数×轮数：4002 = 2001×2）。有用的从来只有**分轮、分列**的那四个数。
+  view->sizeHint() = QSize(494, 402) （QGraphicsView 覆写了它，qgraphicsview.h 90 行；不是我们第 6 讲那个自定义值）
+【收尾】把上面每个数字抄回注释，就是你的实测。

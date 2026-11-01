@@ -32,9 +32,10 @@
 //
 // 运行前须知：
 //   · 依赖 Qt6::Widgets。Windows 上要能找到 platforms/qwindows.dll 或 qoffscreen.dll。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；文中每一个类、
-//     函数、重载、枚举值都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件逐个核对，
-//     行号列在下面「核对签名」一节。核对不到的 API 一律没写。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_06_mainwindow，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_06_mainwindow.log）。
 //   · 全程无人值守：QTimer::singleShot 依次 trigger action / showMessage /
 //     toggleViewAction()->trigger() / saveState / restoreState / close()，
 //     关键结论用 qInfo() 打印，最后 QCoreApplication::quit()。
@@ -93,7 +94,7 @@
 #include <QString>
 
 // ============================================================================
-// 一、核对签名（本讲全部依据，路径相对 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本讲全部依据，路径相对 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // QtWidgets/qmainwindow.h
 //   第 25 行   class Q_WIDGETS_EXPORT QMainWindow : public QWidget
@@ -131,8 +132,28 @@
 //                            42 QAction *addSeparator(); / 49 QAction *activeAction() const;
 //                            70 void setNativeMenuBar(bool);（macOS 原生菜单条，Windows 无效果）
 // QtWidgets/qmenu.h          43 using QWidget::addAction; / 45 QAction *addAction(const QString&)
-//                            114 QAction *addMenu(QMenu *menu); / 123 insertAction / 145 popup(QPoint,...)
-//                            146 int exec() ← **阻塞**，本资料库禁止出现在示例主路径
+//                            114 QAction *addMenu(QMenu *menu); / 123 insertMenu / 124 insertSeparator
+//                            125~126 insertSection（两个重载）/ 145 popup(const QPoint&, QAction *at = nullptr)
+//                            146 / 147 / 149 三个 exec() 重载 ← **阻塞**，本资料库禁止出现在示例主路径
+//                            ★ 勘误两处（本机 6.12.0 逐行 grep 过）：
+//                              ① 旧稿写「123 insertAction」——**QMenu 没有 insertAction 这个函数**。
+//                                整个 widgets 源码树里 grep `insertAction` 只能命中 doc snippets 里
+//                                一个叫 insertAction 的 QAction *变量名，不是 API。
+//                                123 行真正是 QAction *insertMenu(QAction *before, QMenu *menu);
+//                                想在某个动作前面插一项，能用的只有 insertMenu / insertSeparator /
+//                                insertSection 这三个「before 定位」的口；插一个**已有的 QAction**
+//                                没有对应 API（QWidget 继承来的 addAction(QAction*) 在 qwidget.h:562，
+//                                它是**追加到末尾**的，签名里根本没有 before 参数）。
+//                                真要插中间，只能 actions() 取出来重建顺序，或者一开始就把加项顺序排好。
+//                                别照着博客写 insertAction，编不过。
+//                              ② 旧稿写「146 int exec()」——返回类型错。真实签名是
+//                                `QAction *exec()`（146）、`QAction *exec(const QPoint &pos, QAction *at = nullptr)`
+//                                （147）、`static QAction *exec(const QList<QAction*> &actions, const QPoint &pos,
+//                                QAction *at = nullptr, QWidget *parent = nullptr)`（149）。
+//                                返回的是**被选中的那个 QAction\***，没选/关掉就是 nullptr。
+//                                这一点直接决定写法：`if (QAction *a = menu->exec(pos)) a->trigger();`，
+//                                按 int 记的人会写出 `if (menu->exec(pos) == 0)` 这种看着能跑、
+//                                其实把「选了第 0 项」和「没选」混成一件事的代码。
 // QtWidgets/qtoolbar.h       43 setMovable / 55 clear / 57 using QWidget::addAction;
 //                            59 QAction *addAction(const QString&); / 60 (QIcon,QString)
 //                            66 QAction *addSeparator(); / 69 QAction *addWidget(QWidget*);
@@ -173,13 +194,21 @@
 //                                / visibleChanged / triggered(bool checked = false)
 //                                / hovered() / toggled(bool)
 // QtGui/qactiongroup.h       17 class Q_GUI_EXPORT QActionGroup : public QObject
-//                            32 explicit QActionGroup(QObject *parent);   ← ⚠ parent 无默认值！
-//                            37 QAction *addAction(QAction*); / 38 addAction(const QString&)
+//                            34 explicit QActionGroup(QObject *parent);   ← ⚠ parent 无默认值！
+//                            37/38/39 addAction(QAction*) / (const QString&) / (const QIcon&,const QString&)
 //                            40 removeAction / 41 QList<QAction*> actions() const
 //                            42 QAction *checkedAction() const; / 44 isExclusive()
-//                            54 void setExclusive(bool); / 56 setExclusionPolicy(ExclusionPolicy)
+//                            50 public Q_SLOTS: / 54 void setExclusive(bool); / 55 setExclusionPolicy(ExclusionPolicy)
 //                            27~31 enum class ExclusionPolicy { None, Exclusive, ExclusiveOptional }
-//                            57 Q_SIGNALS: triggered(QAction*); hovered(QAction*);
+//                                （32 行紧跟 Q_ENUM(ExclusionPolicy)，所以这个枚举能用 QMetaEnum 查）
+//                            57 Q_SIGNALS: / 58 triggered(QAction*) / 59 hovered(QAction*)
+//                            ★ 勘误两处（本机 6.12.0 逐行数）：构造在 **34** 不是 32
+//                              （32 行是 Q_ENUM(ExclusionPolicy)，旧稿把它当成构造那行了）；
+//                              setExclusionPolicy 在 **55** 不是 56（56 是空行，57 才是 Q_SIGNALS:）。
+//                              另外补一条旧稿漏的：addAction 有**三个**重载（37/38/39），
+//                              旧稿只写两个；以及 setExclusive/setExclusionPolicy 都在
+//                              `public Q_SLOTS:`（50 行）下面——它们是可被信号/属性连的槽，
+//                              不是普通成员函数，记错这一层就想不到能用 Q_PROPERTY 驱动它们。
 // QtGui/qkeysequence.h       40~110 enum StandardKey（完整见下面「证据 ④」的清单）
 //                            121 QKeySequence(const QString &key, SequenceFormat = NativeText);
 //                            129 QKeySequence(StandardKey key);
@@ -389,7 +418,7 @@ int main(int argc, char *argv[])
         qInfo() << "④ 标准键 count =" << ks.count()
                 << "PortableText =" << ks.toString(QKeySequence::PortableText)
                 << "NativeText =" << ks.toString(QKeySequence::NativeText)
-                << "（NativeText 才是给用户看的：Mac 上会显示成 ⌘ 那一套）";
+                << "（NativeText 才是给用户看的：Mac 上会显示成 Command键 那一套）";
     }
     qInfo() << "④ keyBindings(Save) 返回的备选键有几个 ="
             << QKeySequence::keyBindings(QKeySequence::Save).size()
@@ -559,14 +588,14 @@ int main(int argc, char *argv[])
     const QString iniPath = QDir::tempPath() + QStringLiteral("/widgets06_session.ini");
     win->setSessionFilePath(iniPath);
     QByteArray fresh = win->saveState(1);            // 150 行：此刻 dock 已谈完，存得下来
-    qInfo() << "⑪ 第一次 saveState(1) 字节数 =" << fresh.size()
+    qInfo() << "(11) 第一次 saveState(1) 字节数 =" << fresh.size()
             << "→ 这段 QByteArray 是 Qt 的**流格式**二进制（工具栏/dock 顺序、区域、尺寸），"
                "人类读不懂也别试图解析，交给 QSettings 存原始字节即可";
     {
         QSettings s(iniPath, QSettings::IniFormat);  // qsettings.h 100 行
         s.setValue(QStringLiteral("ui/state"), fresh);
         s.sync();
-        qInfo() << "⑪ 写入 ini =" << s.fileName() << "status() =" << int(s.status());
+        qInfo() << "(11) 写入 ini =" << s.fileName() << "status() =" << int(s.status());
     }
     // 恢复必须在 **show() 之后**：
     //   · restoreState 要按 objectName 找到已存在的 toolbar/dock 再往回摆；
@@ -575,7 +604,7 @@ int main(int argc, char *argv[])
     //   · 正确顺序：建窗口 → setCentralWidget/addToolBar/addDockWidget → show()
     //     → 读 QSettings → restoreState(bytes, version)（version 要和存的时候一致！）
     win->show();                                     // qwidget.h 487 行（第 1 讲讲过：只是挂号）
-    qInfo() << "⑪ show() 已调用——**恢复一定放在这里之后**；此刻 win->layout() 仍是 ="
+    qInfo() << "(11) show() 已调用——**恢复一定放在这里之后**；此刻 win->layout() 仍是 ="
             << (win->layout() ? QString::fromUtf8(win->layout()->metaObject()->className())
                               : QStringLiteral("(空)"));
 
@@ -601,7 +630,7 @@ int main(int argc, char *argv[])
     QTimer::singleShot(3400, [sb] {
         // 上面 showMessage 的 2500ms 早已过 → 临时消息应已被清空
         qInfo() << "⑩ 3.4s：showMessage 的 timeout 到点后 currentMessage() ="
-                << (sb->currentMessage().isEmpty() ? QStringLiteral("(空)✓ 超时语义生效")
+                << (sb->currentMessage().isEmpty() ? QStringLiteral("(空)√ 超时语义生效")
                                                    : sb->currentMessage());
         sb->showMessage(QStringLiteral("timeout 传 0 = 常驻，直到 clearMessage() 或被下一条消息顶掉"));
         // 关键语义：showMessage 的第二个参数**默认是 0**，0 表示「不自动消失」。
@@ -651,13 +680,13 @@ int main(int argc, char *argv[])
         // 先「动一下」界面，再验证恢复确实把状态拉回来
         const QByteArray saved = QSettings(iniPath, QSettings::IniFormat)
                                     .value(QStringLiteral("ui/state")).toByteArray(); // 144 行
-        qInfo() << "⑪ 从 ini 读回的 state 字节数 =" << saved.size();
+        qInfo() << "(11) 从 ini 读回的 state 字节数 =" << saved.size();
         const bool ok = win->restoreState(saved, 1);  // 151 行：**version 必须和存时一致**
-        qInfo() << "⑪ restoreState(saved, 1) 返回 =" << ok
+        qInfo() << "(11) restoreState(saved, 1) 返回 =" << ok
                 << "（version 不匹配 / 找不到同名 dock 都会返回 false 而**不报错**，"
                    "这是全讲最隐蔽的坑：界面静悄悄回到默认布局）";
         const bool bogus = win->restoreState(saved, 99);
-        qInfo() << "⑪ restoreState(saved, 99) 返回 =" << bogus << "← 换个 version 立刻失败，实测见分晓";
+        qInfo() << "(11) restoreState(saved, 99) 返回 =" << bogus << "← 换个 version 立刻失败，实测见分晓";
     });
 
     QTimer::singleShot(5400, [win] {
@@ -676,7 +705,7 @@ int main(int argc, char *argv[])
         qInfo() << "⑥⑦ addAction(QAction*) 只登记、addAction(QString) 新建并返回；工具栏/菜单里每个控件都被包成 QAction。";
         qInfo() << "⑧ QActionGroup 在 Qt6 属 QtGui，构造必须传 parent；互斥用 setExclusive 或 ExclusionPolicy。";
         qInfo() << "⑨⑩ dock 的显示/隐藏交给 toggleViewAction；状态栏临时消息有 timeout（0=常驻），常驻内容用 addPermanentWidget。";
-        qInfo() << "⑪ saveState/restoreState + QSettings 管布局：closeEvent 里存、show() 之后恢复、version 两边写同一个数。";
+        qInfo() << "(11) saveState/restoreState + QSettings 管布局：closeEvent 里存、show() 之后恢复、version 两边写同一个数。";
         QCoreApplication::quit();
     });
 

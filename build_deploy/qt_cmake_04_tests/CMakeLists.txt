@@ -14,7 +14,7 @@
 #      用例的「通过」判据是**退出码为 0**（QtTest 自己负责把它变成 0/1）
 #
 # 怎么构建与验证：
-#   cmake -G Ninja -B build -S .
+#   cmake -G "MinGW Makefiles" -B build -S .
 #   cmake --build build
 #   ctest --test-dir build --output-on-failure
 #   ./build/calc_app

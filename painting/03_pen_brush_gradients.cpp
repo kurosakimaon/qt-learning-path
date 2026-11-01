@@ -7,7 +7,9 @@
 //        用 scale(4,4) 下的量宽度实测证明：非 cosmetic 得到 4 像素，cosmetic 得到 1 像素；
 //     2) 端头（cap）与接缝（join）：用「着墨包围盒」量出 FlatCap 与 SquareCap 差半个线宽，
 //        用「尖角外侧的延伸长度」量出 Miter/Bevel/Round 的次序；
-//     3) 自定义虚线 setDashPattern：图案里的数字是**线宽的倍数**，实测游程长度来证实；
+//     3) 自定义虚线 setDashPattern：图案里的数字是**线宽的倍数**，实测「着墨游程 + 空档游程」两套数来证实；
+//        并且同一图案在 SquareCap（默认）与 FlatCap 下画两遍 —— 默认帽会把短间隔整个吃掉，
+//        虚线直接变成实线（本机实测：着墨一段 210、空档 0 段），这是本讲最值钱的一条勘误；
 //     4) 纹理画刷：纹理由代码生成的 QImage 提供（**不依赖任何外部图片文件**），
 //        并用「颜色翻转的 x 坐标」量出纹理周期随变换放大；
 //     5) 三种渐变 QLinear/QRadial/QConical：setColorAt、setSpread、setCoordinateMode。
@@ -23,18 +25,24 @@
 //   本文件不含 Q_OBJECT（只覆写 paintEvent），末尾不需要 .moc。
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_03_pen_brush_gradients，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_03_pen_brush_gradients.log）。
 //   · 会往当前工作目录写 painting_03_pen_brush_gradients.png（色卡 + 渐变按钮）与
 //     painting_03_gradients.png（三种渐变对照）。
 //   · 无人值守：证据全部走 QImage（第 1 讲铁律一：离屏设备随时可画），
 //     控件只做一次「同样的笔和刷画在窗口上」的展示，QTimer::singleShot 驱动收尾并 quit()。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     用到的 API 全部对着 C:\msys64\ucrt64\include\qt6 头文件核对（下面有行号）。
+//   · 实测状态：本示例已在 **Qt 6.12.0 / MinGW-w64 GCC 13.1.0 / Windows 11** 上编译通过并
+//     **无头跑通**（`QT_QPA_PLATFORM=offscreen`，退出码 0），两张 PNG 与下面每个数字都是本机产物。
+//     头文件在 `D:\Qt\6.12.0\mingw_64\include`（下面签名清单的行号就是对它核的），
+//     Qt 源码在 `D:\Qt\6.12.0\Src\qtbase\src`。
+//     Windows 上 Qt 日志按本地代码页 GBK 输出，重定向时 `| iconv -f GBK -t UTF-8` 才不乱码。
 //   · 特别说明：Qt6 **没有 QtGui/qgradient.h 这份实现头** —— QGradient 及三个渐变子类都声明在
 //     QtGui/qbrush.h 里（第 157 行起）。大写转发包头 <QtGui/QGradient> 是有的（本机已确认存在），
 //     但从 Qt5 工程搬 #include <QtGui/qgradient.h> 这种写法时会找不到文件。
-//   · 本机另外只跑过 `g++ -fsyntax-only -I <Qt6 头文件目录>`：纯语法核对，
-//     **没有链接、没有运行、没有可执行文件**；它只证明这些调用对着 Qt6 头文件编得过。
-//   · 文中「预期」都是推理，实测数字请你自己跑出来核对。
+//   · 文中「预期」都对着本机日志核过一遍；跑出来的数字随机器与字体不同，
+//     **请以你自己跑出来的数字为准**。
 // ============================================================================
 
 #include <QApplication>
@@ -51,6 +59,7 @@
 #include <QString>
 #include <QTimer>
 #include <QCoreApplication>
+#include <algorithm>          // std::all_of：核对「所有空档都等于 10」
 #include <QDebug>
 
 // ============================================================================
@@ -90,17 +99,25 @@
 //                  第 420 行 QLinearGradient(const QPointF &start, const QPointF &finalStop);
 //                  第 421 行 QLinearGradient(qreal xStart, qreal yStart, qreal xFinalStop, qreal yFinalStop);
 //                  第 428/429 行 QPointF finalStop() const; void setFinalStop(const QPointF&);
-//   第 434~461 行 class QRadialGradient：
-//                  第 441/442 行 QRadialGradient(const QPointF &center, qreal radius);
-//                            / QRadialGradient(qreal cx, qreal cy, qreal radius);
-//                  第 438/439 行 带焦点的四个参数版本；第 450/454/457/458 行 setCenter/setFocalPoint/radius/setRadius
+//   第 434~465 行 class QRadialGradient（构造 6 个 = 三对，按「有没有焦点 / 焦点有没有半径」排）：
+//                  第 437 行 默认构造（之后自己 setCenter/setRadius…）
+//                  第 441/442 行 (center, radius) —— 焦点与圆心重合，**本文件和 05 用的都是这一对**
+//                  第 438/439 行 (center, radius, focalPoint) —— 带焦点；439 是把它摊成五个 qreal
+//                  　（勘误：原先这里写「四个参数版本」，438 是三个参数、439 是五个，没有四个的那一个）
+//                  第 444/445 行 (center, centerRadius, focalPoint, focalRadius) —— **焦点自己也有半径**，
+//                       445 是七个 qreal 版本；配套读回 460/461 centerRadius、463/464 focalRadius
+//                  第 449/450 行 center/setCenter；453/454 focalPoint/setFocalPoint；
+//                  第 457/458 行 radius/setRadius
+//   （原先只数到 461 行：那是 setCenterRadius 所在行，类的右花括号在 465 —— 范围也顺手改对。）
 //   第 468~481 行 class QConicalGradient：
 //                  第 472/473 行 QConicalGradient(const QPointF &center, qreal startAngle);
 //                            / QConicalGradient(qreal cx, qreal cy, qreal startAngle);
 //                  第 477/481 行 setCenter(...) / setAngle(qreal)   ← startAngle 单位是**度**
 // QtCore/qnamespace.h
 //   第 1115~1126 行 PenStyle：NoPen / SolidLine / DashLine / DotLine / DashDotLine /
-//                            DashDotDotLine / CustomDashLine（自定义虚线必须用这一个）
+//                            DashDotDotLine / CustomDashLine（自定义图案走的就是这一个）
+//                 ← 但**不用你自己 setStyle**：QPen::setDashPattern() 内部就把它设成
+//                   CustomDashLine（qpen.cpp 509 行），本讲实测过（证据④最后三行）
 //   第 1128~1133 行 PenCapStyle：FlatCap = 0x00 / SquareCap = 0x10 / RoundCap = 0x20
 //   第 1135~1141 行 PenJoinStyle：MiterJoin = 0x00 / BevelJoin = 0x40 / RoundJoin = 0x80 / SvgMiterJoin = 0x100
 //   第 1143~1163 行 BrushStyle：NoBrush / SolidPattern / Dense1Pattern..Dense7Pattern /
@@ -109,7 +126,8 @@
 //                  ConicalGradientPattern / TexturePattern = 24
 //   第 1139 行  SvgMiterJoin —— Qt 特有的「不套 miterLimit」的尖角连接，本讲测量时把它当第五种连接看
 // QtGui/qpainter.h（本讲新增）
-//   第 52~57 行  RenderHint：NonCosmeticBrushPatterns = 0x80 —— 打开后**图案画刷**也按设备像素走，
+//   第 52~59 行  enum RenderHint（枚举值在 53~58 行，共 6 个）——
+//                NonCosmeticBrushPatterns = 0x80 在**第 58 行**，打开后**图案画刷**也按设备像素走，
 //                行为向 cosmetic 靠拢；本讲不依赖它，默认关闭。
 //   第 155/161 行 setPen(const QPen&) / setBrush(const QBrush&)
 //   第 218 行   void scale(qreal sx, qreal sy)      （cosmetic 的对照实验要用它）
@@ -155,6 +173,38 @@ static QList<int> inkRunsOnRow(const QImage &img, int y, int x0, int x1)
     if (run > 0)
         runs.append(run);
     return runs;
+}
+
+// 把一行拆成「着墨游程 / 空档游程」两套数：证明虚线时只报着墨段是不够的，
+// 段落之间的**空白**才是图案里的偶数项。
+// 两头都要裁干净：第一个着墨像素**之前**的空白不算（那是线还没开始），
+// 最后一个着墨像素**之后**的空白也不算（那是线已经画完了）—— 留着它们，
+// 「所有空档都等于 10」这种核对会假红（本讲第一版就是这么差的）。
+static void inkAndGapRuns(const QImage &img, int y, int x0, int x1,
+                          QList<int> *ink, QList<int> *gap)
+{
+    ink->clear();
+    gap->clear();
+    if (y < 0 || y >= img.height()) return;
+    const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
+    int first = -1, last = -1;
+    for (int x = x0; x < x1; ++x) {
+        if ((row[x] >> 24) != 0) { if (first < 0) first = x; last = x; }
+    }
+    if (first < 0) return;                                   // 整行没有墨
+    int run = 0;
+    bool runInked = true;
+    for (int x = first; x <= last; ++x) {
+        const bool on = ((row[x] >> 24) != 0);
+        if (on == runInked) {
+            ++run;
+        } else {
+            (runInked ? *ink : *gap).append(run);
+            runInked = on;
+            run = 1;
+        }
+    }
+    (runInked ? *ink : *gap).append(run);                    // 收尾一定落在着墨上（last 就是墨点）
 }
 
 // 画一条水平线并返回它的着墨包围盒（cap/join 实验的通用套路）
@@ -236,7 +286,8 @@ static void proofCapStyles()
     qInfo() << "  读法：线本身占 100px（30..129）。FlatCap 应当正好 100；"
             << "SquareCap 两端各伸出 width/2 = 10px，应当 120；"
             << "RoundCap 外伸同样是 10px 但**拐角被削圆**，所以总长与 Square 接近、像素数更少。"
-            << "（默认就是 SquareCap —— 第 1 讲那条「细虚线端头会长出一截」的根源在此。）";
+            << "（默认就是 SquareCap —— 第 1 讲那条「细虚线端头会长出一截」的根源在此。"
+               "它到底有多坑，看证据④：同一条虚线在默认帽下会**整条糊成实线**。）";
 }
 
 // ============================================================================
@@ -281,26 +332,65 @@ static void proofJoinStyles()
 static void proofDashPattern()
 {
     qInfo() << "\n=== 证据④ setDashPattern：图案 {2.0, 1.0, 0.5, 1.0} × 线宽 10 ===";
-    QImage img(220, 30, QImage::Format_ARGB32_Premultiplied);
-    img.fill(Qt::transparent);
-    QPen pen(QColor(20, 130, 60), 10.0);
-    pen.setStyle(Qt::CustomDashLine);                       // qnamespace.h 1125 行：必须这一档
-    QList<qreal> dashes;
-    dashes << 2.0 << 1.0 << 0.5 << 1.0;                     // 奇数项=画、偶数项=空（单位：线宽倍数）
-    pen.setDashPattern(dashes);                             // qpen.h 52 行
-    {
-        QPainter p(&img);
-        p.setPen(pen);
-        p.drawLine(5, 15, 215, 15);
+    const QList<qreal> dashes { 2.0, 1.0, 0.5, 1.0 };   // 奇数项=画、偶数项=空（单位：**线宽的倍数**）
+
+    // 同一个图案画两遍，只差 capStyle —— 这一对比才是这条证据的本体：
+    // 默认 SquareCap 会把**每一段虚线**两头各伸出半个线宽（qpen.cpp 492~498 行把这句话写在文档里），
+    // 线宽 10 就是左右各 5px；而图案里的两个间隔只有 10px 和 5px，正好被吃掉 → 看上去是实线。
+    struct CapCase { const char *name; Qt::PenCapStyle cap; };
+    const CapCase cases[2] = { { "默认 SquareCap", Qt::SquareCap }, { "改成 FlatCap", Qt::FlatCap } };
+    QList<int> inkSquare, gapSquare, inkFlat, gapFlat;
+    QList<qreal> readBack;
+    for (const CapCase &c : cases) {
+        QImage img(220, 30, QImage::Format_ARGB32_Premultiplied);
+        img.fill(Qt::transparent);
+        QPen pen(QColor(20, 130, 60), 10.0);
+        pen.setDashPattern(dashes);                     // qpen.h 52 行
+        pen.setCapStyle(c.cap);
+        readBack = pen.dashPattern();                   // qpen.h 51 行：Qt 存的就是你给的那串
+        {
+            QPainter p(&img);
+            p.setPen(pen);
+            p.drawLine(5, 15, 215, 15);
+        }
+        QList<int> ink, gap;
+        inkAndGapRuns(img, 15, 0, img.width(), &ink, &gap);
+        if (c.cap == Qt::SquareCap) { inkSquare = ink; gapSquare = gap; }
+        else { inkFlat = ink; gapFlat = gap; }
     }
-    const QList<int> runs = inkRunsOnRow(img, 15, 0, img.width());
-    qInfo() << "  写进去的图案 =" << dashes;
-    qInfo() << "  读回来的图案（dashPattern()，qpen.h 51 行）=" << pen.dashPattern();
-    qInfo() << "  在中间一行实测到的着墨游程（像素）=" << runs
-            << "  线宽 10 → 预期序列 20,10,5,10 循环";
-    qInfo() << "  dashOffset() 当前 =" << pen.dashOffset()   // qpen.h 54 行
+    qInfo() << "  写进去的图案 =" << dashes << " 读回来的（dashPattern()，qpen.h 51 行）=" << readBack;
+    qInfo() << "  SquareCap（默认）实测：着墨 =" << inkSquare << " 空档 =" << gapSquare
+            << "← 整条线糊成一段 210，一个空档都没有。虚线**被端头伸出的半个线宽吃掉了**";
+    qInfo() << "  FlatCap 实测：着墨 =" << inkFlat << " 空档 =" << gapFlat
+            << "← 图案 {2.0,1.0,0.5,1.0} × 线宽 10 = 画 20 空 10 画 5 空 10，"
+               "所以着墨应该是 20/5 交替、空档应该全是 10";
+    const bool patternOk = (inkFlat.size() >= 4 && inkFlat[0] == 20 && inkFlat[1] == 5
+                            && !gapFlat.isEmpty());
+    const bool allGapTen = !gapFlat.isEmpty() && std::all_of(gapFlat.begin(), gapFlat.end(),
+                                                              [](int g) { return g == 10; });
+    qInfo() << "  核对：前两段是不是 20、5 =" << patternOk << " 所有空档是不是都等于 10 =" << allGapTen
+            << "（这两条同时为 true，才可以说「图案按线宽的倍数生效」）";
+    qInfo() << "  → 结论一句话：**要精确控制虚线节奏，第一件事是 setCapStyle(Qt::FlatCap)**。"
+               "（第 2 讲那句「细虚线端头会长出一截」在这里长成了「整条虚线消失」。）";
+
+    // setDashPattern 的三条硬规则，本机实测（qpen.cpp 502~515 行）：
+    QPen odd;
+    odd.setDashPattern({ 2.0, 1.0, 0.5 });              // 奇数个 → 512 行 qWarning，513 行**自己补一个 1**
+    qInfo() << "  奇数图案 {2,1,0.5} 读回来 =" << odd.dashPattern()
+            << "（上面那条 qWarning 是 qpen.cpp 512 行打的；513 行会替你补成偶数个）";
+    QPen autoStyle;
+    autoStyle.setDashPattern(dashes);                  // 没有 setStyle()
+    qInfo() << "  只调 setDashPattern、没调 setStyle()，style() =" << int(autoStyle.style())
+            << "（Qt::CustomDashLine =" << int(Qt::CustomDashLine)
+            << "，qpen.cpp 509 行替你设好了 —— 上一版那句 setStyle 是多余的）";
+    QPen empty;
+    empty.setStyle(Qt::DashLine);
+    empty.setDashPattern({});                          // 504 行：空图案**直接 return**，什么都不改
+    qInfo() << "  空图案 {} 之后 style() =" << int(empty.style())
+            << "（还是原来的 DashLine =" << int(Qt::DashLine) << "，504 行的 return 意味着它连图案都不清）";
+    qInfo() << "  dashOffset() 当前 =" << autoStyle.dashOffset()   // qpen.h 54 行
             << "（想「让虚线跑起来」就是改它，不是重画整条线）";
-    qInfo() << "  注意两点：① 图案里的数值**不能为 0**（官方文档明确禁止，写 0 会让虚线退化成实线）；"
+    qInfo() << "  文档要求的图案写法（qpen.cpp 476~477 行）：**偶数个、每项为正**；"
             << "② DotLine 这类内置样式其实就是同样的机制配好了默认图案，想精确控节奏才用 CustomDashLine。";
 }
 
@@ -397,7 +487,9 @@ static void proofGradients()
 
     // ── 径向渐变：中心→外圈采样，再用两块「全在半径外」的矩形对比 Pad 与 Repeat ──
     {
-        QRadialGradient g(QPointF(300.0, 40.0), 70.0);       // qbrush.h 438 行（QPointF, qreal radius）
+        QRadialGradient g(QPointF(300.0, 40.0), 70.0);       // qbrush.h 441 行（QPointF center, qreal radius）
+        // 勘误：这里原先注的是 438 行。438 是**带焦点**的 (center, radius, focalPoint)，
+        // 少一个焦点参数的这一对在 441/442 行 —— 引用审计只查行号在不在范围内，抓不到这种错位。
         g.setColorAt(0.0, QColor(255, 80, 80));
         g.setColorAt(1.0, QColor(20, 20, 90));
         g.setSpread(QGradient::PadSpread);                   // qbrush.h 369 行 + 168~172 行枚举
@@ -624,7 +716,7 @@ int main(int argc, char *argv[])
  *  让虚线滚动起来                           递增 setDashOffset()                             每帧重画，注意只在 paintEvent 里
  *  棋盘/斜纹底纹                            setTextureImage(代码生成的 QImage)               纹理随变换缩放（证据⑤）
  *  按钮/卡片表面光                          QLinearGradient + ObjectBoundingMode              色标只认 0..1，越界按 Spread 规则
- *  选中高亮「从焦点发散」                   QRadialGradient(center, radius, focalPoint)      四参数版本在 qbrush.h 438/439 行
+ *  选中高亮「从焦点发散」                   QRadialGradient(center, radius, focalPoint)      438=QPointF 版 / 439=五个 qreal 版；不写焦点见 441/442
  *  饼图色环 / 方向指示                       QConicalGradient(center, startAngle)            首尾色标要接上，否则有接缝
  *
  * 三条纪律：
@@ -664,6 +756,9 @@ int main(int argc, char *argv[])
  *      改成「高光偏左上」的按钮，采样 4 个点确认焦点生效；
  *      再把 spread 依次换 PadSpread/ReflectSpread/RepeatSpread，
  *      把三种在半径外的采样值抄进注释表格里。
+ *      进阶：换成 444 行那一对（多给一个 focalRadius，焦点自己也是个圆），
+ *      看 focalRadius 从 0 加到接近 centerRadius 时中心那团颜色怎么变 ——
+ *      这是「球壳/内圈空心」类效果的正当入口，比画两个圆叠着省事。
  */
 // ============================================================================
 

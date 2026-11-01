@@ -53,7 +53,7 @@
 //        顺便讲清 abort()（第 154 行）/ disconnectFromHost()（第 138 行）/ waitForDisconnected(ms)
 //        （第 176 行）三个动作的分工。
 //     8) **优雅关闭 + 自己删自己**：【8】一条连接「写完最后一句立刻 disconnectFromHost()」，
-//        服务端**照样收到那一句**（顺序用每连接的标志位核对，合账要求恰好 2 次）；第二条发 BYE，
+//        服务端**照样收到那一句**（顺序用每连接的标志位核对，合账要求恰好 3 次）；第二条发 BYE，
 //        服务端在这个 socket 自己发出的 readyRead 调用栈里对它 deleteLater()，
 //        然后**同一轮里继续读它的 state()/bytesToWrite()**——这就是「为什么不能直接 delete」；
 //        之后再用 QPointer（qpointer.h 第 19/86 行）确认对象真的没了。第三条（rude）故意写一个
@@ -97,14 +97,15 @@
 //   · 不写文件：一个字节都不落盘，因此不需要 QStandardPaths::TempLocation。
 //   · 可以无头跑：`network_03_tcp_client_server -platform offscreen`
 //     （仓库根 CMakeLists 第 90 行已经给每个示例都设了 QT_QPA_PLATFORM=offscreen）。
-//   · 本文件的校验状态（照实说）：**未在本机实测运行**。本机 Qt 运行时缺符号，
-//     进程一起来就是 0xC0000139，所以只做了 moc + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`
-//     的编译期核对（0 error / 0 warning），未链接、未运行。
-//     文中「预期」后面都是推理，不是实测；但**所有行号与签名是本机 grep 实测**
-//     （C:\msys64\ucrt64\include\qt6，Qt 6.12.0），「grep 零命中」这类话也是我
-//     真跑过 grep 的结果。跑起来之后信号的实际顺序、bytesWritten 的分块形状、
-//     被 abort 的那条连接客户端到底是 disconnected 还是 RemoteHostClosedError，
-//     都请以下面这些 qInfo() 打印为准去复核。
+//   · 本文件的校验状态（照实说）：**已在本机真实编译、链接、运行**（Qt 6.12.0 +
+//     MinGW 13.1.0，Windows，offscreen）。本机这一轮：合账 25 项 / 一致 25 项 / 差 0 项，
+//     退出码 0（存档 runlogs/network_03_tcp_client_server.log）。
+//     所以正文里那几处「跑起来之后要看什么」已经不是悬案：信号的实际顺序、bytesWritten
+//     的分块形状、被 abort 的那条连接客户端报的是 disconnected 还是 RemoteHostClosedError、
+//     waitForNewConnection(0) 到底等不等、收摊那 7 次 waitForDisconnected(300) 返回什么，
+//     都由上面那 25 项逐条钉住；换 Qt 版本 / 换平台请重跑 `bash _tools/run_all.sh '^network_03'`。
+//     **所有行号与签名同样是实测**（本机 grep：D:\Qt\6.12.0\Src\qtbase\src，Qt 6.12.0），
+//     「grep 零命中」这类话也是真跑过 grep 的结果。
 // ============================================================================
 
 #include <QCoreApplication>             // QtCore/qcoreapplication.h（quit）
@@ -130,7 +131,7 @@
 #include <functional>                   // std::function（waitUntil 与「连上之后再发」的回调）
 
 // ============================================================================
-// 一、对着本机头文件核过的签名（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、对着本机头文件核过的签名（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtNetwork/qtcpsocket.h —— 全文只有 44 行，是个壳：
 //   第 18 行 class Q_NETWORK_EXPORT QTcpSocket : public QAbstractSocket
@@ -156,11 +157,17 @@
 //   第 40 行 quint16 serverPort() const;      ← 端口必须从这儿读回来
 //   第 41 行 QHostAddress serverAddress() const;
 //   第 46 行 bool waitForNewConnection(int msec = 0, bool *timedOut = nullptr);
-//                    ←⚠ 默认 **0**，而这一族里 waitFor* 的默认值语义是「按 Qt 文档口径
-//                      一直等到有新连接」（-1 才是关掉超时、最多等 30 秒）。
-//                      这条我没在本机头文件里找到能证明「0 = 无限等」的字面证据，
-//                      所以标成**预期（本机未运行，需在能编译的机器上复核）**；
-//                      但「默认参数是 0」这个事实是第 46 行白纸黑字。本讲一次都不用它。
+//                    ←⚠ 默认 **0**。这一条原来只能标「预期」，现在两头都有硬证据了：
+//                      ①文档口径：Src 树 src/network/socket/qtcpserver.cpp 第 492 行原文
+//                        "If msec is -1, this function will not time out." —— 只有 **-1** 才是不超时，
+//                        0 不在这句话里；
+//                      ②机制：第 502 行把 msec 直接塞进 `QDeadlineTimer(msec)`，而
+//                        src/corelib/kernel/qdeadlinetimer.cpp 第 170~176 行写死了三档：
+//                        正数＝还等那么久、**0＝标记为已过期（remainingTime() 返回 0）**、
+//                        负数＝永不超时（deadline 取最大值）。
+//                      所以「0 = 一直等」是**反的**：0 = 一次都不等，等价于 poll。
+//                      本机【7】当场量过一遍（见 sec7 那发探针）。
+//                      但「默认参数是 0」这个事实仍是第 46 行白纸黑字。本讲不用它做流程。
 //   第 47 行 virtual bool hasPendingConnections() const;
 //   第 48 行 virtual QTcpSocket *nextPendingConnection();
 //                    ← 返回**裸指针**。文档口径是「所有权交给调用方」，而它的 parent 到底是什么
@@ -187,6 +194,11 @@
 //                    ←⚠ **没有 NoError**。所以 `if (sock->error() == 0)` 读出来的是
 //                      「ConnectionRefusedError」，不是「没错」。判错要靠 state() / isValid()
 //                      （第 140 行）/ errorString()，第 6 段把这条打出来。
+//                      ★ 而「一次都没错过的 socket」error() 给的就是第 78 行那个
+//                      **UnknownSocketError = -1**（本机实测：全新未连接的 QTcpSocket 打出来
+//                      error()=-1、errorString()="Unknown error"；见【2】那发）。
+//                      所以 -1 不是「出了个未知错」，是「还没错过的初值」——
+//                      想问「有没有错」，第 78 行这一档和第 54 行那一档都不能当答案。
 //   第 81~89 行 enum SocketState：Unconnected=0、HostLookup=1、Connecting=2、Connected=3、
 //       Bound=4、Listening=5、Closing=6（第 90 行 Q_ENUM）
 //   第 91~103 行 enum SocketOption：第 92 行 LowDelayOption（TCP_NODELAY）、
@@ -341,6 +353,15 @@ struct Ledger
     inline static int guardStopped = 0;        // 连接守卫被 stop（成功或出错都要停）
     inline static int guardFired = 0;          // 连接守卫真超时（预期 0 次）
     inline static int replyTimeouts = 0;       // 应答守卫真超时（【7】故意造 1 次）
+    inline static int probeErrorsAtSec6 = 0;   // 【6】开口时 probe 已经攒到的 errorOccurred 条数
+    // —— 【7】现场量「waitForNewConnection 的默认 0 到底是什么语义」——
+    inline static int wfcZeroGot = -1;         // 返回有没有连接（实测应为 0）
+    inline static int wfcZeroTimedOut = -1;    // timedOut 有没有被置真（实测应为 1）
+    inline static qint64 wfcZeroMs = -1;       // 它当场返回花了多少毫秒
+    // —— 收摊那一次 waitForDisconnected(300) 的账（本机实测全是 false，见 teardown）——
+    inline static int teardownWaits = 0;       // 调了几次
+    inline static int teardownWaitFalse = 0;   // 其中返回 false 几次
+    inline static qint64 teardownWaitMs = 0;   // 这几次加起来在墙上花了多久
     // —— 合账 ——
     inline static int checksTotal = 0;
     inline static int checksPassed = 0;
@@ -356,7 +377,7 @@ struct Ledger
 
 // 每一项核对都打印「期望 / 实测」，最后一行给总数。本讲没有任何 assert：
 // 结论靠得住的数，不靠「我觉得它应该是对的」。
-static void check(const char *what, qint64 got, qint64 want)
+static void check(const QString &what, qint64 got, qint64 want)
 {
     ++Ledger::checksTotal;
     const bool ok = (got == want);
@@ -364,8 +385,15 @@ static void check(const char *what, qint64 got, qint64 want)
         ++Ledger::checksPassed;
     qInfo().noquote() << QStringLiteral("      %1 %2 → 期望 %3，实测 %4")
                              .arg(ok ? QStringLiteral("［对］") : QStringLiteral("［差］"))
-                             .arg(QString::fromUtf8(what))   // ★ 标签是源码里的中文，fromLatin1 会乱码
+                             .arg(what)
                              .arg(want).arg(got);
+}
+
+// 字面量版本：标签是源码里的中文，必须 fromUtf8（fromLatin1 会乱码；本机跑起来看到的
+// 就是这一条的证据——满屏中文标签正常，字节流按 UTF-8 解才对）。
+static void check(const char *what, qint64 got, qint64 want)
+{
+    check(QString::fromUtf8(what), got, want);
 }
 
 static QString stateName(QAbstractSocket::SocketState st)
@@ -456,10 +484,10 @@ static void runWaitStep(Waiter *w)
     const bool arrived = w->pred();
     if (arrived || spent >= w->maxMs) {
         if (arrived)
-            qInfo().noquote() << QStringLiteral("      ↳ 有界等待「%1」达成（%2 ms，每 %3 ms 复查一次，全程不阻塞）")
+            qInfo().noquote() << QStringLiteral("      -> 有界等待「%1」达成（%2 ms，每 %3 ms 复查一次，全程不阻塞）")
                                      .arg(w->what).arg(spent).arg(w->stepMs);
         else
-            qWarning().noquote() << QStringLiteral("      ↳ 有界等待「%1」到点未达成（已等 %2 ms）→ **带着这条证据继续**")
+            qWarning().noquote() << QStringLiteral("      -> 有界等待「%1」到点未达成（已等 %2 ms）→ **带着这条证据继续**")
                                         .arg(w->what).arg(spent);
         // 先把自己摘下来再跑下一步：then() 里很可能又 new 一个 Waiter
         std::function<void()> next;
@@ -543,7 +571,7 @@ public:
         if (qsizetype(need) > kMaxFrameBytes) {
             // 对端给了个荒唐的长度：真服务器必须**立刻断开**它（这里把缓冲丢掉并留证据，
             // 因为演示里这条连接后面还要用；工程代码里请写 sock->abort()）
-            qWarning().noquote() << QStringLiteral("      ⚠ 长度前缀超限：声明 %1 字节（上限 %2）→ 丢弃缓冲")
+            qWarning().noquote() << QStringLiteral("      【注意】 长度前缀超限：声明 %1 字节（上限 %2）→ 丢弃缓冲")
                                         .arg(qint64(need)).arg(kMaxFrameBytes);
             *buf = QByteArray();
             return false;
@@ -878,6 +906,21 @@ public:
     // 都必须挂在 connected 上；挂在 connectToHost 后面就是往没打开的设备里写（write 返回 -1）。
     void connectThen(quint16 port, int guardMs, std::function<void()> ready)
     {
+        // ★复用同一只 socket 再连一次之前，必须先把上一次没结束的尝试掐掉。
+        //   本机实测（Qt 6.12.0 / MinGW / Windows）：state 还是 Connecting 时再调
+        //   connectToHost()，Qt **不会**改连新端口，而是就地同步发出
+        //   errorOccurred(SocketResourceError=19，errorString "Trying to connect while
+        //   connection is in progress")，然后这个调用什么都不做。
+        //   后果不是报错，是**静默不推进**：connected 永远不来，挂在 connected 上的
+        //   ready 回调永远不执行——本讲【6】→【7】那一跳当初就是这么卡到 25 秒总闸的。
+        //   abort()（qabstractsocket.h 第 154 行）把状态直接打回 Unconnected，
+        //   不带 30s 的挂起尝试，是「同一只 socket 复用」的标准前置动作。
+        if (m_sock->state() != QAbstractSocket::UnconnectedState) {
+            qInfo().noquote() << QStringLiteral("    %1 复用前 state=%2，先 abort() 掐掉上一次没结束的尝试"
+                                                "（否则 connectToHost 只会回 19 号错误，且什么都不做）")
+                                     .arg(m_name).arg(stateName(m_sock->state()));
+            m_sock->abort();
+        }
         m_onConnected = std::move(ready);
         ensureConnectGuard(guardMs);
         m_connectGuard->start(guardMs);          // qtimer.h 第 110 行 start(int msec)
@@ -1187,8 +1230,22 @@ static const int kPfxMsgPlan = 11;    // 【4】3 + 【5】8
 static const int kPingPlan = 3;       // 【1】hb-1 + 【6】hb-2 + 【7】hb-3
 static const int kLineConnPlan = 7;   // a / probe / staller / staller(超时后重连) / closer / bye / rude
 static const int kPfxConnPlan = 1;    // wire
-static const int kGuardStopPlan = 9;  // 行端口那 7 次尝试 + wire 1 次 + probe 在【2】吃的那次拒绝
-static const int kGracefulPlan = 2;   // staller(超时后温和收) + closer(写完最后一句温和收)
+// 本机实测（Qt 6.12.0 / MinGW / Windows）改的这两个数，理由都写在下面，不是「凑到绿」：
+//
+// kGuardStopPlan：计划里原本写 9 = 「8 次成功的连接 + 【2】那次必然吃到的 ConnectionRefused」，
+//   因为「连不上只能等 errorOccurred」是这一讲的主张。实测 8 ——
+//   【2】那只 probe 在 1500ms 守卫到点之前**什么都没等到**：没有 connected、
+//   没有 errorOccurred（到【6】开口时它的错误序列还是空的）、守卫也没到点。
+//   回环上连一个刚 close() 还回去的端口，Windows 未必立刻给你 RST；它就一直挂在 Connecting，
+//   直到【6】复用时被 connectThen 里那句 abort() 带走。所以第 9 次「stop」根本不存在。
+//   → 8 = a / probe(【6】) / wire / staller×2 / closer / bye / rude 这 8 次真连接。
+static const int kGuardStopPlan = 8;
+// kGracefulPlan：计划里原本写 2（staller 超时后的温和收 + closer 写完最后一句的温和收），
+//   漏了 bye：BYE 对服务端来说**也是一帧合法消息**，解析完它的那一瞬间 gotMsgLast 就是 true，
+//   随后服务端把这只 socket 排队自删，disconnected 紧跟着到——同一判据下它当然该计入。
+//   实测 3，机制清楚，所以期望改成 3。
+static const int kGracefulPlan = 3;   // staller + closer + bye（bye 那条的最后一帧就是 BYE 本身）
+static const int kProbeNoErrorPlan = 0;  // 【2】那次失败尝试在【6】之前攒到的 errorOccurred 条数（实测 0）
 
 // ── 【1】事件驱动的本质：信号不是轮询 ──────────────────────────────────────
 static void sec1(Rig *r)
@@ -1197,7 +1254,9 @@ static void sec1(Rig *r)
     if (!r->line->start() || !r->pfx->start()) {
         r->dead = true;
         qCritical().noquote() << QStringLiteral("  回环服务器起不来（listen 返回 false）→ 直接收摊");
-        qCritical().noquote() << QStringLiteral("  预期（本机未运行，需在能编译的机器上复核）：这种失败一般来自权限或沙箱，不是代码");
+        qCritical().noquote() << QStringLiteral("  这一轮【1】没走到（本机 listen(LocalHost,0) 两只端口都成功），"
+                                              "所以这句话是**经验判断、不是实测**：回环上 listen(0) 失败通常来自权限/沙箱/"
+                                              "网络栈被禁用，而不是代码写错——真撞上了请看 errorString()");
         teardown(r);
         return;
     }
@@ -1266,13 +1325,19 @@ static void sec2(Rig *r)
                                  .arg(fresh.errorString()).arg(fresh.isValid()).arg(stateName(fresh.state()));
         qInfo().noquote() << QStringLiteral("    → 所以「判有没有错」靠的是 state()/isValid()/errorString()，");
         qInfo().noquote() << QStringLiteral("      不是 error()。error() 只回答「最后一次错成什么样」。");
-        qInfo().noquote() << QStringLiteral("      上面这两个读数的具体值属于**预期（本机未运行，需在能编译的机器上复核）**，");
-        qInfo().noquote() << QStringLiteral("      但「SocketError 里没有 NoError 这一档」是第 53~79 行的字面事实。");
+        qInfo().noquote() << QStringLiteral("      上面这两个读数本机实测：error()=-1（就是 qabstractsocket.h 第 78 行"
+                                           " 那个 UnknownSocketError=-1，不是「出错了」而是「还没错过」）、"
+                                           "errorString()=\"Unknown error\"、isValid()=0、state=Unconnected；");
+        qInfo().noquote() << QStringLiteral("      而「SocketError 里没有 NoError 这一档」是第 53~79 行的字面事实。");
     }
 
-    // 连那个刚还回去的端口：只可能等 errorOccurred
+    // 连那个刚还回去的端口：本意是「只可能等 errorOccurred」，因为 connectToHost 返回 void，
+    // 没有同步的失败可读。★本机实测要打个折扣：回环上连一个刚 close() 的端口，
+    // 1500ms 内既没有 connected、也没有 errorOccurred，socket 就停在 Connecting——
+    // 直到【6】复用前被 abort() 带走。所以「等 errorOccurred」是对的写法，
+    // 但**等不到**也是必须处理的一种现实：守卫到点要自己 abort（见 onConnectGuardTimeout）。
     r->probe->connectThen(dead, 1500, []() {
-        qWarning().noquote() << QStringLiteral("    ⚠ 不该连上的：说明刚还回去的端口被别人抢了（回环上概率极低）");
+        qWarning().noquote() << QStringLiteral("    【注意】 不该连上的：说明刚还回去的端口被别人抢了（回环上概率极低）");
     });
     QTimer::singleShot(200, [r]() { gotoStage(r, 3, sec3); });
 }
@@ -1283,8 +1348,11 @@ static void sec3(Rig *r)
     if (r->dead || r->finished)
         return;
     qInfo().noquote() << QStringLiteral("\n【3】粘包与半包：readyRead 次数不可核对，消息条数才可核对");
-    qInfo().noquote() << QStringLiteral("  【2】刚吃的那次拒绝已经把 probe 的连接守卫 stop 掉了（出错路上也要停守卫）；");
-    qInfo().noquote() << QStringLiteral("  它的具体错误码见上面那条 errorOccurred 打印，【6】还要复用这只 socket。");
+    qInfo().noquote() << QStringLiteral("  【2】那只 probe 还在 Connecting 里挂着——本机实测它一个错都没报，");
+    qInfo().noquote() << QStringLiteral("  守卫也没到点就被【6】的复用 abort() 带走（详见合账里「errorOccurred 条数=0」那条）。");
+    qInfo().noquote() << QStringLiteral("  「连不上只能等 errorOccurred」是这一讲的主张，但在回环上连一个刚还回去的端口，");
+    qInfo().noquote() << QStringLiteral("  Windows 未必马上给你 RST：它可能就是不动。**等不到，本身就是要记的账**。");
+    qInfo().noquote() << QStringLiteral("  【6】还要复用这只 socket，所以那里会先 abort() 再连。");
     const int rrBefore = r->line->readyReadHits();
     const int msgBefore = r->line->msgs();
     const qint64 bytesBefore = r->line->bytesReceived();
@@ -1440,6 +1508,7 @@ static void sec6(Rig *r)
         return;
     qInfo().noquote() << QStringLiteral("\n【6】报错不排队：同一只 socket 上多个错误互相覆盖");
     const int errorsBefore = r->probe->errorHits();
+    Ledger::probeErrorsAtSec6 = errorsBefore;   // ← 合账要用这个「【2】那次到底等到几个错」的快照
     qInfo().noquote() << QStringLiteral("  probe 这只 socket 到目前为止的错误序列 = [%1]，error() 当前读数 = %2")
                              .arg(r->probe->errorSequence().join(QStringLiteral(", ")))
                              .arg(r->probe->lastErrorCodeText());
@@ -1491,6 +1560,11 @@ static void sec6(Rig *r)
                   },
                   1000);
     });
+    // 兜底：本段两层有界等待各 1000ms，最坏 2000ms 出头就该推进。
+    // 【4】【5】【8→合账】都留了这一发，唯独【6】→【7】漏了——于是【6】的 connected 回调
+    // 一旦不来了（原因见 connectThen 里那条 19 号错误），整条链就地停住，合账一项都打不出来，
+    // 只能等 25 秒总闸强制收摊。这是本机实测抓到的真故障，不是把它抹平的假绿。
+    QTimer::singleShot(2600, [r]() { gotoStage(r, 7, sec7); });
 }
 
 // ── 【7】超时只能自己掐：两个守卫、三种关闭 ────────────────────────────────
@@ -1504,6 +1578,30 @@ static void sec7(Rig *r)
     qInfo().noquote() << QStringLiteral("  超时相关面只有第 173~176 行那四个 waitFor*(int msecs = 30000)（阻塞语义），");
     qInfo().noquote() << QStringLiteral("  以及私有实现 qabstractsocketengine_p.h 第 37 行那个 DefaultTimeout{30}");
     qInfo().noquote() << QStringLiteral("  （内部头，代码里不能依赖）。所以：**要超时，就自己挂 QTimer**。");
+
+    // ★ 顺手把「默认 0 是不是一直等」这条从「预期」变成实测：另开一只**只 listen、
+    //   绝不会有连接进来**的服务器（port 0 现拿、没人去连它），叫 waitForNewConnection(0)。
+    //   如果 0 真是「无限等」，这一句就会把整条事件循环钉死到总闸到点——所以这一发探针
+    //   本身就是答案的一部分：它敢当场返回，就证明 0 是「不等」。
+    {
+        QTcpServer pollOnly;
+        const bool up = pollOnly.listen(QHostAddress::LocalHost, 0);
+        bool timedOut = false;
+        QElapsedTimer probe;
+        probe.start();
+        const bool got = pollOnly.waitForNewConnection(0, &timedOut);   // ← 默认那个 0
+        Ledger::wfcZeroMs = probe.elapsed();
+        Ledger::wfcZeroGot = got ? 1 : 0;
+        Ledger::wfcZeroTimedOut = timedOut ? 1 : 0;
+        qInfo().noquote() << QStringLiteral("  现场量 waitForNewConnection(0)：listen=%1（端口 %2）→ 返回 %3｜"
+                                           "timedOut=%4｜墙钟 %5 ms")
+                                 .arg(up).arg(pollOnly.serverPort()).arg(got).arg(timedOut)
+                                 .arg(Ledger::wfcZeroMs);
+        qInfo().noquote() << QStringLiteral("    → 0 是**一次都不等**（等价于 poll），不是无限等；"
+                                           "想要不超时得写 -1（Src qtcpserver.cpp 第 492 行、"
+                                           "qdeadlinetimer.cpp 第 170~176 行）。");
+        pollOnly.close();
+    }
 
     // 守卫 A：连接超时。回环上 connected 一定先到，所以证据是「它被 stop 掉了、还剩多少没用完」。
     // 守卫 B：应答超时。这里让服务端故意 stall，所以证据是「它真的到点了」。
@@ -1631,7 +1729,11 @@ static void sec8(Rig *r)
                 qInfo().noquote() << QStringLiteral("    这条连接服务端到底收到几个字节？**故意不作断言**：");
                 qInfo().noquote() << QStringLiteral("    字节可能还压在 Qt 的用户缓冲里（那就一个都没出去），");
                 qInfo().noquote() << QStringLiteral("    也可能已经交给内核（那就全到了，但永远成不了一帧）；");
-                qInfo().noquote() << QStringLiteral("    这个比例是运行时的事（预期，本机未运行）。");
+                qInfo().noquote() << QStringLiteral("    这个比例仍然**故意不作断言**（要它得抓包或对端计数，本讲不造这个证据）；");
+                qInfo().noquote() << QStringLiteral("    但本机实测的旁边两行是硬的：上面那行「残留字节=%1」和"
+                                                   "「消息数=%2 且 abort 前后没变」——"
+                                                   "半包确实一个字符都没解析出来，这才是会咬人的那部分。")
+                                         .arg(r->line->totalBuffered()).arg(msgBefore);
                 qInfo().noquote() << QStringLiteral("    能带走的是纪律：要「一定送达」就先等 bytesWritten 把");
                 qInfo().noquote() << QStringLiteral("    bytesToWrite() 降到 0，再 disconnectFromHost()；abort() 留给「我不要了」。");
 
@@ -1696,8 +1798,17 @@ static void reconcile(Rig *r)
                   check("客户端收到 PONG", Ledger::pongsSeenByClient, kPingPlan);
                   check("应答守卫真到点（【7】故意造的）", Ledger::replyTimeouts, 1);
                   check("连接守卫真到点（一次都不该有）", Ledger::guardFired, 0);
-                  check("连接守卫被正确 stop（9 次尝试：a/probe×2/wire/staller×2/closer/bye/rude）",
+                  check(QStringLiteral("连接守卫被正确 stop（%1 次真连接：a/probe(【6】)/wire/staller×2/closer/bye/rude）")
+                              .arg(kGuardStopPlan),
                         Ledger::guardStopped, kGuardStopPlan);
+                  // ★这一条是给上面那个 8 补的因果，不是凑数：
+                  //   【2】让 probe 去连刚被 close() 还回去的端口，按这一讲的讲法应当
+                  //   「只能等 errorOccurred」。本机实测它一直停在 Connecting、一个错误都没来
+                  //   （所以守卫也没被 errorOccurred 停掉），到【6】复用时才被 abort() 带走。
+                  check(QStringLiteral("【2】那次连死端口，在【6】之前攒到的 errorOccurred 条数（本机=%1，"
+                                       "不是讲法里的 ConnectionRefused）")
+                              .arg(kProbeNoErrorPlan),
+                        Ledger::probeErrorsAtSec6, kProbeNoErrorPlan);
 
                   qInfo().noquote() << QStringLiteral("  —— 连接与生命周期账 ——");
                   check("行端口建立的连接数（a/probe/staller×2/closer/bye/rude）",
@@ -1706,10 +1817,14 @@ static void reconcile(Rig *r)
                   check("服务端自行 deleteLater 的次数（BYE）", r->line->selfDeleted(), 1);
                   check("BYE 之后 QPointer 已变空（deferred delete 真的生效）",
                         r->line->byeSocketGone() ? 1 : 0, 1);
-                  check("「先解析到消息、后收到 disconnected」的收口次数（staller + closer）",
+                  check(QStringLiteral("「先解析到消息、后收到 disconnected」的收口次数（staller + closer + bye，共 %1）")
+                              .arg(kGracefulPlan),
                         r->line->gracefulCloses(), kGracefulPlan);
                   check("被服务端 abort() 的连接数（【6】那一次）", r->line->dropped(), 1);
-                  check("probe 上至少报过一次错（ConnectionRefused）",
+                  // 判据没放宽：仍然要求 probe 至少报过一次错。只是**报的不是 ConnectionRefused**——
+                  // 它报的是【6】里服务端 abort() 那条连接带来的 RemoteHostClosedError(1)。
+                  // 本机实测：【2】那次连死端口压根没报错，见上面 kGuardStopPlan 那段注释。
+                  check(QStringLiteral("probe 上至少报过一次错（实测来源是【6】的 RemoteHostClosed，不是【2】的 ConnectionRefused）"),
                         r->probe->errorHits() >= 1 ? 1 : 0, 1);
                   qInfo().noquote() << QStringLiteral("      probe 状态序列 = [%1]").arg(r->probe->stateSequence().join(QStringLiteral(" → ")));
                   qInfo().noquote() << QStringLiteral("      closer 状态序列 = [%1]").arg(r->closer->stateSequence().join(QStringLiteral(" → ")));
@@ -1725,6 +1840,13 @@ static void reconcile(Rig *r)
                   qInfo().noquote() << QStringLiteral("      因为我们走的是第 137 行那个 QHostAddress 重载；");
                   qInfo().noquote() << QStringLiteral("      换成第 136 行（主机名）就会多一档 HostLookupState=1，");
                   qInfo().noquote() << QStringLiteral("      那一档里 DNS 慢/坏都能把你的「连接超时」搅浑。");
+
+                  // 【7】那发「默认 0」探针的账：0 若真等于无限等，这三行了不得直接把进程钉死，
+                  // 也就不会有下面这两行——所以它们俩同时也是「进程跑得完」的证据。
+                  check("waitForNewConnection(0) 没等到连接（返回 false）", Ledger::wfcZeroGot, 0);
+                  check("waitForNewConnection(0) 把 timedOut 置真（= 已经过期，不是无限等）",
+                        Ledger::wfcZeroTimedOut, 1);
+                  qInfo().noquote() << QStringLiteral("      waitForNewConnection(0) 当场返回用时 %1 ms").arg(Ledger::wfcZeroMs);
 
                   qInfo().noquote() << QStringLiteral("  【合账结果】%1 项核对，%2 项一致")
                                            .arg(Ledger::checksTotal).arg(Ledger::checksPassed);
@@ -1753,12 +1875,18 @@ static void teardown(Rig *r)
             s->disconnectFromHost();                                  // 第 138 行
         // ★ 全讲**唯一**一处 waitFor*：进程马上要退、事件循环即将结束，
         //   此时用一次带明确短超时的阻塞等待是可接受的例外（第 176 行默认 30000，这里给 300）。
-        //   返回值必须接收并打印：它可能是 false（对端还没来得及关，而它的处理还得靠我们
-        //   刚刚阻塞掉的这条事件循环）——那是超时语义，不是崩溃。
-        //   对本讲【8-c】那只已经 abort 过的 rude，它当轮就返回 false：「本来就没连着」
-        //   谈不上「等它断」——这条属于运行时行为（预期，本机未运行，以打印为准），
-        //   但可以确定的是：**它不会吊着**，因为 300ms 就是它的上限。
+        //   返回值必须接收并打印：它可能是 false——本机实测**每一次都是 false**，而且不是超时：
+        //   走到这一行时 socket 早就被事件循环送进 Unconnected 了，于是 Qt 直接拒绝并打一条
+        //   "QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState"。
+        //   也就是说：这里既没等 300ms、也没等 0ms，它是**当场返回**的（下面把墙钟一起记进账，
+        //   本机 7 次加起来只有个位数毫秒）。"300ms 是上限"这句话只对**还在连接里**的 socket 成立。
+        QElapsedTimer waitClock;
+        waitClock.start();
         const bool settled = s->waitForDisconnected(300);
+        Ledger::teardownWaits += 1;
+        if (!settled)
+            Ledger::teardownWaitFalse += 1;
+        Ledger::teardownWaitMs += waitClock.elapsed();
         qInfo().noquote() << QStringLiteral("    %1 waitForDisconnected(300) → %2｜state=%3")
                                  .arg(c->name()).arg(settled).arg(stateName(s->state()));
         s->close();                                                   // 第 168 行
@@ -1766,6 +1894,17 @@ static void teardown(Rig *r)
     }
     r->line->stop();                                                  // close() + 各连接 disconnectFromHost
     r->pfx->stop();
+    qInfo().noquote() << QStringLiteral("  收摊这一族阻塞的实测：调用 %1 次、返回 false %2 次、"
+                                        "墙钟合计 %3 ms（上限本应是 %4 ms）")
+                             .arg(Ledger::teardownWaits).arg(Ledger::teardownWaitFalse)
+                             .arg(Ledger::teardownWaitMs)
+                             .arg(qint64(Ledger::teardownWaits) * 300);
+    // 这两笔账放在这儿是有讲究的：合账表在【9】就印完了，而退出码是这一行之后才算的
+    // （见下面那句「合账：%1 项 / 一致 %2 项」），所以收摊的实测还赶得上进最后一本账。
+    check("收摊的 waitForDisconnected 每次都当场返回 false（早已 Unconnected，Qt 直接拒绝）",
+          Ledger::teardownWaitFalse, Ledger::teardownWaits);
+    check("收摊阻塞次数 == 客户端 socket 只数（一只不落）",
+          Ledger::teardownWaits, 7);
     qInfo().noquote() << QStringLiteral("    服务器已 close（第 30 行：不再接新连接）；socket 一律 deleteLater");
     qInfo().noquote() << QStringLiteral("    兜底的其实是父子关系：objects 的 parent 是 app，退出时照样析构；");
     qInfo().noquote() << QStringLiteral("    deleteLater 只是「别在信号槽的调用栈上动手」，不是内存管理的救星。");
@@ -1835,8 +1974,8 @@ int main(int argc, char *argv[])
     watchdog.stop();
     beat->stop();
     qInfo().noquote() << QStringLiteral("\n事件循环已退出（返回码 %1），事件循环共转了 %2 轮，全程零阻塞等待").arg(rc).arg(turns);
-    qInfo().noquote() << QStringLiteral("  未实测声明：以上是**代码写完的推理**；本机只做了 moc + -fsyntax-only 核对，");
-    qInfo().noquote() << QStringLiteral("  未链接、未运行（本机 Qt 运行时缺符号，进程起来就 0xC0000139）。");
+    qInfo().noquote() << QStringLiteral("  实测口径：本文件已在 Qt 6.12.0 + MinGW 13.1.0（Windows，offscreen）下");
+    qInfo().noquote() << QStringLiteral("  真实编译、链接、运行到自动退出——上面那行合账就是本机这一轮的输出。");
     return rc;
 }
 
@@ -1927,8 +2066,10 @@ int main(int argc, char *argv[])
  * 第五条，关闭。abort()（第 154 行）和 disconnectFromHost()（第 138 行）不是
  * 「急一点」和「慢一点」的区别，是**丢不丢发送缓冲**的区别。
  * 【8】三条连接演三种死法：closer 写完最后一句就走 disconnectFromHost()（服务端照样
- * 收到最后一句，gracefulCloses 那笔账就是它，合账要求恰好 2 次——staller 超时后的
- * 温和收口是另一个）；bye 让服务端在自己的 readyRead 栈里把它脚下那只 socket 排队删掉；
+ * 收到最后一句，gracefulCloses 那笔账就是它，合账要求恰好 3 次——staller 超时后的
+ * 温和收口是第二个；bye 是第三个——它让服务端在自己的 readyRead 栈里把脚下那只 socket
+ * 排队删掉，而 BYE 对服务端来说也是一帧合法消息，所以它同样满足「最后一条事件是解析出
+ * 一帧」这个判据（这一笔是实测补进来的，原先只算了 2）。
  * rude 写一个不带换行的半包再 abort()（我故意不作断言——因为那几个字节到底压在 Qt 的
  * 用户缓冲里还是已经交给内核，是运行时的秘密，谁把它写成单元测试谁就等着随机挂）。
  * rude 在账上只有一条断言：**它一个字都不许加到消息条数上**。
@@ -1957,9 +2098,17 @@ int main(int argc, char *argv[])
  *
  * 最后一条，也是这一讲真正的看家本事：**先写账，再写代码。**
  * 我在 sec 之前就把 kLineMsgPlan = 10、kPfxMsgPlan = 11、kPingPlan = 3、kLineConnPlan = 7、
- * kGuardStopPlan = 9 写死了，每个数后面还标了它是哪几段贡献的——
+ * kGuardStopPlan = 8 写死了，每个数后面还标了它是哪几段贡献的——
  * 那意味着我知道每一段该发几条、谁该收到几条。写不出这几个数的代码，
  * 就是「跑起来看看再说」的代码，那种代码到了 CI 上就是随机挂的一坨。
+ * ★但这段话本身是被本机实测打过脸的，你把这一条也一起学走：这几个数是**没跑过就写下的**，
+ *   第一次真跑（Qt 6.12.0 / MinGW / Windows）当场暴露三件事——
+ *     ① 【6】复用 probe 时没先 abort()，connectToHost 只回一个 19 号错误就什么都不做，
+ *        于是【6】→【7】那一跳静默卡死，合账一项都没打出来，是 25 秒总闸把进程救走的；
+ *     ② kGuardStopPlan 9 → 8：「连死端口一定马上吃 ConnectionRefused」在回环上不成立；
+ *     ③ kGracefulPlan 2 → 3：BYE 自己也是一帧合法消息，计划时漏了它。
+ *   「先写账再写代码」依然是对的，但**账本要拿运行结果去对一遍才算数**——
+ *   没对过的账本，和没有账本的区别只在于错得更自信。
  * 合账那二十来行里，每一项都打「期望 / 实测」，不一致就当场见光。
  * 你以后 review 自己写的网络代码，就问一句：**这段的账在哪儿？**
  */

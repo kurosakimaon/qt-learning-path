@@ -106,7 +106,7 @@ layout->addWidget(m_main, 1);      // stretch 1：抢
 // 布局自己也是对象：margins 与 spacing 都会占空间
 layout->setContentsMargins(8, 8, 8, 8);
 layout->setSpacing(6);`,
-    highlight: [1, 2, 3]
+    highlight: [1, 2, 5]
   },
   {
     title: 'QSizePolicy 真值表：七个值的位含义',
@@ -142,7 +142,7 @@ btn->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
 // 只调水平方向也行
 m_list->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);`,
-    highlight: [1, 2, 5]
+    highlight: [1, 4, 7]
   },
   {
     title: '什么时候会重新协商',
@@ -167,7 +167,7 @@ m_list->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);`,
         <text class="svg-small" x="295" y="128">· 改了 QFont 之外的样式细节</text>
         <text class="svg-small" x="295" y="152">· 调了 setText 但控件自己</text>
         <text class="svg-small" x="295" y="176">  没触发 sizeHint 变化</text>
-        <text class="svg-text" fill="#b45309" x="295" y="212">→ 表现为「显示不全 / 挤在一起」</text>
+        <text class="svg-warn-text" x="295" y="212">→ 表现为「显示不全 / 挤在一起」</text>
 
         <rect class="svg-box-accent" x="535" y="25" width="205" height="210" rx="10"/>
         <text class="svg-title" x="637" y="52" text-anchor="middle">标准动作</text>
@@ -198,7 +198,7 @@ QSize Badge::sizeHint() const
     return fontMetrics().size(Qt::TextSingleLine,
                               QString::number(m_count)).grownBy({6, 4});
 }`,
-    highlight: [5, 6]
+    highlight: [2, 4, 5]
   },
   {
     title: 'LayoutRequest 是排队的：构造函数里 geometry() 是 0',
@@ -250,7 +250,7 @@ QSize Badge::sizeHint() const
     setCentralWidget(host);
     // 此刻 m_main->width() 还不可信
 }`,
-    highlight: [7, 8, 13]
+    highlight: [7, 8, 9]
   },
   {
     title: '嵌套布局、margins 与 stretch 的实际分配',
@@ -263,11 +263,12 @@ QSize Badge::sizeHint() const
 
         <rect class="svg-box-accent" x="50" y="70" width="170" height="95" rx="6"/>
         <text class="svg-small" x="135" y="112" text-anchor="middle">侧栏 stretch=1</text>
-        <text class="svg-small" x="135" y="134" text-anchor="middle">≈ 175px</text>
+        <text class="svg-small" x="135" y="134" text-anchor="middle">≠ 700 的 1/4</text>
 
         <rect class="svg-box-good" x="240" y="70" width="470" height="95" rx="6"/>
-        <text class="svg-small" x="475" y="112" text-anchor="middle">主区 stretch=3 ≈ 525px</text>
-        <text class="svg-small" x="475" y="134" text-anchor="middle">里面还有一个垂直布局（按钮 + 文本）</text>
+        <text class="svg-small" x="475" y="112" text-anchor="middle">主区 stretch=3</text>
+        <text class="svg-small" x="475" y="134" text-anchor="middle">≠ 700 的 3/4</text>
+        <text class="svg-small" x="475" y="156" text-anchor="middle">里面还有一个垂直布局（按钮 + 文本）</text>
 
         <rect class="svg-field" x="30" y="200" width="340" height="195" rx="10"/>
         <text class="svg-small" x="50" y="228">多余空间怎么算（简化直觉）：</text>
@@ -286,7 +287,7 @@ QSize Badge::sizeHint() const
         <text class="svg-small" x="410" y="366">诊断法：给每层布局设不同背景色（临时），</text>
         <text class="svg-small" x="410" y="386">一眼看出空间被哪层吃掉。</text>
       </svg>`,
-    caption: '分配逻辑的直觉版：<strong>先满足下限，再把剩余空间按 stretch 比例分</strong>；<code>Fixed</code> 的控件一分不拿。stretch 全为 0 时改看 <code>sizePolicy</code>，都愿长就均分。三个常见意外：<strong>margins 与 spacing 双重留白</strong>、<strong>把已在布局里的控件重新 setParent（它会从布局里消失）</strong>、<strong>嵌套太深每层都吃空间</strong>。',
+    caption: '分配逻辑的直觉版：<strong>先满足下限，再把剩余空间按 stretch 比例分</strong>；<code>Fixed</code> 的控件一分不拿。⚠ 所以图上那两个数<strong>不是</strong> 700 的 1/4 和 3/4：<code>stretch</code> 只分配「扣掉各方 sizeHint/minimum 之后剩下的」那一份，最终宽度之比几乎永远不等于因子之比。本机第 8 讲实测三颗因子 1:3:3 的按钮拿到 <code>153 / 457 / 458</code>，第 7 讲实测 2:1 拿到 <code>267 / 170</code>——都不是整数比例。stretch 全为 0 时改看 <code>sizePolicy</code>，都愿长就均分。三个常见意外：<strong>margins 与 spacing 双重留白</strong>、<strong>把已在布局里的控件重新 setParent（它会从布局里消失）</strong>、<strong>嵌套太深每层都吃空间</strong>。',
     code: `auto *outer = new QHBoxLayout(this);
 outer->setContentsMargins(0, 0, 0, 0);   // 外层不要留白
 outer->setSpacing(0);                     // 也不留缝
@@ -346,7 +347,7 @@ setMinimumSize(880, 560);
 
 // 具体某个控件定死
 m_icon->setFixedSize(24, 24);`,
-    highlight: [2, 3, 6]
+    highlight: [2, 5, 8]
   }
 ];
 </script>

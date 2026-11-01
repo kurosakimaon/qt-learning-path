@@ -129,7 +129,8 @@ window.STEPS = [
     code: `QApplication app(argc, argv);
 // 平台插件在构造里就选好了
 qInfo() << QGuiApplication::platformName();
-// 本机通常打印 "windows"，CI 上打印 "offscreen"`,
+// 本仓库存档的每一行 runlog 打的都是 "offscreen"（CTest 统一设了环境变量）；
+// 手工双击/终端里不带 QT_QPA_PLATFORM 跑，才是 "windows"。别拿这条当"本机一定是 windows"。`,
     highlight: [2]
   },
   {
@@ -250,7 +251,7 @@ QTimer::singleShot(0, [&w]() {
 
         <text class="svg-small" x="60" y="380">一个事件处理完，回到 exec() 接着取下一个 —— 这就是「循环」。</text>
       </svg>`,
-    caption: '<code>exec()</code> 是一个<strong>不会自己结束</strong>的循环：取事件 → 分发 → 再取。三个来源（系统消息、<code>postEvent</code> 排队的事件、定时器）都汇到同一个队列里，按到达顺序处理。这也是为什么「在槽里 sleep」会把整个界面冻住——你占住的是这个循环唯一的那条线程。',
+    caption: '<code>exec()</code> 是一个<strong>不会自己结束</strong>的循环：取事件 → 分发 → 再取。⚠ 但「三个来源汇成同一个队列、按到达顺序处理」这句<strong>是错的</strong>，别这么记：它们各存各的。<code>postEvent</code> 进的是<strong>目标线程</strong>的 <code>QPostEventList</code>（Src <code>qthread_p.h</code> 第 60~86 行），插入时<strong>按优先级从高到低排</strong>（<code>qthread.cpp</code> 第 24~37 行），只有同优先级才讲到达顺序；定时器归<strong>事件分发器</strong>按到期时间触发（Windows 分发器 <code>qeventdispatcher_win.cpp</code>），跟「谁先到」无关；系统消息则在平台自己的队列里，由分发器每圈去取。所以准确的说法是：<strong>循环每轮去这三个地方各问一次，谁满足条件就取谁</strong>。这也是为什么「在槽里 sleep」会把整个界面冻住——你占住的是这个循环唯一的那条线程。',
     code: `int rc = app.exec();   // 阻塞在这里，直到 quit()
 // 循环里每一圈大致是：
 //   取一个事件 → notify() → 过滤器 → 目标 event() → 回槽

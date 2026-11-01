@@ -19,15 +19,21 @@
 //   set(CMAKE_AUTOMOC ON)
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_08_introspection，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_08_introspection.log）。
 //   · 用 QCoreApplication，无窗口；结论全部 qInfo()；QTimer::singleShot 排脚本 +
 //     QCoreApplication::quit() 收尾——无人值守跑完。
 //   · 反射这条路上「查不到」的返回值一律是 **-1**（indexOfXxx）/ **false**（write/invoke）/
 //     **空 QVariant**（read）。本讲每次都用之前先判负数，**绝不拿 -1 去构造表条目**：
 //     QMetaObject::method(int)/property(int) 不做越界检查，喂负数就是越界读（见第三节）。
-//   · 本机校验状态（照实说）：本机 Qt 运行时缺符号（启动即 0xC0000139），跑不起来，
-//     所以本讲**没有运行输出**——打印出来的形状可以信，具体数字留给能编译的机器复核。
-//     但下面两件事真跑过，不是照文档想当然（脚本在仓库 `_tools/check_syntax.sh`）：
-//       moc.exe（C:/msys64/ucrt64/share/qt6/bin）→ 退出码 0、无 stderr；
+//   · 本机校验状态（照实说）：本文件**已真实编译、链接、运行**（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，offscreen；ctest 目标 metaobject_08_introspection 退出码 0，输出存档在
+//     runlogs/metaobject_08_introspection.log）。本讲没有汇总自检行，所以「跑绿」只证明
+//     没崩、走完了——打印出来的形状可以信，具体数字仍请以你自己那次运行输出为准。
+//     下面两件事也是真跑过的（脚本在仓库 `_tools/check_syntax.sh`）：
+//       moc.exe（D:/Qt/6.12.0/mingw_64/bin）→ 退出码 0、无 stderr；
 //       g++.exe -fsyntax-only -std=c++17 -Wall -Wextra → 0 error、0 warning。
 //     本讲凡是写「这里会报错」的地方都附了**编译器原样吐出来的那句话**，
 //     包括只有真编译一次才写得出的细节：全局枚举配类内 `Q_ENUM`，
@@ -69,12 +75,14 @@
 //                                  QMetaProperty 341 行起：name 346 / typeName 347 / metaType 358 /
 //                                  isReadable 362 / isWritable 363 / isResettable 364 /
 //                                  isDesignable 365 / isUser 368 / isConstant 369 / isFinal 370 /
-//                                  isRequired 373 / isBindable 375 / isFlagType 377 /
-//                                  isEnumType 378 / hasNotifySignal 381 / notifySignal 382 /
-//                                  notifySignalIndex 383 / read(const QObject*) 387 /
-//                                  write(QObject*, const QVariant&) 388 /
-//                                  write(QObject*, QVariant&&) 389 / reset(QObject*) 390 /
-//                                  bindable(QObject*) 392 行；QMetaClassInfo 433 行起
+//                                  isRequired 373 / isBindable 374 / isFlagType 376 /
+//                                  isEnumType 377 / hasNotifySignal 380 / notifySignal 381 /
+//                                  notifySignalIndex 382 / read(const QObject*) 386 /
+//                                  write(QObject*, const QVariant&) 387 /
+//                                  write(QObject*, QVariant&&) 388 / reset(QObject*) 389 /
+//                                  bindable(QObject*) 391 行；QMetaClassInfo 433 行起
+//        ★ 勘误：上面这一串旧稿整体偏 +1（375/377/378/381/382/383/387/388/389/390/392），
+//          差在 375 与 379 这两个空行上——数的时候把空行算进去了。本机 6.12.0 重新逐行数过。
 //                                  （name 437 / value 438 行）
 //       QtCore/qobject.h        —— qobject_cast<T>(QObject*) 431~435 行、
 //                                  qobject_cast<T>(const QObject*) 437~443 行（带「不能丢
@@ -124,15 +132,37 @@
 //    报 `invalid conversion from 'int' to 'RadarBit'`（实测）。
 //    → 嵌套枚举要按位组合，就在类外用 `Radar::RadarCaps`，类内只用单个枚举值或
 //      `QFlags` 的显式构造，别指望内联体里的竖线。
-// ② 全局作用域 + 类内 Q_ENUM —— 本讲的 Radar 就这么放（第 163 行的竖线才有得用）
-//    moc 收下，enumerator 段读得到，属性照样按名字读写；
-//    但 `QMetaEnum::fromType<RadarMode>()` **过不了编译**：qmetaobject.h 310~311 行
-//        static assertion failed: QMetaEnum::fromType only works with enums declared
-//        as Q_ENUM, Q_ENUM_NS, Q_FLAG or Q_FLAG_NS
-//        note: 'QtPrivate::IsQEnumHelper<RadarMode>::Value' evaluates to false
-//    原因就藏在①的那两行 friend 里：助手长在**类里面**，而 ADL 对全局枚举只查
-//    全局命名空间，压根不会进 `Radar` 去找 → 探测宏的 `IsQEnumHelper` 判为 false。
-//    所以「登记进表」≠「按类型拿表」；第 6 节两种姿势都给你看。
+//    坑 3：类里的枚举默认落在 **private** 段（写在 `Q_OBJECT` 和 `public:` 之间就是这样）。
+//    我做小练习 3 时当场撞到，g++ 的原话是
+//        error: 'enum class Radar::RadarMode' is private within this context
+//        note: declared private here
+//    两条出路：枚举前面补 `public:`，或者类外一律写全名 `Radar::RadarMode::Scan`。
+//    这不是 Qt 的规矩，是 C++ 的——所以「把枚举搬进类里」的真实成本是**所有裸用的调用点**都要改。
+// ② 全局作用域 + 类内 Q_ENUM —— 本讲的 Radar 就这么放（181~182 行那两行宏写在类外，竖线才有得用）
+//    【勘误】这一节原来写的是「moc 收下，enumerator 段读得到，属性照样按名字读写」——
+//    本机 Qt 6.12.0 + MinGW 13.1 实测**整条都不成立**， moc 根本不登记它。
+//    证据是三层扣上的：
+//      · 产物层：生成的 08_introspection.moc 里搜不到 Standby / Scan / Ping 任何一个；
+//        对照 06 讲（类内 enum + Q_ENUM），它的 .moc 里有 "Amber" 和 { 21, Mode::Amber }。
+//      · 运行层（就是本讲下面几节打出来的数）：
+//            enumeratorOffset=0  enumeratorCount=0      ← 第 3 节「枚举表」因此一行都不打
+//            property("mode").isEnumType() = false      ← 属性表那列「枚举/flag」是 ×
+//            pMode.write(&radar, "Scan")   = false      ← 第 4 节，值也没动（读回还是 0）
+//            pCaps.isFlagType()            = false      ← Q_FLAG(RadarCaps) 同一条路，
+//                                                         keysToValue("CanScan|CanTrace") 无从谈起
+//      · 编译层：`QMetaEnum::fromType<RadarMode>()` 过不了编译，报错原样抄自本机编译器
+//            static assertion failed: QMetaEnum::fromType only works with enums declared
+//            as Q_ENUM, Q_ENUM_NS, Q_FLAG or Q_FLAG_NS
+//            note: 'QtPrivate::IsQEnumHelper<RadarMode>::Value' evaluates to false
+//            （qmetaobject.h 310~311 行那个 static_assert）
+//    原来那段把 fromType 失败解释成「宏没写错、枚举确实进了表，只是 ADL 找不到类里的
+//    friend」——前半句就是错的：**表里压根没有它**。ADL 那半句只对 fromType 成立
+//    （助手确实是类里的两个 friend，qtmetamacros.h 74~75 行），但它不是「按名字读写也失败」
+//    的原因；两个失败是同一个人：moc 没登记。
+//    所以②号摆法剩下的唯一收益就是竖线能用，代价是枚举的元信息全丢。
+//    一句话记住：**要枚举进表，枚举就得声明在类里（①）或命名空间里配 Q_ENUM_NS（③）**；
+//    Q_ENUM 写在类里、枚举本体在外面，moc 不报错、也不给你登记——这种「静默不干活」
+//    比编译失败难查得多，所以本讲把空表打印出来给你看（见 dumpTables 里那行计数）。
 // ③ 命名空间 + Q_NAMESPACE + Q_ENUM_NS / Q_FLAG_NS —— 要全局、又要 fromType，就用它
 //    Q_ENUM_NS_IMPL（qtmetamacros.h 78~80 行）生成的是**命名空间作用域的 inline 函数**
 //    （不是 friend），于是同一个命名空间里的枚举天然能被 ADL 找到，fromType 通过。
@@ -185,7 +215,11 @@ class Radar : public QObject
     Q_CLASSINFO("version", "2.1")
     Q_CLASSINFO("bus", "can-0")
 
-    // 枚举 + Q_ENUM ⇒ 这条属性能按名字读写（"Standby"/"Scan"/"Ping"）
+    // 【勘误】这一行原来写的是「枚举 + Q_ENUM ⇒ 这条属性能按名字读写」——对本讲不成立。
+    // 按名字读写要的是 isEnumType()，而它是「枚举在不在表里」的查表结果；下面 217 行的
+    // Q_ENUM(RadarMode) 是②号摆法（枚举本体在 178 行的全局作用域），moc 压根不登记它。
+    // 于是这条属性的「枚举/flag」列是 ×，第 4 节 write("Scan") 返回 false（本机实测）。
+    // 想让它成立就把枚举搬进类里（①号摆法，见 06 讲）——06 讲同一个位置的 runlog 是 √。
     Q_PROPERTY(RadarMode mode READ mode WRITE setMode NOTIFY modeChanged USER true)
     // flag 属性：只读 + CONSTANT + FINAL，写它必然 false
     Q_PROPERTY(RadarCaps caps READ caps CONSTANT FINAL)
@@ -320,6 +354,14 @@ static void dumpTables(const QMetaObject *mo)
     }
 
     qInfo() << "  ── 枚举表 ──";
+    // 【先打区间，再打内容】这一段是本讲最重要的一处「静默失败」：②号摆法下
+    // enumeratorOffset() 和 enumeratorCount() 都是 0，下面那个循环**一行都不出**。
+    // 只打一个「── 枚举表 ──」标题就走，读者会以为是自己终端截断了；把区间写出来，
+    // 空表才成为一条能读的证据（对照第 1 节②号摆法那段）。
+    qInfo().noquote() << QStringLiteral("    区间 = [%1, %2)  共 %3 条")
+                             .arg(mo->enumeratorOffset())
+                             .arg(mo->enumeratorCount())
+                             .arg(mo->enumeratorCount() - mo->enumeratorOffset());
     for (int i = mo->enumeratorOffset(); i < mo->enumeratorCount(); ++i) {
         const QMetaEnum e = mo->enumerator(i);
         QStringList kv;
@@ -333,6 +375,16 @@ static void dumpTables(const QMetaObject *mo)
                                  .arg(e.is64Bit() ? "√" : "×")
                                  .arg(kv.join(QStringLiteral(", ")));
     }
+    if (mo->enumeratorCount() == mo->enumeratorOffset()) {
+        qInfo() << "    ↑ 0 条：moc 收下了第 217/218 行的 Q_ENUM/Q_FLAG，却没往枚举段写任何东西。"
+                   "产物层直接看得见——生成的 08_introspection.moc 里那一行是空的："
+                   "`QtMocHelpers::UintData qt_enums { };`；"
+                << "而 06 讲（枚举声明在类里，①号摆法）同一位置是"
+                   "`EnumData<enum Mode>(19, 19, ...).add({ { 20, Mode::Green }, { 21, Mode::Amber }, … })`。"
+                << "  本文件里③号摆法的 alarm 那张表有"
+                << alarm::staticMetaObject.enumeratorCount()
+                << "条，第 6 节按名字读的就是它。";
+    }
 
     qInfo() << "  ── 类信息（Q_CLASSINFO）──";
     // 【网上流传的「Qt6 没有 classInfoCount()，只能点查」是错的】
@@ -341,10 +393,16 @@ static void dumpTables(const QMetaObject *mo)
     // 所以边界齐全的遍历完全合法——从 offset 起、到 count 止，别越界就行。
     for (int i = mo->classInfoOffset(); i < mo->classInfoCount(); ++i) {
         const QMetaClassInfo info = mo->classInfo(i);        // 275 行：不做越界检查
+        // 【键用 fromLatin1，值必须用 fromUtf8】键是 ASCII，值是你我写的中文。
+        // moc 把宏里的字符串**原样**塞进字符串池（本机生成的 .moc 第 42 行就是
+        // `"老师傅"`，字节是 E8 80 81 E5 B8 88 E5 82 A5，UTF-8），而
+        // QString::fromLatin1 按「一字节一字符」解，三个字变九个人，
+        // 再经 Windows 控制台（本机 GBK）就成了 `è????????`（一个 é 加八个 ?，共 9 个字符）。
+        // 这条不是 Qt 的锅，是调用点的锅。
         qInfo().noquote() << QStringLiteral("    [%1] %2 = %3")
                                  .arg(i)
-                                 .arg(QString::fromLatin1(info.name()),        // 437 行
-                                      QString::fromLatin1(info.value()));      // 438 行
+                                 .arg(QString::fromLatin1(info.name()),       // 437 行：键
+                                      QString::fromUtf8(info.value()));        // 438 行：值
     }
     // 真正**不推荐**的是另一件事：`while (mo->classInfo(i).name()) ++i;` 这种
     // 「越界读到字符串池末尾的空串就停」的写法——它靠内部布局活着，Qt 一改就失效。
@@ -357,8 +415,8 @@ static void dumpTables(const QMetaObject *mo)
         const QMetaClassInfo info = mo->classInfo(ci);
         qInfo().noquote() << QStringLiteral("    [%1] %2 = %3")
                                  .arg(ci)
-                                 .arg(QString::fromLatin1(info.name()),        // 437 行
-                                      QString::fromLatin1(info.value()));      // 438 行
+                                 .arg(QString::fromLatin1(info.name()),       // 同上：键 ASCII
+                                      QString::fromUtf8(info.value()));        // 同上：值是 UTF-8
     }
 }
 
@@ -370,10 +428,15 @@ int main(int argc, char *argv[])
     const QMetaObject *mo = radar.metaObject();
 
     qInfo() << "=== 1. 先认门：这是一张**沿继承链**的说明书 ===";
-    qInfo() << "  className() =" << mo->className()
-            << " superClass() =" << mo->superClass()->className()
-            << " 再往上 =" << mo->superClass()->superClass()->className()
-            << "（superClass() 到顶返回 nullptr，别无条件链两下）";
+    // superClass() 走到 QObject 就返回 nullptr，第二次链之前必须判空（否则段错误）。
+    {
+        const QMetaObject *up1 = mo->superClass();
+        const QMetaObject *up2 = up1 ? up1->superClass() : nullptr;
+        qInfo() << "  className() =" << mo->className()
+                << " superClass() =" << (up1 ? up1->className() : "(nullptr)")
+                << " 再往上 =" << (up2 ? up2->className() : "(nullptr，到顶了)")
+                << "（superClass() 到顶返回 nullptr，别无条件链两下）";
+    }
     qInfo() << "  methodCount() =" << mo->methodCount() << " 本类段起点 =" << mo->methodOffset()
             << "（前面那几十条是 QObject 的，不是你写的）";
     qInfo() << "  propertyCount() =" << mo->propertyCount() << " 本类属性段起点 ="
@@ -413,14 +476,40 @@ int main(int argc, char *argv[])
     qInfo() << "  write(250) 成功？" << okWrite << " 读回 =" << pRange.read(&radar).toInt()
             << " 通知触发次数 =" << rangeHits
             << " ← 证据链：元对象 write → WriteProperty → switch 调 setRange → Q_EMIT → activate";
-    // 枚举属性能直接喂字符串（Q_ENUM 的功劳，见第 6 节）
+    // 【勘误】这一行原来写的是「枚举属性能直接喂字符串（Q_ENUM 的功劳）」——本机实测喂不进去，
+    // 下面那行 false 就是它。为什么喂不进去，两条路都堵死了（都是 6.12 源码里核对过的行号）：
+    //   · 捷径那条：QMetaProperty::write 里有个「QString → 枚举名」分支，条件写在
+    //     qmetaobject.cpp 4084 行 `if (isEnumType() && !t.metaObject() && …)`。
+    //     注意那个 `!t.metaObject()`：Qt 自己的注释（4085~4087 行）说明这条捷径是给
+    //     **老 Q_ENUMS** 用的（Q_ENUMS 只登记枚举、不给 QMetaType 挂 metaObject）。
+    //     ②号摆法在这里连门都摸不到：isEnumType() = (EnumOrFlag 位 && menum.name())
+    //     （同文件 3912 行），枚举段空 → menum 无效 → false。
+    //   · 兜底那条：走 QVariant::convert → qmetatype.cpp 2120 行 convertToEnum →
+    //     2023 行 metaEnumFromType，它先要 t.metaObject() 非空（2026 行），
+    //     实测 RadarMode 这个 QMetaType 的 metaObject() 就是 nullptr → 还是失败。
+    // 对照：①号摆法（枚举在类里）两条门都开着——它的 QMetaType 名字是 "Radar::RadarMode"，
+    // metaEnumFromType 在 2034~2035 行把作用域剥掉再查表，所以写名字能成（06 讲实测 true）。
+    // 换句话说：这两行 false 是同一个病根，不是「Scan 这个值写错了」。想让它 true，见小练习 3。
     const QMetaProperty pMode = mo->property(mo->indexOfProperty("mode"));
     const bool okEnum = pMode.write(&radar, QStringLiteral("Scan"));
     qInfo() << "  mode.write(\"Scan\") 成功？" << okEnum << " 读回 =" << pMode.read(&radar)
             << " 用 C++ 比较 ==\"Scan\"?" << (radar.mode() == RadarMode::Scan);
     const bool okBadEnum = pMode.write(&radar, QStringLiteral("不存在值"));
     qInfo() << "  mode.write(\"不存在值\") 成功？" << okBadEnum
-            << "（按名字查表失败 → 不动值、返回 false，不抛不崩）";
+            << "（这一条**本来就该** false：不动值、返回 false，不抛不崩。"
+            << "上面那条 Scan 也 false 是②号摆法的病，不是这条的对照组——两条别混着读。）";
+    // 名字写不进去，那整数呢？②号摆法退化成什么样子，这两行是最后一块拼图（本机实测）。
+    const bool okInt = pMode.write(&radar, 1);
+    qInfo() << "  mode.write(1)（按整数写）成功？" << okInt << " 读回 =" << pMode.read(&radar)
+            << " C++ 那边 ==" << int(radar.mode());
+    // 顺手量一个**根本不存在**的整数：别以为宏摆对了元对象就会替你把关（本机两种摆法都量过）。
+    const bool okBogus = pMode.write(&radar, 99);
+    qInfo() << "  mode.write(99)（枚举里没这个值）成功？" << okBogus
+            << " 读回 =" << pMode.read(&radar) << " C++ 那边 ==" << int(radar.mode())
+            << " ← 整数路压根不查枚举表（查表那条只服务「按名字」），所以 99 也写得进去。"
+            << "而且这条**跟宏摆没摆对无关**：我把 RadarMode 搬进类里再跑，一样 true，"
+            << "只是读回打印成了 `Radar::RadarMode(99)`（没有键名可映射，就退回数字）。"
+            << "结论：Q_ENUM 不是输入校验，脏数据要在自己的 setter 里挡。";
     const QMetaProperty pCaps = mo->property(mo->indexOfProperty("caps"));
     qInfo() << "  caps（CONSTANT FINAL）isWritable =" << pCaps.isWritable()
             << " isFlagType =" << pCaps.isFlagType()
@@ -465,45 +554,92 @@ int main(int argc, char *argv[])
     qInfo() << "  invokeMethod(\"clearLog\") 之后 log 长度 =" << radar.log().size()
             << " marks =" << radar.marks();
 
-    qInfo() << "=== 6. Q_ENUM / Q_FLAG：枚举按名字读写，全靠这两行宏 ===";
-    // ── 6.1 ② 号摆法（Radar 那两个全局枚举）唯一的读表路：按名字问表 ──────────
-    // enumerator(int) 同样不做越界检查，所以先判 indexOfEnumerator 给没给 -1。
+    qInfo() << "=== 6. Q_ENUM / Q_FLAG：枚举进表，才有「按名字」这条路 ===";
+    // ── 6.1 ② 号摆法：先证明 Radar 的表是空的，再把读表演示挪到真有表的 alarm 上 ──
+    // 【勘误】本节原来在 Radar 的表上演示「indexOfEnumerator → enumerator(i)」，
+    //  else 分支里那句「只有把 Q_ENUM(RadarMode) 那行删掉才会这样」也不成立：
+    // 宏在着，表照样是空的（第 3 节刚打出「共 0 条」）。演示挪到③号摆法的 alarm 上跑。
     const int eModeIdx = mo->indexOfEnumerator("RadarMode");
-    if (eModeIdx < 0) {
-        qInfo() << "  ⚠ 表里没有 RadarMode——只有把 Q_ENUM(RadarMode) 那行删掉才会这样（小练习 3）";
-    } else {
-        const QMetaEnum eMode = mo->enumerator(eModeIdx);
-        qInfo() << "  读表两步走：indexOfEnumerator → enumerator(i)"
-                << " 索引 =" << eModeIdx
-                << " name =" << QString::fromLatin1(eMode.name())
-                << " keyCount =" << eMode.keyCount()
-                << " isScoped =" << eMode.isScoped()          // enum class → √（282 行）
-                << " isFlag =" << eMode.isFlag()              // Q_ENUM → ×（281 行）
-                << " 挂在哪个表 =" << QString::fromLatin1(eMode.enclosingMetaObject()->className());
-        qInfo() << "  valueToKey(1) =" << QString::fromLatin1(eMode.valueToKey(1))
-                << " keyToValue(\"Ping\") =" << eMode.keyToValue("Ping");
-        bool okKey = false;
-        const int standby = eMode.keyToValue("Standby", &okKey);
-        qInfo() << "  keyToValue(\"Standby\", &ok) =" << standby << " ok =" << okKey
-                << "；keyToValue(\"Nonexistent\", &ok) =" << eMode.keyToValue("Nonexistent", &okKey)
-                << " ok =" << okKey << "（**用带 ok 的重载**，别把 -1 当合法枚举值往下传）";
-    }
+    qInfo().noquote() << QStringLiteral("  Radar 的表：indexOfEnumerator(\"RadarMode\") = %1"
+                                        "  枚举段区间 = [%2, %3)")
+                             .arg(eModeIdx)
+                             .arg(mo->enumeratorOffset())
+                             .arg(mo->enumeratorCount());
+    // 【这句解释为什么跟着数走】结论必须由实测值决定：否则做完小练习 3（把枚举搬进类里）
+    // 之后，程序一边打出 0、一边说「表里没有它」——讲义自己跟自己矛盾。
+    if (eModeIdx < 0)
+        qInfo() << "    ← 表里没有它。217/218 行那两行宏**在**，可枚举本体在 178/180 行的全局作用域，"
+                   "moc 就不登记（第 1 节②号摆法）。按名字读、按名字写、QML 里列合法值，全从这张表出发。"
+                   "把小练习 3 做完再跑，这一整条会换成另一条——因为它是 if 出来的。";
+    else
+        qInfo() << "    ← 表里有它了：这是**已经做完小练习 3**（把 RadarMode 搬进类里）的样子；"
+                   "本讲正文停在②号摆法，正常跑看到的应该是上面那条 -1。";
+    // 【越界不崩，但给你一个「看着正常」的空表】QMetaObject::enumerator(int) 的实现
+    // （qmetaobject.cpp 1258 行）是「减 offset，不在 [0,count) 里就返回默认构造的 QMetaEnum」。
+    // 我拿探针量过 enumerator(-1)：isValid()=false、name()=nullptr、keyCount=0，
+    // 而 QString::fromLatin1(nullptr) 不炸，只给你一个 isNull() 的串。
+    // → 所以判负数这条铁律在这儿照样成立，只是失败的样子是「全空」而不是「崩」。
+    // 【查表的键不能用属性的类型名】实测：①号摆法（枚举在类里）属性表那一行的类型名是
+    // 带作用域的 "Radar::RadarMode"（小练习 3 跑出来就是这样），而枚举段里存的名字不带走作用域
+    // （同一次运行打的是 `[0] RadarMode 取值(Standby=0, Scan=1, Ping=2)`）。
+    // 拿 typeName 直接去 indexOfEnumerator 会 -1（这一句是另拿一个等价的嵌套枚举类探针量的：
+    // typeName="L::LMode"、枚举段 name="LMode"、indexOfEnumerator(typeName)=-1，
+    // 而同一个属性打印 isEnumType=true——两道门是分开关的）；Qt 自己也不是直接查：
+    // qmetatype.cpp 2034~2035 行先用 lastIndexOf(':') 剥掉作用域再问表。
+    // 已经拿着 QMetaProperty 的时候，直接 pMode.enumerator() 就行（②号实测 isValid=false，
+    // 它不会骗你说是枚举属性；①号实测 isValid=true、enclosingMetaObject 就是那个类）。
     // 【为什么这里我不用 QMetaEnum::fromType<RadarMode>()】——它过不了编译，本机试过，
     // 报错原样抄给你（这段文字就是从编译器输出里搬来的，不是我推测的）：
     //     static assertion failed: QMetaEnum::fromType only works with enums declared
     //     as Q_ENUM, Q_ENUM_NS, Q_FLAG or Q_FLAG_NS
     //     note: 'QtPrivate::IsQEnumHelper<RadarMode>::Value' evaluates to false
-    // 宏没写错，枚举也确实进了表（上面刚读到它），挂在**类型 → 表**那一步的 ADL 上：
-    // Q_ENUM 展开成的是**类里的两个 friend**（qtmetamacros.h 74~75 行），
-    // 而全局枚举做 ADL 时压根不会进 Radar 作用域去找它们（第一节②）。
+    // 报错里那句 `IsQEnumHelper<RadarMode>::Value evaluates to false` 是关键：fromType 的
+    // **编译期**那道门要 ADL 找得到 qt_getEnumMetaObject / qt_getEnumName，而 Q_ENUM 展开成的是
+    // 类里的两个 friend（qtmetamacros.h 74~75 行），全局枚举做 ADL 时压根不会进 Radar 作用域。
     // 再看 qmetaobject.h 313~315 行，fromType 的三步就是
     //     qt_getEnumMetaObject(T()) → qt_getEnumName(T()) → enumerator(indexOfEnumerator(name))
-    // 换句话说它只是个语法糖；上面我手写的那两步是它的**同一件事**，而且是任何摆法都能用的那版。
+    // 最后一步还是**查表**——它只是语法糖。所以 ②号摆法在这条路上其实撞了两次同一堵墙：
+    // 糖的那一步（编译期 ADL）找不到助手，糖化后的那一步（运行期查表）表又是空的（上面实测 -1）。
+    // 两个失败不是两件事，是一个根因的两种表现：枚举声明在类外，moc 不认为它是「这个类的枚举」。
+    // ── 读表两步走：跑在③号摆法的 alarm 上 ────────────────────────────────────
+    // 【为什么换表演示】上面刚证明 Radar 的枚举段 0 条；把 API 演示写在一张空表上，
+    // 读者只能看到「循环没跑」，分不清是 API 不对还是表没内容。挪到有内容的表上才叫演示。
+    const QMetaObject *nmo = &alarm::staticMetaObject;
+    qInfo().noquote() << QStringLiteral("  换一张有内容的表：%1 区间=[%2, %3) 共 %4 条")
+                             .arg(QString::fromLatin1(nmo->className()))
+                             .arg(nmo->enumeratorOffset())
+                             .arg(nmo->enumeratorCount())
+                             .arg(nmo->enumeratorCount() - nmo->enumeratorOffset());
+    const int eLevelIdx = nmo->indexOfEnumerator("Level");
+    if (eLevelIdx < 0) {
+        qInfo() << "  【注意】 ③号摆法读不到 = alarm 里那行 Q_ENUM_NS(Level) 被删了（小练习 3）";
+    } else {
+        const QMetaEnum eLv = nmo->enumerator(eLevelIdx);
+        qInfo() << "  读表两步走：indexOfEnumerator → enumerator(i)"
+                << " 索引 =" << eLevelIdx
+                << " name =" << QString::fromLatin1(eLv.name())
+                << " keyCount =" << eLv.keyCount()
+                << " isScoped =" << eLv.isScoped()              // enum class → √（282 行）
+                << " isFlag =" << eLv.isFlag()                  // Q_ENUM_NS → ×（281 行）
+                << " 挂在哪个表 =" << QString::fromLatin1(eLv.enclosingMetaObject()->className());
+        qInfo() << "  valueToKey(1) =" << QString::fromLatin1(eLv.valueToKey(1))
+                << " keyToValue(\"Critical\")（不带 ok 的重载）=" << eLv.keyToValue("Critical");
+        bool okKey = false;
+        const int critical = eLv.keyToValue("Critical", &okKey);
+        qInfo() << "  keyToValue(\"Critical\", &ok) =" << critical << " ok =" << okKey;
+        bool okYes = true;                    // 故意先给 true，看这次调用有没有把它改写掉
+        const int nope = eLv.keyToValue("Nope", &okYes);
+        qInfo() << "  keyToValue(\"Nope\", &ok) =" << nope << " ok =" << okYes
+                << "（**用带 ok 的重载**：-1 既可能是「查不到」也可能是某个合法值本身，"
+                << "别拿它当枚举值往下传。上面两行合起来就是把 ok 和返回值分开问清楚。）";
+    }
     // flag 那张表：本讲故意**不按名字**找（枚举名在表里存的是 moc 写的那个文本，不同
-    // Qt 版本写法有别），而是遍历 enumerator 段、用 isFlag() 认它——最稳的读表姿势。
+    // Qt 版本写法有别，①号摆法还带作用域），而是遍历 enumerator 段、用 isFlag() 认它——最稳的读表姿势。
+    int flagRows = 0;
     for (int i = mo->enumeratorOffset(); i < mo->enumeratorCount(); ++i) {
         const QMetaEnum e = mo->enumerator(i);
         if (!e.isFlag()) continue;
+        ++flagRows;
         bool okCombo = false;
         const int combo = e.keysToValue("CanScan|CanTrace", &okCombo);
         qInfo() << "  flag 枚举" << QString::fromLatin1(e.name())
@@ -511,6 +647,10 @@ int main(int argc, char *argv[])
                 << " valueToKeys(3) =" << QString::fromLatin1(e.valueToKeys(3))
                 << " ← Q_FLAG 才给得到的待遇：按位组合的**名字串**能被解析";
     }
+    if (flagRows == 0)
+        qInfo() << "  ↑ 上面这个循环一行没跑：枚举段里**没有 isFlag 的条目**——180 行的 RadarBit 在全局，"
+                << "Q_FLAG(RadarCaps) 因此没登记。按位组合名字串那个待遇，"
+                << "下面在 alarm::Sides（Q_FLAG_NS）上照样跑得通——差别只在宏和枚举摆哪儿，不在宏本身。";
     // ── 6.2 ③ 号摆法：命名空间 + Q_NAMESPACE + Q_ENUM_NS / Q_FLAG_NS，fromType 亮绿灯 ──
     // 文件顶部 alarm 那八行在这里兑现：助手生成在**命名空间作用域**（qtmetamacros.h
     // 78~80 行用的是 inline 而不是 friend），ADL 顺手就能找到，于是可以按类型直接拿表。
@@ -529,14 +669,19 @@ int main(int argc, char *argv[])
             << "（没有宏，keysToValue 无从谈起）";
     qInfo() << "  metaType()（279 行）= " << QString::fromLatin1(eSides.metaType().name())
             << " ← 属性系统把 QVariant 变回 Sides、QML 那边按名字取值，落点都是这个 QMetaType";
-    // 一句话把 6.1/6.2 钉住：**要 fromType，枚举就放进类里（Q_ENUM）或带 Q_NAMESPACE 的
-    // 命名空间里（Q_ENUM_NS）；已经像 Radar 这样放全局了也别慌，indexOfEnumerator 那条
-    // 读表路照样通。** senior 面试问到这里，答得出「fromType 只是语法糖，糖化了还有表」
-    // 才算真懂——因为糖的那一步（ADL）和表的那一步（enumerator(i)）本来就是两件事。
+    // 一句话把 6.1/6.2 钉住：**要「按名字」这套能力（fromType、按名字读写属性、QML 里的
+    // 合法值列表），枚举就放进类里（Q_ENUM）或带 Q_NAMESPACE 的命名空间里（Q_ENUM_NS/Q_FLAG_NS）。**
+    // 【勘误】这里原来写的是「已经像 Radar 这样放全局了也别慌，indexOfEnumerator 那条读表路
+    // 照样通」——本机实测不通：indexOfEnumerator("RadarMode") = -1，因为 moc 压根没登记，
+    // 换哪条读表路都一样（它们最后一步都是 enumerator(i)）。②号摆法真正保住的只有竖线。
+    // senior 面试问到这里，答得出「fromType 只是语法糖，糖化后的那一步还是查表，
+    // 而表是 moc 决定写不写的」才算真懂——编译期那道门（ADL）和运行期那张表（qt_enums）
+    // 是同一次「moc 认不认这是本类枚举」的两面。
 
-    // 【少了这两行宏会退化成什么】没 Q_ENUM/Q_FLAG，元对象眼里就没有这张对照表：
-    // 属性只能按整数读写（`pMode.write(&radar, 1)`），配置文件、QML、报错信息里
-    // 那些「合法取值列表」全都没有。这是性价比最高的一行宏。
+    // 【少了这两行宏、或者宏摆错地方，退化成什么】元对象眼里没有这张对照表：属性那边
+    // 第 4 节现场量过（write("Scan") false），按整数的路能不能走通同一节也量了。
+    // 配置文件、QML、报错信息里那些「合法取值列表」全都没有——这是性价比最高的一行宏，
+    // 也是**最容易摆错位置**的一行宏：宏要在类里，枚举本体也要在类里（或命名空间里配 _NS 版本）。
 
     qInfo() << "=== 7. qobject_cast vs dynamic_cast：三条真实差别 ===";
     QObject *asBase = &radar;                               // 静态类型退化成 QObject*
@@ -657,9 +802,29 @@ int main(int argc, char *argv[])
  *      拿 radar 之外的对象各跑一遍（QCoreApplication::instance()、你上一模块任何
  *      QObject 子类）：数一数 QObject 自带几个信号几个槽、offset 分别是多少。
  *      这个数以后你判断「我的类里到底加了多少东西」就有参照了。
- *   3. 把 RadarMode 的 `Q_ENUM(RadarMode)` 删掉重跑第 4 节：
- *      `pMode.write(&radar, "Scan")` 是不是变成 false？改写成
- *      `pMode.write(&radar, 1)` 能不能成功？由此给团队写一条 code review 检查项：
- *      「枚举出现在 Q_PROPERTY / 信号参数 / 配置文件里，必须有 Q_ENUM 或 Q_FLAG」。
+ *   3. 【这条练习我在本机真跑过一遍，下面每个数都是从那次运行里抄的】
+ *      把 178 行的 `enum class RadarMode {…}` 整条搬进 Radar 类里（放在 211 行那条
+ *      Q_PROPERTY 之前，217 行的 Q_ENUM(RadarMode) 原地不动），重新编译再跑：
+ *        · 第 3 节「枚举表」：区间从 [0, 0) 变 [0, 1)，多出来那一行是
+ *          `[0] RadarMode  isFlag=× isScoped=√ is64Bit=×  取值(Standby=0, Scan=1, Ping=2)`；
+ *        · 属性表里 mode 那行：类型名从 `RadarMode` 变成带作用域的 `Radar::RadarMode`，
+ *          「枚举/flag」从 × 变 √；
+ *        · 第 4 节 mode.write("Scan")：false 变 true，读回 `QVariant(Radar::RadarMode, Radar::RadarMode::Scan)`；
+ *        · 第 6.1 节 indexOfEnumerator("RadarMode")：-1 变 0，而那行解释自动换成另一条（if 出来的）。
+ *      同一趟里 caps 那行**没变**（还是 ×）：RadarBit 仍在 180 行的全局作用域，
+ *      Q_FLAG 走的是同一条不登记的路。一次只搬一个枚举，就只看得到一次变化——控制变量。
+ *      搬的时候我真撞到一个错，它跟元对象无关，是 C++ 的名字可见性：
+ *        · 枚举一进类就落在默认 private 段（写在 Q_OBJECT 和 public: 之间就是这样），
+ *          类外那句 `radar.mode() == RadarMode::Scan` 当场报
+ *          `'enum class Radar::RadarMode' is private within this context`
+ *          （note 那行是 `declared private here`）→ 要么补 `public:`，要么类外一律写全名。
+ *          这就是「把枚举搬进类里」在真实工程里的成本：**所有裸用的调用点**都要跟着改。
+ *      第 1 节①号摆法记的另外两个坑（Q_ENUM 要在枚举**之后**、类内联体里的竖线），
+ *      我这次一个都没撞上：只搬 RadarMode、没动 RadarBit，宏的位置也没变。
+ *      想撞就把 RadarBit 也搬进类里——那时 caps() 里的按位组合就得改成显式构造。
+ *      反过来再做一遍（把 alarm 的 Q_ENUM_NS(Level) 删掉）：6.1 那行【注意】会打印出来，
+ *      而且 moc 这次照样一声不吭。我拿当前这份直接喂 `moc`：退出码 0、stderr 一个字节都没有。
+ *      moc 只在**缺 Q_NAMESPACE** 时报错（「Namespace declaration lacks Q_NAMESPACE macro」），
+ *      对「宏没登记任何枚举」什么都没有——这就是本讲为什么把空表的计数打出来给你看。
  */
 // ============================================================================

@@ -1,0 +1,40 @@
+== todo_desktop 自检开始 ==
+  [PASS] 插入 3 条任务
+  [PASS] addTask 返回非 0 id
+  [PASS] countsChanged 报告 3 条 / 0 完成
+  [PASS] DisplayRole 取回标题
+  [PASS] PriorityRole 取回数值而不是文本
+  [PASS] setDone 返回 true
+  [PASS] 改完成状态发出 dataChanged
+  [PASS] DoneColumn 的 CheckStateRole 变为 Checked
+  [PASS] countsChanged 跟进为 1 完成
+  [PASS] 未过滤时代理 3 行
+  [PASS] 只看未完成 → 2 行
+  [PASS] 再按标题搜索「线程」→ 1 行
+  [PASS] mapToSource 把代理第 0 行映射回源第 1 行
+  [PASS] 清空过滤后恢复 3 行
+  [PASS] 打开临时数据库（todo.db）
+  [PASS] 3 条任务写入 SQLite
+  [PASS] 从 SQLite 读回 3 条
+  [PASS] 读回的标题/优先级/日期/完成状态一致
+  [PASS] 空日期往返后仍是无效 QDate
+  [PASS] 按 id 删除一条
+  [PASS] 删除后剩 2 条
+  [PASS] 整批替换成功
+  [PASS] 整批替换后恢复 3 条
+  [PASS] 清除已完成
+  [PASS] 清除已完成后剩 2 条
+  [PASS] 导出 JSON（QSaveFile 原子写）
+  [PASS] 导入刚导出的 JSON
+  [PASS] 导入条数一致
+  [PASS] 导入后的字段一致
+  [PASS] 坏 JSON 被拒绝
+  [PASS] 缺 tasks 数组被拒绝
+  [PASS] computeStats：3 条 / 1 完成 / 2 未完成
+  [PASS] computeStats：逾期 1 条（已完成的不算逾期）
+  [PASS] computeStats：低/普通/高 各 1 条
+  [PASS] 后台统计在 3 秒内返回（否则是线程/事件循环问题）
+  [PASS] 后台线程算出的统计与同步计算一致
+  [PASS] close() 之后连接已释放
+  [PASS] 临时目录里的库与 JSON 都在（说明前面的写入真的发生了）
+== 自检通过：全部检查项 PASS ==

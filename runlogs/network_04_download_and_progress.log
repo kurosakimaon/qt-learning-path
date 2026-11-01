@@ -1,0 +1,88 @@
+================================================================
+network 第 4 讲 · 下载状态机（Qt = 6.12.0 ）
+回环服务器： "http://127.0.0.1:5124" ｜serverAddress = "127.0.0.1" isLoopback = true
+全程只打自己这个端口，不出公网，断网可跑。
+================================================================
+  信号序列：metaDataChanged  →  finished(error=NoError, code=0, isFinished=1)  →  commit=1
+  头快照：contentType = "application/octet-stream" | contentLength = 1048576 | lastModified = "2026-08-31T07:30:00Z"
+  生头列表( 7 个)： QList("server", "date", "content-type", "last-modified", "accept-ranges", "content-length", "connection")
+  边下边写：readyRead 1 次，传输中内存驻留峰值 = 1048576 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段①] 状态码 = 200 | 落盘 = 1048576 字节 | committed = true | 进度终值 percent = 100 bar->value() = 100 "| 校验和 =0x3675b1c2cbcd0383"
+      ［对］ ① 状态码 200 → 期望 200，实测 200
+      ［对］ ① 落盘字节数 = 1 MiB → 期望 1048576，实测 1048576
+      ［对］ ① QSaveFile commit 成功（目标文件是真身，不是临时文件） → 期望 1，实测 1
+      ［对］ ① 进度终值 percent → 期望 100，实测 100
+      ［对］ ① 进度条被 Snapshot 推到 100 → 期望 100，实测 100
+      ［对］ ① 熟头 Content-Length → 期望 1048576，实测 1048576
+      ［对］ ① 熟头 Content-Type = application/octet-stream → 期望 1，实测 1
+      ［对］ ① 熟头 Last-Modified 被解析成合法日期 → 期望 1，实测 1
+      ［对］ ① 生头 Accept-Ranges = bytes → 期望 1，实测 1
+      ［对］ ① readyRead 至少触发 1 次（边下边写真的发生过） → 期望 1，实测 1
+      ［对］ ① 整包到手：驻留峰值到了正文的量级（≥ 一半）= 攒内存的反例 → 期望 1，实测 1
+      ［对］ ① 峰值不超过正文（reply 只存正文，没把它复制两份） → 期望 1，实测 1
+  信号序列：metaDataChanged  →  finished(error=NoError, code=0, isFinished=1)  →  commit=1
+  头快照：contentType = "application/octet-stream" | contentLength = 0 | lastModified = ""
+  生头列表( 4 个)： QList("server", "content-type", "accept-ranges", "connection")
+  边下边写：readyRead 16 次，传输中内存驻留峰值 = 65536 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段②] bytesTotal 分支：未知(-1)命中 1 次 | 忙碌态 1 次、确定态 2 次 | snap 终值 total = 1048576 == received = 1048576 （Qt 收尾时把「未知」改口成「已收」，见 qnetworkreplyhttpimpl.cpp:2240）
+           落盘 = 1048576 字节，驻留峰值 = 65536 字节（限速流：一次 readyRead 只到手一两片）| 校验和一致 = true
+      ［对］ ② 状态码 200 → 期望 200，实测 200
+      ［对］ ② bytesTotal == -1 的分支被走过 → 期望 1，实测 1
+      ［对］ ② 收尾时 Qt 把未知的 total 改口成 received（实测，不是 -1） → 期望 1048576，实测 1048576
+      ［对］ ② 进度条真翻过忙碌态（Snapshot.totalKnown=false → range 0..0） → 期望 1，实测 1
+      ［对］ ② 忙碌态之后又翻回确定态：终值 range 上界 = 100 → 期望 100，实测 100
+      ［对］ ② 无 Content-Length 也照样把 1 MiB 落全 → 期望 1048576，实测 1048576
+      ［对］ ② 落盘内容与阶段①整段下载逐字节一致 → 期望 1，实测 1
+      ［对］ ② 未知长度同样 commit 成功 → 期望 1，实测 1
+  信号序列：metaDataChanged  →  finished(error=NoError, code=0, isFinished=1)  →  commit=1
+  头快照：contentType = "application/octet-stream" | contentLength = 0 | lastModified = "2026-08-31T07:30:00Z"
+  生头列表( 7 个)： QList("server", "date", "content-type", "last-modified", "accept-ranges", "content-length", "connection")
+  边下边写：readyRead 0 次，传输中内存驻留峰值 = 0 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段③] 空文件：committed = true | exists = true | size = 0 | snap: totalKnown = true emptyFile = true percent = 100 （total==0 走「直接完成」，不是除零；没触发 progress 回调也算完成，看 finished）
+      ［对］ ③ 状态码 200 → 期望 200，实测 200
+      ［对］ ③ 空文件也 commit、目标文件存在且 0 字节 → 期望 1，实测 1
+      ［对］ ③ 空文件不产生除零：要么 percent=100，要么根本没发 progress → 期望 1，实测 1
+  信号序列：metaDataChanged  →  finished(error=NoError, code=0, isFinished=1)  →  commit=1
+  头快照：contentType = "application/octet-stream" | contentLength = 524288 | lastModified = "2026-08-31T07:30:00Z"
+  生头列表( 8 个)： QList("server", "date", "content-type", "last-modified", "accept-ranges", "content-length", "connection", "content-range")
+  边下边写：readyRead 3 次，传输中内存驻留峰值 = 262144 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段④a] 状态码 = 206 （206=Partial Content） | Content-Range 生头回显 = "bytes 0-524287/1048576" | 本段落盘 = 524288 字节（应为 524288） "| 校验和 =0x3883f399fb50383"
+      ［对］ ④a 状态码 206（Partial Content） → 期望 206，实测 206
+      ［对］ ④a Content-Range 生头回显正确 → 期望 1，实测 1
+      ［对］ ④a 本段落盘 512 KiB → 期望 524288，实测 524288
+      ［对］ ④a rawHeaderList 里能看到 Content-Range（按小写名字找） → 期望 1，实测 1
+      ［对］ ④a rawHeaderList 里**没有**驼峰写法（证明它就是全小写） → 期望 1，实测 1
+      ［对］ ④a Range 请求同样 commit 成功 → 期望 1，实测 1
+  信号序列：metaDataChanged  →  finished(error=NoError, code=0, isFinished=1)  →  commit=1
+  头快照：contentType = "application/octet-stream" | contentLength = 524288 | lastModified = "2026-08-31T07:30:00Z"
+  生头列表( 8 个)： QList("server", "date", "content-type", "last-modified", "accept-ranges", "content-length", "connection", "content-range")
+  边下边写：readyRead 2 次，传输中内存驻留峰值 = 393216 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段④b] 第二段 = 524288 字节 | 状态码 = 206 | Content-Range = "bytes 524288-1048575/1048576"
+  [阶段⑤] 拼接校验：两段之和 1048576 vs 整段 1048576 | 逐字节相等 = true "| 拼接校验和 =0x3675b1c2cbcd0383" "vs 整段 0x3675b1c2cbcd0383"
+      ［对］ ④b 第二段状态码 206 → 期望 206，实测 206
+      ［对］ ④b 第二段的 Content-Range 从 524288 起、到文件尾 → 期望 1，实测 1
+      ［对］ ④b 第二段落盘 512 KiB → 期望 524288，实测 524288
+      ［对］ ⑤ 拼接结果 = 1 MiB → 期望 1048576，实测 1048576
+      ［对］ ⑤ 断点续传两段拼接后与整段下载**逐字节相等** → 期望 1，实测 1
+      ［对］ ⑤ 拼接校验和等于整段校验和 → 期望 1，实测 1
+  [阶段⑥] 已收 655360 字节（共 8 MiB）→ 用户点「取消」了 | 点之前 reply->isRunning() = true
+  信号序列：metaDataChanged  →  外部调用 abort()  →  errorOccurred(code=5)  →  finished(error=OperationCanceledError, code=5, isFinished=1)  →  commit=0
+  头快照：contentType = "application/octet-stream" | contentLength = 8388608 | lastModified = ""
+  生头列表( 5 个)： QList("server", "content-type", "accept-ranges", "content-length", "connection")
+  边下边写：readyRead 10 次，传输中内存驻留峰值 = 65536 字节（峰值量的是「取走之前排在 reply 缓冲里的字节数」；整包到手的 ① 与限速滴发的 ②⑥ 正好是一组对照）
+  [阶段⑥] abort 现场：上面序列里应有 errorOccurred(code=5)= OperationCanceledError 且 finished 照样到达；abort 时状态码读数 = 200
+           committed = false | 目标路径 exists = false ← QSaveFile 没 commit，半截坏文件**根本不存在**，这就是落盘纪律
+           reply 在 finished 之后才 deleteLater（对象生命周期最后一跳）
+      ［对］ ⑥ 取消确实由「进度到 256KiB」触发 → 期望 1，实测 1
+      ［对］ ⑥ errorOccurred(OperationCanceledError=5) 出现过 → 期望 1，实测 1
+      ［对］ ⑥ 码表 41 在序列里根本没出现（把勘误钉住，防止又改回去） → 期望 1，实测 1
+      ［对］ ⑥ abort 之后 finished 照样到达（信号序列里有 finished） → 期望 1，实测 1
+      ［对］ ⑥ 被取消的下载没有 commit（signalLog 里 commit=0） → 期望 1，实测 1
+      ［对］ ⑥ 半截坏文件不存在：目标路径上是空的 → 期望 0，实测 0
+      ［对］ ⑥ 取消前确实收到了数据（不是刚发就掐） → 期望 1，实测 1
+      ［对］ ⑥ 限速流的驻留峰值远小于 8 MiB 正文（和 ① 的整包形成对照） → 期望 1，实测 1
+      ［对］ ⑥ 取消时 reply 还在 running（否则 abort() 是空操作，本机第一版就栽在这） → 期望 1，实测 1
+【收尾】六个阶段全部走完，总耗时 446 ms
+  一句话带走：**下载是状态机不是函数调用**——进度三分支、头要趁活着读、落盘边下边写、QSaveFile 保终态、abort 之后先 finished 再 deleteLater。
+
+【硬账】44/44 项核对通过 → 退出码 0

@@ -26,8 +26,10 @@
 //   set(CMAKE_AUTOMOC ON)   # 本文件里**没有** Q_OBJECT 类，无需 #include "03_....moc"
 //
 // 运行前须知：
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     每个 API 都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对（行号见下）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_03_containers，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_03_containers.log）。
 //   · 无人值守：QTimer::singleShot 依次 setCurrentIndex / setChecked / click / setSizes，
 //     用 qInfo() 打印关键结论，最后 QCoreApplication::quit()。**不弹任何模态框**。
 //   · 【重要】本讲凡是「要看几何尺寸」的证据，都必须**等事件循环跑过一轮布局之后**再读，

@@ -20,7 +20,10 @@
 //
 // 运行前须知：
 //   · 无鼠标键盘：全程由定时器与代码投递的事件驱动，约 4 秒自动跑完并 quit()。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 events_04_timers，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/events_04_timers.log）。
 //   · **实测毫秒数一定要你自己跑**：本机跑不出来，我也不替你的机器报数。
 //     三档定时器的差别在不同系统/不同负载下会明显不同，文中只承诺「相对关系」，
 //     不承诺具体数值。
@@ -79,7 +82,11 @@
 //   第 368 行  class Q_CORE_EXPORT QTimerEvent : public QEvent
 //   第 372 行  explicit QTimerEvent(int timerId);   第 373 行 explicit QTimerEvent(Qt::TimerId);
 //   第 375 行  int timerId() const;             第 376 行 Qt::TimerId id() const;
-//   第 64 行   Timer = 1;                       第 154 行 ZeroTimerEvent = 154
+//   第 64 行   Timer = 1;                       第 188 行 ZeroTimerEvent = 154
+//              ★ 勘误：旧稿后半写的是「第 154 行」——那是把**枚举值 154** 当成了行号。
+//                本机 6.12.0：188 行才是 `ZeroTimerEvent = 154,  // Used for Windows Zero timer events`，
+//                154 行上写着 `StatusTip = 112,`。这条枚举的名字和值不同款（152/154/155 有跳号），
+//                所以「按值找行号」一定会找错；QEvent 表里凡是带显式值的项都别这么抄。
 // QtCore/qnamespace.h
 //   第 1719~1723 行  enum TimerType { PreciseTimer, CoarseTimer, VeryCoarseTimer };
 //   第 1725~1727 行  enum class TimerId { Invalid = 0 };          ← Qt6 后期新增的强类型 id
@@ -261,7 +268,8 @@ int main(int argc, char *argv[])
             qInfo() << "  PreciseTimer    实测间隔 =" << sP->gaps << "均值 ≈" << avgGap(sP->gaps) << "ms";
             qInfo() << "  CoarseTimer     实测间隔 =" << sC->gaps << "均值 ≈" << avgGap(sC->gaps) << "ms";
             qInfo() << "  VeryCoarseTimer 实测间隔 =" << sV->gaps << "均值 ≈" << avgGap(sV->gaps) << "ms";
-            qInfo() << "  读法（**请你自己跑，我的机器跑不出这些数字**）："
+            qInfo() << "  读法（本机实测：三档都能打出数，别把上面的数字当常数——"
+                    << "它们随机器负载变化，本讲只保证「这三行是这台机器刚才真实跑出来的」）："
                     << "Precise 最贴 100；Coarse 允许与别的唤醒合并、抖动最大但省电；"
                     << "VeryCoarse 会向系统 tick 取整（Windows 常落在 10~16ms 粒度，"
                     << "老 Unix 上是整秒），均值可能明显偏离 100。";
@@ -304,25 +312,46 @@ int main(int argc, char *argv[])
         });
     });
 
-    // ── 证据 ⑤  interval = 0 的定时器：「本轮循环结束就跑」，而且会合并
+    // ── 证据 ⑤  interval = 0 的定时器：命中数由「循环转了几圈」决定，不由 start() 次数决定
+    //   ★ 这一条原来写的是「连续 start() 2000+1 次后，150ms 内命中数**远小于 2000**」，
+    //     而本机同一行代码实测打出来是 **11485**（runlogs/events_04_timers.log）——
+    //     数字比 2000 还大一个数量级，结论和它自己的输出正对着干。
+    //     错在哪：interval=0 的**重复**定时器每次到期都会重新排队，所以命中数 ≈
+    //     这 150ms 里事件循环转的圈数，跟 start() 调了几次没关系；原句把两件事混成了一句。
+    //     真正能证「合并」的对照不是「远小于 2000」，而是：
+    //     **只 start() 一次的那组，命中数和 start() 两千次的那组一样多**。
+    //     所以下面改成 A/B 两组并排跑，让结论站在数上。
     QTimer::singleShot(2100, [] {
-        qInfo() << "\n=== 证据⑤ interval=0（预览第 6 讲的合并）===";
-        auto *hits = new int(0);
-        auto *z = new QTimer;
-        z->setInterval(0);                     // qtimer.h 37 行：0 不是「立刻」，是「尽快，且允许合并」
-        QObject::connect(z, &QTimer::timeout, [hits] { ++(*hits); });
-        for (int i = 0; i < 2000; ++i)
-            z->start();                        // 同一定时器反复 start：本来就只该有一个待决 tick
-        z->start();
+        qInfo() << "\n=== 证据⑤ interval=0：一个待决 tick，转多少圈就跑多少次 ===";
 
-        QTimer::singleShot(150, [z, hits] {
-            qInfo() << "  连续 start() 2000+1 次后，150ms 内的实际命中数 =" << *hits
-                    << "→ 远小于 2000。interval=0 的语义是「这一轮事件循环收尾时跑一次」，"
-                    << "Qt 用它做合并（update() 合并重绘就是这套机制的产物）。"
-                    << "想要「每次调用都算数」，请自己排队列——第 6 讲正面讲合并的边界。";
-            z->stop();
-            delete z;
-            delete hits;
+        auto *hitsOne = new int(0);                 // A 组：start() 1 次
+        auto *zOne = new QTimer;
+        zOne->setInterval(0);                       // qtimer.h 37 行：0 不是「立刻」，是「尽快，且允许合并」
+        QObject::connect(zOne, &QTimer::timeout, [hitsOne] { ++(*hitsOne); });
+        zOne->start();
+
+        auto *hitsMany = new int(0);                // B 组：同一个定时器连续 start() 2000 次
+        auto *zMany = new QTimer;
+        zMany->setInterval(0);
+        QObject::connect(zMany, &QTimer::timeout, [hitsMany] { ++(*hitsMany); });
+        for (int i = 0; i < 2000; ++i)
+            zMany->start();                         // 每次都只是把同一个待决 tick 重新排一遍
+
+        QTimer::singleShot(150, [zOne, zMany, hitsOne, hitsMany] {
+            const int one = *hitsOne, many = *hitsMany;
+            qInfo() << "  A｜start() 1 次    → 150ms 内命中" << one << "次";
+            qInfo() << "  B｜start() 2000 次 → 150ms 内命中" << many << "次";
+            qInfo().noquote() << "  B/A ="
+                    << (one > 0 ? QString::number(double(many) / double(one), 'f', 3)
+                                : QStringLiteral("inf（A 组一次都没命中，循环被别处卡住了）"))
+                    << "→ 落在 1 附近就是**合并**：2000 次 start() 没有换来 2000 个 tick，"
+                    << "同一定时器永远只有一个待决事件。";
+            qInfo() << "  而 A 那一次 start() 也跑了远不止 1 个 tick：interval=0 的重复定时器"
+                    << "每轮循环重新排一次，等于自己把事件循环转起来（这就是「0 毫秒定时器」"
+                    << "能当空转用的原因）。想要「每次调用都算数」，请自己排队列——"
+                    << "第 6 讲正面讲合并的边界（update() 合并重绘就是这套机制的产物）。";
+            zOne->stop();  delete zOne;  delete hitsOne;
+            zMany->stop(); delete zMany; delete hitsMany;
         });
     });
 

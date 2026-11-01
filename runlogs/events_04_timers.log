@@ -1,0 +1,38 @@
+证据① start() 之后自旋 300ms、没进事件循环：tick = 0 （预期 0 → 定时器不是后台线程，它就是事件循环里的一类事件）
+证据① 手动 processEvents 12 次之后：tick 增量 = 1 → 只要有人抽队列，分发器就能把到期事件送进来；exec() 不过是把这个抽取写成死循环。
+证据② 重复定时器已启动：isActive = true timerId = 16777222 interval = 40 timerType 枚举值 = 0
+证据② (a) singleShot(120ms, lambda) 到了
+证据② (b) singleShot(chrono 160ms, PreciseTimer, lambda) 到了
+证据② 停止后：interval=40ms 跑了 200ms，tick = 5 ；isActive 现在 = false （40ms × 5 = 200ms，读到 4~6 都正常）
+证据② (c) 字符串版 singleShot(msec, receiver, SLOT(onTick())) 计数 = 1
+
+=== 证据③ 三档定时器精度实测（interval 一律 100ms，各取 5 次 tick）===
+  PreciseTimer    实测间隔 = QList(100, 100, 100, 100, 99) 均值 ≈ 99 ms
+  CoarseTimer     实测间隔 = QList(94, 122, 109, 107, 108) 均值 ≈ 108 ms
+  VeryCoarseTimer 实测间隔 = QList() 均值 ≈ 0 ms
+  读法（本机实测：三档都能打出数，别把上面的数字当常数—— 它们随机器负载变化，本讲只保证「这三行是这台机器刚才真实跑出来的」）： Precise 最贴 100；Coarse 允许与别的唤醒合并、抖动最大但省电； VeryCoarse 会向系统 tick 取整（Windows 常落在 10~16ms 粒度， 老 Unix 上是整秒），均值可能明显偏离 100。
+
+=== 证据④ startTimer()/timerEvent() ===
+  startTimer 返回 id = 218103810
+  第二个定时器 id = 218103814 （同一对象可以有多个 id，靠 timerId() 分辨）
+  低级定时器：3 次到，killTimer( 218103810 ) 已执行
+  250ms 后低级定时器命中次数 = 3 （预期 3，因为代码里到 3 次就 killTimer）
+  手工 sendEvent(QTimerEvent(9999)) 之后 hits 增量 = 1 （0：不是它的 id → 基类把它 ignore 了）
+  结论：QTimer 只是 startTimer + timeout 信号的包装； 低级路线省一个对象，代价是**没有信号可连**、得自己管 id 生命周期。
+
+=== 证据⑤ interval=0：一个待决 tick，转多少圈就跑多少次 ===
+  A｜start() 1 次    → 150ms 内命中 11031 次
+  B｜start() 2000 次 → 150ms 内命中 11030 次
+  B/A = 1.000 → 落在 1 附近就是**合并**：2000 次 start() 没有换来 2000 个 tick， 同一定时器永远只有一个待决事件。
+  而 A 那一次 start() 也跑了远不止 1 个 tick：interval=0 的重复定时器 每轮循环重新排一次，等于自己把事件循环转起来（这就是「0 毫秒定时器」 能当空转用的原因）。想要「每次调用都算数」，请自己排队列—— 第 6 讲正面讲合并的边界（update() 合并重绘就是这套机制的产物）。
+
+=== 证据⑥ QElapsedTimer 的正确用法 ===
+  elapsed = 0 ms, nsecsElapsed = 100 ns, restart() 的返回值（restart 之前的耗时）= 0 ms （Qt5 老代码 `t.restart();` 不接返回值照样编，接了值就编不过）
+  时钟性质：isMonotonic = true clockType 枚举值 = 1 （单调时钟不受系统改时间影响，所以测耗时**必须**用它， 别拿 QDateTime::currentMSecsSinceEpoch 相减）
+  hasExpired(0) = false （第 44 行：判「是否已超过 timeout 毫秒」——写超时的正规工具）
+
+=== 结论 ===
+① 定时器**是事件**：没有事件循环就没有 tick（证据①）。
+② 三档精度是「精度 / 功耗」的取舍，不是三种定时器：同一套 startTimer 接口。
+③ 默认类型要小心：QTimer 与 startTimer 的默认都是 Qt::CoarseTimer （qobject.h 149 行的默认实参）——动画想稳，请显式 setTimerType(Qt::PreciseTimer)。
+④ 本机 Qt 6.12 的 qnamespace.h 里**没有** Qt::DefaultTimer 这个别名 （1719~1723 行只有三档）；老代码里的 Qt::DefaultTimer 请改成 Qt::CoarseTimer。

@@ -28,8 +28,10 @@
 //
 // 运行前须知：
 //   · 依赖 Qt6::Widgets。Windows 上要能找到 platforms/qwindows.dll 或 qoffscreen.dll。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；每个类/函数/枚举值
-//     都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对过（行号见下）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_08_size_policies，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_08_size_policies.log）。
 //   · 无人值守：QTimer::singleShot 排两轮 resize + 一次 hide()，
 //     每一步读 geometry()/size() 并 qInfo() 打印，最后 QCoreApplication::quit()。
 //     **没有任何阻塞调用**。
@@ -67,7 +69,7 @@
 #include <QString>
 
 // ============================================================================
-// 一、核对签名（本讲全部依据，路径相对 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本讲全部依据，路径相对 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // QtWidgets/qsizepolicy.h
 //   第 15~17 行 class Q_WIDGETS_EXPORT QSizePolicy { Q_GADGET
@@ -92,8 +94,13 @@
 //   第 72~75 行 constexpr Qt::Orientations expandingDirections() const  ← 按 ExpandFlag 判
 //   第 77/78 行 constexpr void setHeightForWidth(bool) / bool hasHeightForWidth() const
 //   第 79/80 行 constexpr void setWidthForHeight(bool) / bool hasWidthForHeight() const
-//   第 89 行   operator QVariant() const;   ← 能塞进 QVariant（Q_GADGET 的福利）
-//   第 91~94 行 horizontalStretch()/verticalStretch()/setHorizontalStretch(int)/setVerticalStretch(int)
+//   第 91 行   operator QVariant() const;   ← 能塞进 QVariant（Q_GADGET 的福利）
+//   第 93~96 行 horizontalStretch()/verticalStretch()/setHorizontalStretch(int)/setVerticalStretch(int)
+//              ★ 勘误：旧稿写 89 / 91~94，整体偏 −2。本机 6.12.0：89 行是
+//                `friend … size_t qHash(QSizePolicy key, size_t seed)`（夹在 86/87 的
+//                operator== / != 后面），90 空行，91 才是 operator QVariant。
+//                顺带一条真的坑：qHash 收的是**按值的 QSizePolicy key**，
+//                所以「把 policy 当哈希键」在这套声明下是可行的，别自己另写一份。
 //                ★ 这个 stretch 被 **qBound(0, n, 255)** 夹住：只有 8 位，超过 255 会**静悄悄截断**
 //   第 96/97 行 constexpr bool retainSizeWhenHidden() const / setRetainSizeWhenHidden(bool)
 //                ← 确实在（Qt 5.10+ 加的，Qt5 老版本没有；hidden 时仍占位）

@@ -6,6 +6,20 @@
 # ---------- 构建目录 ----------
 build/
 build-*/
+build_*/
+# 【勘误】上面这条 build_*/ 会把**源码目录** build_deploy/ 一起吞掉：
+#   已提交的文件不受影响（所以 `git status` 里它们照样显示 M），但往后往
+#   build_deploy/ 里新加的任何文件都会被静默忽略、永远进不了提交 —— 本机
+#   `git check-ignore -v build_deploy/newpage.html` 实测命中的就是第 9 行。
+#   两条反选都要写：只反选目录本身，git 仍然不会往里看文件。
+!build_deploy/
+!build_deploy/**
+# 反选不能一路不管：README 让读者「cd build_deploy/qt_cmake_01_widgets 再 cmake -B build」，
+# 那一层里的 build/ 属于构建输出，必须重新压回去（本机用探针文件验过：加了这三行之后
+# build_deploy/*/build/x.obj 不再出现在 git status 里，而 build_deploy/ 下新增源文件照常可见）。
+build_deploy/**/build/
+build_deploy/**/build-*/
+build_deploy/**/build_*/
 cmake-build-*/
 out/
 bin/
@@ -13,6 +27,20 @@ lib/
 dist/
 install/
 deploy/
+
+# ---------- 本机验证产生的临时目录 ----------
+# runlogs/：_tools/run_all.sh 的输出。*.raw 是原字节 GBK（只为本机转换用，不进仓库），
+#           *.log 是 iconv 之后的 UTF-8，**要进仓库**——讲义里凡是写「本机实测」的数字，
+#           读者得能在 runlogs/ 里对得上（例外规则写在下面「示例运行产物」段末尾）。
+# asan/、repro_* ：排查崩溃时随手建的最小编译工程，结论已经写进对应示例的注释，产物本身不该进仓库
+# _scratch/ ：同上，勘误时随手搭的最小验证工程都放这儿
+# visuals/_overflow_probe.html ：_tools/check_svg_overflow.sh 每次跑现生成的汇总页，跑完即删；
+#   中途被打断也别让它进仓库（check_pages_render.sh 已按 _ 前缀跳过它，不然页面数会多 1）
+runlogs/*.raw
+asan/
+repro_*/
+_scratch/
+visuals/_overflow_probe.html
 
 # ---------- 可执行与库 ----------
 *.exe
@@ -86,6 +114,9 @@ Makefile.*
 *.sqlite
 *.sqlite3
 *.log
+# 例外：runlogs/ 里那一份是「本机实测的证据快照」，跟着仓库走，
+# 这样讲义里的每个数字都有可查的出处。它记录的是**那一轮**的输出，不是标准答案。
+!runlogs/*.log
 # 注意：不要按 *.txt 排除文件——CMakeLists.txt 也以 .txt 结尾，
 # 一条 *.txt 会把全仓库的构建脚本一起漏掉。
 

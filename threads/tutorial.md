@@ -14,9 +14,11 @@ Qt 多线程有一句必须刻在脑子里的法律条文：
 
 本模块有一个贯穿全部 8 讲的取证手法：**把结论变成数**。步数、校验和、线程 id、计数器的差、队列里压着几个事件——凡是「时序」类的说法，都不靠嘴说，靠打印。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets Concurrent Network)`，目标名统一是 `threads_0N_xxx`，已在顶层 `CMakeLists.txt` 的「第柒阶段 · 并发与线程（threads/）」一节登记。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets Concurrent Network)`，目标名统一是 `threads_0N_xxx`，已在顶层 `CMakeLists.txt` 的「第柒阶段 · 并发与线程（threads/）」一节登记。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，8 个示例**都未在本机实测运行**。每个类、函数、枚举、重载都对着本机 `C:\msys64\ucrt64\include\qt6` 里的真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。凡是依赖调度时序的结论，文中一律标成**概率**或**关系**，不冒充实测数字。
+> 实测口径：**8 个示例都在本机真实编译、链接、无头运行过**（Qt 6.12.0 + MinGW 13.1.0，`QT_QPA_PLATFORM=offscreen`；`ctest -R "^threads_"` → 8/8 绿，完整输出存档 `runlogs/threads_0N_*.log`；原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。本模块的看家手法「把结论变成数」是**真的在判卷**：本机那一轮的台账是 第 2 讲【硬账】15/15、第 4 讲「核对总数 24，不符 0，收尸超时 0 节」、第 5 讲【硬账】13/13、第 6 讲「核对 36 项，不符 0 项，整节作废 0 项」、第 7 讲硬账 85 项全对上、第 8 讲硬账 52 项全对上；第 1 讲只有分散的核对提示（A 轮 60 步/校验和 1770、`create` 轮 sum 5050、B 轮步数 < 200），**没有汇总行**——那种示例的退出码 0 只证明「没崩、走完了」，正文的数字仍以你屏幕上那行为准。每个类、函数、枚举、重载都对着本机 `D:\Qt\6.12.0\mingw_64\include` 里的真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用。
+>
+> **凡是依赖调度时序的结论，仍然只标概率或关系**——能编译不等于时序变确定。但有一类「看起来是时序、其实是规矩」的，本轮被逮出来改掉了：第 3 讲收尾原来在主线程写 `survivor->moveToThread(mainThread)` 想把对象挪回来再 delete，注释还把这写成正路。本机跑出来 Qt 连打两轮 `QObject::moveToThread: Current thread ... is not the object's thread ...`——**挪动被拒了**，因为 `moveToThread` 的准入条件在 qobject.cpp 1746~1757 行：只有对象当前归属的那条线程才有权挪走它（1743~1745 行那个例外只救「本来没有线程归属」的对象）。现在改成把回挪挂在**没有 context 的 functor** 上接 `QThread::finished`（finished 正在退出的那条线程里发射，无 context 的 functor 连接是 Direct，槽就在那条线程的栈上跑），本机实测两条回挪都返回 true、警告 0 条，并新增一条参与退出码的收尾硬账。这一处的价值不在结论，在手法：**bool API 的返回值要接住**，否则它会静悄悄地骗过你自己的注释。
 
 ## 二、学习目标
 
@@ -75,23 +77,39 @@ Qt 多线程有一句必须刻在脑子里的法律条文：
           裸 ++ 的丢更新：先单线程手工交错演一遍（必然错），再真并发跑（概率）；
           两个原子操作 ≠ 一个复合原子操作（转出/转入之间的缝）；
           QMutex + QMutexLocker 的四种写错形状（两种编不过、两种静默）；
-          unlock 一个没持有的锁在 Debug 下是断言（QMutexLocker qmutex.h 第 282 行、
+          unlock 一个没持有的锁在 Debug 下是断言（QMutexLocker::unlock() 里那句
+          Q_ASSERT(m_isLocked)，qmutex.h 第 282 行、
           QMutex 本体第 52 行），Release 下是未定义行为；
           QWaitCondition 必须配锁、醒来必须重查条件；QSemaphore 配平生产者消费者
     诚实标注：并发下的「没出错」不等于「写对了」——本讲的关键结论都在单线程手工交错里
               也能复现，只有那样才是确定性证据
 
   05_qtconcurrent.cpp           ← 不想自己管线程
-    重点：run 的四条签名（qtconcurrentrun.h 第 42/61/70/80 行）；
+    重点：`run` 有**五个**重载（qtconcurrentrun.h 第 42/52/61/70/79 行：带池、带池且收
+          `reference_wrapper<const T>`、不带池、带 PromiseType 提示且带池、带 PromiseType 不带池），
+          不带池那两个就是在第 65/83 行把 `QThreadPool::globalInstance()` 塞进去；
           第 39~40 行 Q_NODISCARD_X 明说：不要结果就别用 run，去用 QThreadPool::start；
           参数被 std::decay + std::forward 拷贝进 tuple；
           QFutureWatcher 逐个连 started / progressRangeChanged / progressValueChanged /
           resultReadyAt / finished（qfuturewatcher.h 第 50~65 行），并打印每个回调所在线程
           （watcher 内部靠 event() 把结果投递到它自己的线程）；
-          result() 第一句就是 d.waitForResult(0)（qfuture.h 第 311~322 行），会阻塞；
+          result() 第一句就是 d.waitForResult(0)（qfuture.h 第 311~315 行），会阻塞；
           mapped / mappedReduced / filtered / filter 是 QtConcurrent 命名空间的自由函数
           （QFuture 没有这些成员），filter 返回 QFuture<void> 并**原地改你的容器**
-    诚实标注：哪些任务先完成由线程池调度决定；本讲只承诺「watcher 的信号在 watcher 所在线程发出」
+    ★ 本机实测改写的一条：「压 maxThreadCount 立刻压低并行度」只对**新建的私有池**成立。
+          证据⑤三发对照（本机 16 核、12 个 30ms 任务）：全局池原样峰值 12；
+          `setMaxThreadCount(2)` 后**立刻**突发提交，峰值 2 或 3（12 次里 3 次 3）；
+          私有池一开池就 max=2，峰值恒为 2。源码理由在 qthreadpool.cpp：
+          账面 `activeThreads` 是工人线程自己被唤醒后才 ++（第 130 行），而调度侧走
+          `waitingThreads.takeFirst() → wakeOne()`（第 160~164 行）时**不记账**；
+          `areAllThreadsActive()`（第 157 + 232~236 行）读的就是那本没跟上的账，于是连着
+          多唤醒一条。空闲线程要闲置满 `expiryTimeout`（默认 **30 秒**，qthreadpool_p.h:143）
+          才离队，而 `setExpiryTimeout` 对已在闲着的线程无效（qthreadpool.cpp 578~581 行）。
+          对照：走 `startThread()`（第 247~261 行）时 ++ 在调度侧当场完成（第 257 行），
+          所以上限精确。工程结论：**要确定的并行度就自己建池**（第 6 讲），
+          别把「我把全局池调成 1 了」当成「一定串行」。
+    诚实标注：哪些任务先完成由线程池调度决定；本讲只承诺「watcher 的信号在 watcher 所在线程发出」。
+          13 项硬账本机 6 连跑全绿（Qt 6.12.0 / MinGW 13.1 / offscreen），换核数要重测上面两个峰值
 
   06_qrunnable_threadpool.cpp   ← 线程池
     重点：QRunnable 不是 QObject（qrunnable.h 第 24 行只有一个纯虚 run()），
@@ -114,7 +132,9 @@ Qt 多线程有一句必须刻在脑子里的法律条文：
     诚实标注：「置位时还剩多少块没做」这类前提不成立时，实验记 stalled，不硬拗成绿
 
   08_local_ipc.cpp              ← 本地进程间通信（换战场）
-    重点：QLocalServer::listen(名字) + fullServerName()；同名第二个服务端被拒 = 单实例地基；
+    重点：QLocalServer::listen(名字) + fullServerName()；同名第二个服务端 listen 只在 Unix 失败、
+          Windows 反而成功（命名管道 PIPE_UNLIMITED_INSTANCES 允许多实例）—— 所以「listen 同名失败」
+          **不能**当跨平台单实例判据，真正的单实例要靠 QLockFile；
           字节流没有消息边界：五条消息拆三段发，靠长度前缀找回来（打印「第一块只有 7 字节」）；
           帧头是对端说的，不可信：声称 1 GiB 的帧必须拒、连接必须断，
           但已解析的好帧不回滚；

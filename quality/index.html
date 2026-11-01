@@ -31,18 +31,26 @@
       每一讲都把结论写进打印与退出码，跑完自己判卷。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
+      环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
       目标名 <code>quality_01_qtest_unit</code> … <code>quality_07_large_view_optimization</code>，已登记在顶层
       <code>CMakeLists.txt</code> 的「第拾阶段 · 工程质量与资深实践（quality/）」一节；本组额外链
       <code>Qt6::Test</code> 与 <code>Qt6::Concurrent</code>。顶层把每个示例都注册成了 CTest 用例，并强制
       <code>QT_QPA_PLATFORM=offscreen</code> 运行，所以不需要显示器、不需要鼠标。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>。本模块示例<strong>未链接、未运行</strong>（两个 QtTest 用例也还没在
-      CTest 里跑过）；每个 .cpp 都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code>
-      的编译期核对（零 error、零 warning）。每个类、函数、宏、枚举值都对着本机 <code>C:\msys64\ucrt64\include\qt6</code>
-      里的真实头文件逐字核对过，查不到的一律不写。第 6、7 讲的性能数字<strong>全部由测量得出、文中不编造具体毫秒值</strong>：
-      示例只承诺相对关系（例如「关掉更新再批量插入，布局次数显著更少」），以你机器打印的数字为准。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 7 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 73/73 里；
+      两个 QtTest 用例也在 CTest 里跑过了——
+      <code>quality_01_qtest_unit</code> = <strong>21 passed / 0 failed / 0 skipped</strong>，
+      <code>quality_02_qtest_gui</code> = <strong>15 passed / 0 failed / 1 skipped</strong>
+      （跳的那条 <code>keyboardLatin1AbortsProcess</code> 是<strong>故意的</strong>：它会 abort 整个进程，
+      留在默认列表里等于把整份测试判红，要跑得显式设 <code>QTEST_FORCE_NON_LATIN1</code>）。
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      每个类、函数、宏、枚举值都对着 <code>D:\Qt\6.12.0\mingw_64\include</code> 逐字核对过。
+      ★ 第 6、7 讲的性能数字现在<strong>是本机真测出来的</strong>（例如 <code>msleep(20)</code> 实测 31 ms 上下、
+      10000 次 qCDebug 开/关差 1692 倍），存档在 <code>runlogs/quality_06_performance_profiling.log</code>；
+      但毫秒是<strong>这台机器的</strong>，示例在正文里只承诺相对关系，绝对值以你那次打印为准
+      （重跑：<code>bash _tools/run_all.sh '^quality'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
@@ -74,7 +82,8 @@
     <strong>① 第 1 步「被测代码得先能被测」坎</strong>——你把业务逻辑直接写进 <code>QDialog</code>，就注定了它只能靠手点验收；
     第 1 讲特意把折扣算法抽成不碰 <code>QWidget</code> 的 <code>PricingEngine</code>，就是为了让你看见这道坎在<strong>写代码时</strong>就决定了；
     <strong>② 第 2 步「无头点按钮」坎</strong>——<code>QTest::keyClicks</code> 只认 Latin-1（<code>toLatin1()</code>，qtestkeyboard.h 第 265 行），
-    中文敲不进去；<code>QSignalSpy</code> 配 <code>spy.wait(期限)</code> 才等得住异步信号；
+    越界的字节在 <code>QTest::asciiToKey</code> 的表里查不到，直接 <code>QTEST_ASSERT(false)</code> → <strong>整个测试进程 abort</strong>（qasciikey.cpp:192）；
+    <code>QSignalSpy</code> 配 <code>spy.wait(期限)</code> 才等得住异步信号；
     <strong>③ 第 6 步「量错了不如不量」坎</strong>——一次取值是噪声，平均值会被离群点带偏；
     必须先立「预热 + 多轮取中位数」的脚手架，再用它去测东西。
     <strong>这一阶段的价值不在多学几个类，而在换一种工作方式</strong>：
@@ -95,7 +104,7 @@
       <div class="card-step">第 2 步 · 第二道坎</div>
       <div class="card-icon">🖱️</div>
       <div class="card-title">02 · 界面测试：无头点按钮</div>
-      <div class="card-desc">QTEST_MAIN 与 QTEST_GUILESS_MAIN 只差一行，差的是「要不要 QApplication 与平台插件」；keyClicks 只操作你递过去的控件、不依赖焦点，因此能在没有窗口管理器的机器上跑；★ 但它只认 Latin-1，中文敲不进去；QSignalSpy 数信号次数与参数，spy.wait(期限) 等异步；模态 exec() 用 QTimer::singleShot 关掉；QTRY_VERIFY / QTRY_COMPARE 比固定 qWait 稳。</div>
+      <div class="card-desc">QTEST_MAIN 与 QTEST_GUILESS_MAIN 只差一行，差的是「要不要 QApplication 与平台插件」；keyClicks 只操作你递过去的控件、不依赖焦点，因此能在没有窗口管理器的机器上跑——但「不依赖焦点」不等于「一定没有焦点」，本机 offscreen 实测 show() 之后 hasFocus()==true，断言要写在 clearFocus() 之后；★ 它只认 Latin-1，而且越界的下场是<strong>进程 abort</strong>不是「敲进去变问号」：表里没有的字节撞上 <code>QTEST_ASSERT(false)</code>（<code>qasciikey.cpp:192</code>，且 <code>QTEST_ASSERT</code> 不受 QT_NO_DEBUG 保护，release 一样炸）。本机数过那张表：0x08~0x7f、0xa0~0xdf、再加 0xe5 0xe6 0xf7 0xf8 0xff —— 所以 <strong>é (0xe9) 也炸</strong>，「Latin-1 能表示就敲得进去」是错的。要输中文用 <code>Qt::Key</code> 重载或 <code>sendEvent</code> 带 text 的 <code>QKeyEvent</code>（实测能进，已钉成断言）；QSignalSpy 数信号次数与参数，spy.wait(期限) 等异步；模态 exec() 用 QTimer::singleShot 关掉；QTRY_VERIFY / QTRY_COMPARE 比固定 qWait 稳。</div>
       <div class="card-meta"><span class="tag hard">无头 GUI</span><span class="tag framework">测试框架</span></div>
     </a>
 
@@ -160,7 +169,7 @@
       <li><strong>第二条：边界清楚了，代码才活得久。</strong> 哪一层认识谁、谁拥有谁、错误从哪来、性能热点在哪——这四件事清楚，代码就能改；不清楚，改一行倒一片。分层、所有权、错误建模，讲的都是边界。</li>
       <li><strong>第三条：数字比感觉值钱。</strong> 「感觉有点慢」是零信息。装上计数器、量出中位数，你才知道该改哪里、改完有没有用。第 6、7 讲教你的不是技巧，是<strong>量法</strong>。</li>
       <li><strong>第四条：不确定的签名，一律回头文件。</strong> 这一阶段师傅拆掉的错误说法最多：Qt6 的 <code>QStandardItem</code> 不是 QObject、<code>filterFixedColumn</code> 不存在、<code>SelectionFlag</code> 里没有 <code>CommandMask</code>……写 Qt 和做人一样，<strong>编不出来的名字，就别写进去</strong>。</li>
-      <li><strong>第五条：把「未链接未运行」也当成纪律。</strong> 示例在本机还没跑过的时候，师傅会明说。你也一样——没有证据的结论，宁可标成推理，也不要说成事实。</li>
+      <li><strong>第五条：把「跑到哪一步了」也当成纪律。</strong> 本模块七讲现在都在本机编译、链接、无头跑过了（<code>ctest -R "^quality_"</code> → 7/7 绿，输出存档 <code>runlogs/</code>）。但这一版讲义曾经写着「还没跑过」——那句当时是<strong>真</strong>的，环境一变就成了假的。所以规矩照旧：没有证据的结论宁可标成推理；<strong>而且标了「没跑过」的行，环境一好就得回去重跑、改掉</strong>，它不是拿来躺着的。</li>
     </ul>
     <p>这七讲啃下来，你手上就不只是「会 Qt」，而是「能用 Qt 交付」。下一站是第拾壹阶段「构建与部署」，把这份手艺装进别人的电脑里。加油，徒弟！</p>
   </div>

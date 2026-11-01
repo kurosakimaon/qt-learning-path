@@ -26,19 +26,27 @@
       最后两章管「长什么样、说什么话」——<strong>样式表（QSS）</strong>与<strong>国际化（i18n）</strong>。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2），
-      构建用 CMake ≥ 3.21 + Ninja，语言标准 <strong>C++17</strong>。每一章都是<strong>完整可编译的示例 + 详细注释</strong>，
+      环境事实：本资料库基于 <strong>Qt 6.12.0</strong>，Windows 平台，MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64），
+      构建用 CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles，语言标准 <strong>C++17</strong>。每一章都是<strong>完整可编译的示例 + 详细注释</strong>，
       全部设计成<strong>无人值守能自动跑完</strong>：用 <code>QTimer::singleShot</code> 驱动、<code>qInfo()</code> 打印证据、
       <code>QCoreApplication::quit()</code> 收尾，<strong>主路径里没有任何阻塞调用</strong>
       （不 <code>QDialog::exec()</code>、不弹静态 <code>QMessageBox</code>、不 <code>QFileDialog::getOpenFileName</code>、不 <code>QMenu::exec()</code>）。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>（运行时库正在升级），本模块示例
-      <strong>未在本机实测编译</strong>；文中每一个类、函数、重载、枚举值都对着本机
-      <code>C:\msys64\ucrt64\include\qt6</code> 里的真实头文件核对过（行号写在用到的地方）。
-      第 10 讲还额外实测了两件环境事实：<code>lupdate.exe / lrelease.exe / linguist.exe</code>
-      <strong>在</strong> <code>C:\msys64\ucrt64\bin</code>；但 <code>C:\msys64\ucrt64\translations</code>
-      <strong>目录不存在、全盘搜不到一个 .qm</strong>，所以示例不依赖外部翻译文件，<code>load()</code> 失败就老实打印 false。
+    <p style="margin-top: 10px; color:#0e749b;">
+      实测口径：本模块 10 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
+      Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 75/75 绿里；
+      每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning），
+      文中每一个类、函数、重载、枚举值都对着本机真实头文件逐字核对过
+      （<code>D:\Qt\6.12.0\mingw_64\include</code>），行号写在用到的地方。
+      第 10 讲的翻译现状是<strong>本机现查</strong>的：<code>lupdate.exe / lrelease.exe / linguist.exe</code>
+      在 <code>D:\Qt\6.12.0\mingw_64\bin</code>；目录由
+      <code>QLibraryInfo::path(QLibraryInfo::TranslationsPath)</code> 给出，本机那一轮指到
+      <code>D:/Qt/6.12.0/mingw_64/translations</code>，里面数出 <strong>314 个 .qm</strong>（含
+      <code>qtbase_zh_CN.qm</code>），所以示例打印的是「装前 <code>OK</code> → 装后 <code>确定</code>」的对照。
+      <strong>这类环境事实换台机器就会反过来</strong>，示例因此不把 <code>load()</code> 的返回值当断言，
+      true/false 两条分支都解释清楚（旧版在这里写过「目录不存在、全盘搜不到一个 .qm」——
+      运行时装全之后那句就成了假结论，所以口径改成<strong>目录现查、结果打印</strong>）。
+      完整输出存档在 <code>runlogs/&lt;目标名&gt;.log</code>（重跑：<code>bash _tools/run_all.sh '^widgets'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
@@ -149,7 +157,7 @@
       <div class="card-step">第 10 步</div>
       <div class="card-icon">🌏</div>
       <div class="card-title">10 · 国际化（i18n）</div>
-      <div class="card-desc">tr() 三个参数各是什么——第二个是<b>给译者的注释，不是上下文</b>，上下文来自类名，要手工指定就用 QCoreApplication::translate(context, key, disambiguation, n)；复数 %n 由 tr 自己填、arg() 填不了；QTranslator::load 的三个重载与 catalog 命名规则、install/removeTranslator；QGuiApplication 的 layoutDirection / isRightToLeft（RTL 是整套镜像）；QLocale 的数字与日期两种格式。含本机实测：lupdate/lrelease 有，.qm 一个都没有。</div>
+      <div class="card-desc">tr() 三个参数各是什么——第二个是<b>给译者的注释，不是上下文</b>，上下文来自类名，要手工指定就用 QCoreApplication::translate(context, key, disambiguation, n)；复数 %n 由 tr 自己填、arg() 填不了；QTranslator::load 的三个重载（<b>第一个重载不看 locale</b>，只把你给的文件名按分隔符从右往左切；要按界面语言找得用带 QLocale 的那个；<code>load(uchar*, len)</code> <b>不复制数据</b>）、catalog 命名规则、install/removeTranslator；QGuiApplication 的 layoutDirection / isRightToLeft（RTL 是整套镜像）；QLocale 的数字与日期两种格式。含本机实测：翻译目录现查 <code>QLibraryInfo</code>，装载成功后打印「装前 OK → 装后 确定」的对照。</div>
       <div class="card-meta"><span class="tag elementary">进阶入门</span></div>
     </a>
   </div>
@@ -163,7 +171,7 @@
       <li><strong>便利类要知道边界</strong>：第 4 步的 <code>setModel</code> 被写成 private 就是「到此为止」的硬信号。数据量大、数据在库里、要懒加载，就转 model/view 模块，别硬撑。</li>
       <li><strong>对话框只学非阻塞写法</strong>：第 5 步把 <code>exec()</code> 与各种静态方法挡在主路径外，是因为这套示例要能在 ctest 里无人值守跑完。<code>show()/open()</code> + 定时器自动 accept/reject 才是现代写法。</li>
       <li><strong>样式表与 i18n 都是「不报错」的坑区</strong>：写错 border-style、写错 <code>:/</code> 资源路径、把中文裸写在代码里，Qt 一声不吭。本模块的对策统一是——<strong>打印出来给你看</strong>，不背结论。</li>
-      <li><strong>记住「未在本机实测编译」</strong>：本机此刻编不动 Qt，示例暂无可执行产物；但每个 API 都对着真实头文件核对过，换到能编译的环境按注释里的目标名（如 <code>widgets_10_internationalization</code>）构建即可。</li>
+      <li><strong>这 10 个目标本机都跑得起来</strong>：顶层 <code>ctest -R widgets</code> 就是它们的无人值守入口（强制 <code>-platform offscreen</code>，不需要显示器），输出存档在 <code>runlogs/</code>；只想快速验证一份新机器上的源码，用 <code>bash _tools/check_syntax.sh widgets</code>（免链接）。</li>
     </ul>
   </div>
 
@@ -176,7 +184,7 @@
       <li><strong>第二条：stretch 和 alignment 别混。</strong> 一个管「多出来的地方给谁」，一个管「自己那点地方贴哪边」。混了的表现是：怎么加 stretch 控件都不肯变大——因为你只贴了个边。</li>
       <li><strong>第三条：一切证据用打印，别用眼睛。</strong> 本模块每个示例都能在 <code>-platform offscreen</code> 下跑出结论。geometry、像素、翻译查找结果，全部 qInfo() 出来，你才知道 Qt 到底谈成了什么。</li>
       <li><strong>第四条：会「不阻塞」才算会写界面。</strong> exec() 起的是嵌套事件循环，槽里再套 exec() 就是重入的开端。无人值守能跑完的示例，才是能被自动化保护的代码。</li>
-      <li><strong>第五条：诚实对待环境。</strong> 本机没有 .qm、编不动 Qt，就大方写清楚；API 一律查真头文件核对，核不到签名的宁可不写。写 Qt 和做人一样：不确定就别乱说。</li>
+      <li><strong>第五条：诚实对待环境。</strong> 环境事实要<strong>现查</strong>、结论要<strong>打印</strong>：这台机器有没有 .qm、目录在哪，写死在注释里迟早变成假结论（本模块第 10 讲就亲眼看着一句「本机一个 .qm 都没有」被后来的安装推翻）。API 一律查真头文件核对，核不到签名的宁可不写。写 Qt 和做人一样：不确定就别乱说。</li>
     </ul>
     <p>把这 10 章啃下来，你就能从「放了几个控件」升级到「搭出一套站得住的界面」，再往模型视图、绘制、事件这些深水区走，脚下就有地基了。加油，徒弟！</p>
   </div>

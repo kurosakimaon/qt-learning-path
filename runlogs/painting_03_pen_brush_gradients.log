@@ -1,0 +1,92 @@
+  Dense1..Dense7 在 22x22 方块里的着墨像素（应单调变化）= 454 424 303 242 181 60 30 （Dense1 最密 / Dense7 最疏 —— 谁多谁少请按数字确认，别信我的记忆）
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+=== 成品图样 ===
+  尺寸 = 420 x 240  save() = true  非透明像素 = 100800
+       按钮中心 pixelColor(83,95)  = rgb( 255 , 255 , 255 ) a= 255  name= "#ffffff"
+       按钮上沿 pixelColor(83,80)  = rgb( 90 , 160 , 240 ) a= 255  name= "#5aa0f0"
+       按钮下沿 pixelColor(83,110)  = rgb( 90 , 160 , 240 ) a= 255  name= "#5aa0f0"
+  ↑ ObjectBoundingMode 的纵向渐变，中点应该接近 setColorAt(0.5) 的 (50,110,200)； 如果差得远，先检查按钮矩形与采样坐标有没有对上，再怀疑 Qt。
+  （背景是不透明的，所以非透明像素应当正好 = 宽 x 高 =  100800 ；少一个就说明有一块区域没被覆盖。）
+
+=== 证据① setCosmetic(true/false) 在 scale(4,4) 下的线宽 ===
+  [ 非 cosmetic ] pen.isCosmetic() = false widthF() = 1
+    逻辑竖线在设备上的横向游程（像素宽）= QList(4)  全图着墨 = 128 （预期：非 cosmetic ≈ 4 宽，cosmetic ≈ 1 宽）
+  [ cosmetic ] pen.isCosmetic() = true widthF() = 1
+    逻辑竖线在设备上的横向游程（像素宽）= QList(1)  全图着墨 = 29 （预期：非 cosmetic ≈ 4 宽，cosmetic ≈ 1 宽）
+  为什么重要：高 DPI 下你希望 1 像素的网格线**永远是 1 像素**（不糊成 2 像素）， 那就该用 cosmetic；反过来画示意图里的「粗箭头」希望随缩放变粗，就不能 cosmetic。 第 6 讲做缩略图/可缩放画布时这条会直接决定观感。
+
+=== 证据② capStyle：线从 x=30 到 x=130（长度 100），线宽 20 ===
+   FlatCap （枚举值  0 ）: 着墨 x[ 30 .. 129 ]  总长 = 100 px  着墨像素 = 2000
+   SquareCap （枚举值  16 ）: 着墨 x[ 20 .. 139 ]  总长 = 120 px  着墨像素 = 2400
+   RoundCap （枚举值  32 ）: 着墨 x[ 20 .. 139 ]  总长 = 120 px  着墨像素 = 2316
+  读法：线本身占 100px（30..129）。FlatCap 应当正好 100； SquareCap 两端各伸出 width/2 = 10px，应当 120； RoundCap 外伸同样是 10px 但**拐角被削圆**，所以总长与 Square 接近、像素数更少。 （默认就是 SquareCap —— 第 1 讲那条「细虚线端头会长出一截」的根源在此。它到底有多坑，看证据④：同一条虚线在默认帽下会**整条糊成实线**。）
+
+=== 证据③ joinStyle：V 形折线，尖角在 (60,30)，线宽 14 ===
+   MiterJoin （枚举值  0 ）:  最下缘 y = 70  尖角外伸 = 10 px 着墨 = 1996
+   BevelJoin （枚举值  64 ）:  最下缘 y = 63  尖角外伸 = 3 px 着墨 = 1954
+   RoundJoin （枚举值  128 ）:  最下缘 y = 66  尖角外伸 = 6 px 着墨 = 1976
+   SvgMiterJoin （枚举值  256 ）:  最下缘 y = 70  尖角外伸 = 10 px 着墨 = 1996
+  读法：Miter/SvgMiter 会在尖角外拉出一个**长刺**（外伸最大）； Bevel 直接削平（外伸最小）；Round 补一段圆弧，外伸介于两者之间、像素数比 Bevel 多。 外伸还受 miterLimit 截断（超限会退化成 Bevel），所以别拿数字当常量看。
+
+=== 证据④ setDashPattern：图案 {2.0, 1.0, 0.5, 1.0} × 线宽 10 ===
+  写进去的图案 = QList(2, 1, 0.5, 1)  读回来的（dashPattern()，qpen.h 51 行）= QList(2, 1, 0.5, 1)
+  SquareCap（默认）实测：着墨 = QList(210)  空档 = QList() ← 整条线糊成一段 210，一个空档都没有。虚线**被端头伸出的半个线宽吃掉了**
+  FlatCap 实测：着墨 = QList(20, 5, 20, 5, 20, 5, 20, 5, 20)  空档 = QList(10, 10, 10, 10, 10, 10, 10, 10) ← 图案 {2.0,1.0,0.5,1.0} × 线宽 10 = 画 20 空 10 画 5 空 10，所以着墨应该是 20/5 交替、空档应该全是 10
+  核对：前两段是不是 20、5 = true  所有空档是不是都等于 10 = true （这两条同时为 true，才可以说「图案按线宽的倍数生效」）
+  → 结论一句话：**要精确控制虚线节奏，第一件事是 setCapStyle(Qt::FlatCap)**。（第 2 讲那句「细虚线端头会长出一截」在这里长成了「整条虚线消失」。）
+QPen::setDashPattern: Pattern not of even length
+  奇数图案 {2,1,0.5} 读回来 = QList(2, 1, 0.5, 1) （上面那条 qWarning 是 qpen.cpp 512 行打的；513 行会替你补成偶数个）
+  只调 setDashPattern、没调 setStyle()，style() = 6 （Qt::CustomDashLine = 6 ，qpen.cpp 509 行替你设好了 —— 上一版那句 setStyle 是多余的）
+  空图案 {} 之后 style() = 2 （还是原来的 DashLine = 2 ，504 行的 return 意味着它连图案都不清）
+  dashOffset() 当前 = 0 （想「让虚线跑起来」就是改它，不是重画整条线）
+  文档要求的图案写法（qpen.cpp 476~477 行）：**偶数个、每项为正**； ② DotLine 这类内置样式其实就是同样的机制配好了默认图案，想精确控节奏才用 CustomDashLine。
+
+=== 证据⑤ 纹理画刷：4x4 棋盘 × 变换放大后的周期 ===
+  brush.style() 枚举值 = 24 （Qt::TexturePattern 应为  24 ）
+  brush.textureImage().size() = QSize(8, 8)
+  scale( 1 ,1)：前 8 个颜色翻转的 x = QList(4, 8, 12, 16, 20, 24, 28, 32)  翻转次数 = 49
+  scale( 4 ,1)：前 8 个颜色翻转的 x = QList(16, 32, 48, 64, 80, 96, 112, 128)  翻转次数 = 12
+  读法：纹理是**跟着坐标系一起缩放**的（横向翻转的间隔从 4px 变成 16px）， 这跟 cosmetic 画笔的取舍是同一条线：一个跟变换、一个不跟。 想要「纹理不随缩放」得自己算 brushTransform（QBrush::setTransform，qbrush.h 61 行附近）。
+
+=== 证据⑥ 三种渐变与 CoordinateMode ===
+  QBrush(线性渐变) 的 style 枚举值 = 15 （Qt::LinearGradientPattern =  15 ）
+  线性（LogicalMode，坐标 10..200）采样：
+     x=10   = rgb( 12 , 12 , 12 ) a= 255  name= "#0c0c0c"
+     x=55   = rgb( 67 , 67 , 67 ) a= 255  name= "#434343"
+     x=105  = rgb( 131 , 131 , 131 ) a= 255  name= "#838383"
+     x=155  = rgb( 194 , 194 , 194 ) a= 255  name= "#c2c2c2"
+     x=199  = rgb( 249 , 249 , 249 ) a= 255  name= "#f9f9f9"
+  径向（PadSpread）r=70，圆心 (300,40)：
+       圆心(300,40)    = rgb( 253 , 79 , 80 ) a= 255  name= "#fd4f50"
+       半半径(335,40)  = rgb( 136 , 50 , 85 ) a= 255  name= "#883255"
+       边缘内(369,40)  = rgb( 22 , 20 , 90 ) a= 255  name= "#16145a"
+       半径外(430,40)   = rgb( 20 , 20 , 90 ) a= 255  name= "#14145a"
+       半径外(485,40)   = rgb( 20 , 20 , 90 ) a= 255  name= "#14145a"
+       Repeat(530,40)   = rgb( 187 , 63 , 83 ) a= 255  name= "#bb3f53"
+       Repeat(585,40)   = rgb( 238 , 76 , 81 ) a= 255  name= "#ee4c51"
+  → 上面四个「半径外」的采样就是 Spread 的全部差别： PadSpread 冻在最后一个色标（两个点应当同色）； ReflectSpread 镜像循环、RepeatSpread 顺序循环（两个点应当不同色、并且与圆内的色标值成周期关系）。
+  锥形（起始角 45°）在四个方向的采样：
+       右(110,150)  = rgb( 0 , 134 , 51 ) a= 255  name= "#008633"
+       上(60,100)  = rgb( 0 , 136 , 49 ) a= 255  name= "#008831"
+       左(10,150)  = rgb( 0 , 44 , 151 ) a= 255  name= "#002c97"
+       下(60,200)  = rgb( 0 , 46 , 149 ) a= 255  name= "#002e95"
+  色标是按**角度比例**分配的（0 在起始角，1 绕一圈回来）， 所以四个方向的采样值应呈现对称/循环关系 —— 数字请核对，方向和第 2 讲一样别背。
+  LogicalMode（渐变轴 0..60，矩形宽 290）坐标模式枚举值 = 0
+         x=20   = rgb( 168 , 0 , 87 ) a= 255  name= "#a80057"
+         x=59   = rgb( 2 , 0 , 253 ) a= 255  name= "#0200fd"
+         x=150  = rgb( 0 , 0 , 255 ) a= 255  name= "#0000ff"
+         x=280  = rgb( 0 , 0 , 255 ) a= 255  name= "#0000ff"
+  ObjectBoundingMode（渐变轴 0..1，同一块矩形）坐标模式枚举值 = 2
+         x=20   = rgb( 237 , 0 , 18 ) a= 255  name= "#ed0012"
+         x=150  = rgb( 123 , 0 , 132 ) a= 255  name= "#7b0084"
+         x=280  = rgb( 8 , 0 , 247 ) a= 255  name= "#0800f7"
+  → 这就是两条模式的全部差别：LogicalMode 的渐变轴是**画布上的逻辑坐标**， 图形超出范围就只有末端色（看起来像「只染了一小条」）； ObjectBoundingMode 把渐变轴按图形包围盒归一化，坐标写 0..1， **图形多大渐变就铺多大**，按钮、卡片、进度条一律用它。
+  Dense1..Dense7 在 22x22 方块里的着墨像素（应单调变化）= 454 424 303 242 181 60 30 （Dense1 最密 / Dense7 最疏 —— 谁多谁少请按数字确认，别信我的记忆）
+
+=== 结论 ===
+① 线宽跟不跟变换走，只有 cosmetic 一个开关（证据①：4px vs 1px）。
+② 端头/接缝/虚线全是**可测量的几何**：包围盒长、最下缘、游程序列，别背概念。
+③ 默认帽是 SquareCap、默认连接是 BevelJoin —— 这是 qpen.h 第 35 行写死的，不是我以为的。
+④ 渐变优先用 ObjectBoundingMode + 0..1 坐标（证据⑥最后一段的对比最直观）； 需要「渐变钉在画布某条线上」时才用 LogicalMode。
+⑤ Qt6 枚举名的三处坑：Spread 叫 *Spread（不是 *Mode）、BrushStyle 是 HorPattern（不是 HorizonPattern）、 CoordinateMode 没有 DeviceMode（换成了 StretchToDeviceMode / ObjectMode）。

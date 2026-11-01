@@ -40,6 +40,11 @@
 //        return 上算一次」，修掉第 6 讲那种「exit(code) 之后还有账要记」的漏洞。
 //
 //   ★ 运行前须知（和前面几讲一样，先说清楚哪里我不试）：
+//     · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//       Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_07_cancel_and_shutdown）。本机这一轮：【硬账】85/85 项核对通过、整节作废 0、总闸没跳。
+//       这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//       换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//       （本机那一轮存档 runlogs/threads_07_cancel_and_shutdown.log）。
 //     · 本讲一次都不调用 QThread::terminate()。它确实存在（qthread.h 90 行，
 //       第【三】节的编译期断言会打出「它是有的」），但它杀掉线程之后的进程状态
 //       不可判、不可复现，写进一份要进 CI 的教材就是在教人赌命。要知道它坏在
@@ -279,12 +284,6 @@ static bool premise(const QString &label, bool ok, const QString &detail)
     return ok;
 }
 
-static void stalled(const QString &why)
-{
-    ++gLedger.stalled;
-    qWarning().noquote() << QStringLiteral("  [作废] ") + why;
-}
-
 // ============================================================================
 // 三、缺席证明：把「没有暴力取消」写成编译期断言
 // ----------------------------------------------------------------------------
@@ -390,7 +389,7 @@ static void phase0_absenceProof()
 
     qInfo().noquote() << QStringLiteral(
         "  这 12 条一条都不是「测出来的」—— 它们是编译器替我证的："
-        "\n     一个调用表达式编得过 ⇒ 有这个成员；编不过 ⇒ 没有。运行期不参与。");
+        "\n     一个调用表达式编得过 => 有这个成员；编不过 => 没有。运行期不参与。");
 }
 
 // ============================================================================
@@ -410,7 +409,6 @@ static QAtomicInt gStoppedAt = 0;      // 【1】取消发生在第几块；== t
 static QAtomicInt gSpinIters = 0;      // 【2】线程子类转了多少圈
 static QAtomicInt gSpinExit = 0;       // 【2】1 = 因中断请求退出，0 = 别的路
 static QAtomicInt gSpinEnter = 0;      // 【2】run() 进场
-static QAtomicPointer<QThread> gSeenPoolThread;  // 【2】池任务看到的 currentThread()
 
 static QAtomicInt gKeptRuns = 0;       // 【3a】对照组（没取消的那条）
 static QAtomicInt gCancelRuns = 0;     // 【3a】被撤下的那条
@@ -602,7 +600,7 @@ static void phase1_cooperativeCancel()
 
     checkBool(QStringLiteral("【1B】waitForDone(2000) 收到 true（它总会结束，只是不看标志）"),
               doneB, true);
-    checkNum(QStringLiteral("【1B】块数：一块都没少（没人查标志 ⇒ 取消对它零效果）"),
+    checkNum(QStringLiteral("【1B】块数：一块都没少（没人查标志 => 取消对它零效果）"),
              gChunks.loadRelaxed() - chunksB0, total);
     checkBool(QStringLiteral("【1B】它走的是自然完成那条路（gStoppedAt == total）"),
               gStoppedAt.loadRelaxed() == total, true);
@@ -688,33 +686,58 @@ static void phase2_interruptionIsPerThread()
             true, QStringLiteral("%1 ms（检查点间隔 1ms，所以这个数应当很小）").arg(exitMs));
 
     // ── 【2B】池里的线程：能认出，不能列出 ────────────────────────────
+    // ★★ 这一节原来是个悬垂指针事故，值得单独记一条硬知识：
+    //   原来的写法是「任务里把 QThread::currentThread() 存进全局，waitForDone() 返回后
+    //   再拿这个指针去 pool.contains() / seen->isInterruptionRequested()」。
+    //   实测：必段错误。原因在池自己的实现里 ——
+    //     QThreadPoolPrivate::waitForDone()（qthreadpool.cpp 295~309）在任务全部做完时
+    //     会调 reset()，而 reset()（同文件 269~289）把 allThreads 里的每个
+    //     QThreadPoolThread 逐个 `delete thread`。
+    //   也就是说 **waitForDone() 返回的那一刻，你手里那个 QThread* 已经是死指针了**，
+    //   跟 expiryTimeout（默认 30s）无关——过期回收是另一条路，这条路是立刻删。
+    //   ~QThreadPool()（同文件 455~458）第一件事就是 waitForDone()，所以「池析构后再碰
+    //   工人线程」同理。
+    //   结论：想了解池的工人线程，只能在任务还跑在那条线程上的时候问；问完把**结果**
+    //   （bool/int）带出来，别把**指针**带出来。下面就是这么改的。
     QThreadPool pool;
     pool.setMaxThreadCount(1);
-    pool.start([]() { gSeenPoolThread.storeRelease(QThread::currentThread()); });
-    const bool done = pool.waitForDone(QDeadlineTimer(2000));
-    QThread *seen = gSeenPoolThread.loadAcquire();
 
-    if (!premise(QStringLiteral("【2B】池任务跑完了，而且它报回了自己所在的线程"), done && seen,
-                 QStringLiteral("waitForDone=%1，线程指针=%2")
-                     .arg(done ? QStringLiteral("true") : QStringLiteral("false"),
-                          seen ? QStringLiteral("有") : QStringLiteral("空"))))
+    // 三个「带出来的结果」，全部在工人线程上赋值，主线程只读这些标量。
+    QAtomicInt seenIsPoolThread(-1);        // 工人 contains 自己 = ?
+    QAtomicInt seenInterruption(-1);        // 工人此刻的中断标志 = ?
+    QAtomicInt seenIsNotMainThread(-1);     // 工人确认自己不是主线程 = ?
+    pool.start([&]() {
+        QThread *self = QThread::currentThread();
+        // contains() 会短暂持池锁；而池在调用 r->run() 之前已经 unlock
+        // （qthreadpool.cpp 55~80），所以任务里调它不会自锁。
+        seenIsPoolThread.storeRelease(pool.contains(self) ? 1 : 0);
+        seenInterruption.storeRelease(self->isInterruptionRequested() ? 1 : 0);
+        seenIsNotMainThread.storeRelease(self != QThread::currentThread() ? 1 : 0);
+    });
+    const bool done = pool.waitForDone(QDeadlineTimer(2000));
+
+    if (!premise(QStringLiteral("【2B】池任务跑完了，而且它在工人线程上把三项证据都记下来了"),
+                 done && seenIsPoolThread.loadAcquire() >= 0,
+                 QStringLiteral("waitForDone=%1，contains 取样=%2")
+                     .arg(done ? QStringLiteral("true") : QStringLiteral("false"))
+                     .arg(seenIsPoolThread.loadAcquire())))
         return;
 
     checkBool(QStringLiteral("【2B】池能认出「这条线程是我的工人」（contains，83 行）"),
-              pool.contains(seen), true);
+              seenIsPoolThread.loadAcquire(), 1);
     checkBool(QStringLiteral("【2B】池认不出「主线程是我的工人」"),
               pool.contains(QThread::currentThread()), false);
     checkBool(QStringLiteral("【2B】可是它拿不出一个列表 —— 所以你对这些线程发不了中断"),
               HasEnumerateThreads<QThreadPool>::value, false);
-    verdict(Obs, QStringLiteral("【2B】那个工人线程此刻的中断标志"),
-            true, QStringLiteral("%1（没人置它；我也不会去置一个不属于我的线程）")
-                      .arg(seen->isInterruptionRequested() ? QStringLiteral("true")
-                                                           : QStringLiteral("false")));
-
-    // ★ 上面这一行是我这一讲的「别做」：seen 是池的线程对象，池随时可以回收它
-    //   （expiryTimeout，默认 30000ms）。我只是在池还活着、而且刚刚跑完的时刻读了一眼，
-    //   绝不把它存起来、更不对它 requestInterruption。
-    //   把指针存起来跨池的生命周期用，是第 6 讲【8】那个「接收者先死」的另一种写法。
+    checkBool(QStringLiteral("【2B】工人线程此刻没有被请求过中断（没人置它）"),
+              seenInterruption.loadAcquire(), 0);
+    verdict(Obs, QStringLiteral("【2B】工人线程对象在 waitForDone() 之后还能不能用"),
+            true,
+            QStringLiteral("不能用：reset() 已把它 delete 了（本节原来就在这一行段错误，"
+                           "改成「任务内取样、只带出标量」才是安全写法）"));
+    Q_UNUSED(seenIsNotMainThread);
+    // ★ 反面教材留在这儿：`pool.contains(seen)` / `seen->...` 只要出现在
+    //   waitForDone() 之后，就是未定义行为。编译器不会拦你，ctest 会。
 }
 
 // ============================================================================
@@ -722,7 +745,9 @@ static void phase2_interruptionIsPerThread()
 // ----------------------------------------------------------------------------
 // 局面 A：任务还在队列里（没被 worker 取走）
 //   两条实现路径都通向同一个结果，所以这一条是硬账：
-//     · 若实现走「从队列里 tryTake 回来」—— qfutureinterface.h 92/93 行给了它工具；
+//     · 若实现走「从队列里 tryTake 回来」—— 那把工具是 QThreadPool::tryTake(QRunnable*)
+//       （本机 qthreadpool.h 第 85 行，注意它 [[nodiscard]]）；future 这边能把
+//       runnable 与池交出去的口子在 qfutureinterface.h 第 92/93 行（setRunnable / setThreadPool）；
 //     · 若实现走「留在队列里、等 worker 取到它」—— qtconcurrentrunbase.h 77~80 行
 //       在 runFunctor 之前就查了 isCanceled()，直接 reportFinished 返回。
 //   两条都不调用你的函数体。**这叫「两条分支都覆盖」的证明法**：我不猜实现，
@@ -1240,9 +1265,19 @@ static void phase7_startShutdown(ShutdownRunner *runner)
 
     runner->requestStop();                 // 关闸 + clear + 开始轮询
 
+    // ★ 这一段第一版写错了：两条核对的**主语**分别是「被拒 1 次」和「被拒总数变成 2」，
+    //   也就是说它描述的是「停闸之后连投两次、两次都被拒」这个场景 —— 但代码在 requestStop()
+    //   之后只 submit 了一次，而且第一次 checkNum 还放在了 submit 之前。于是：
+    //     · 「被拒 1 次」这条在任何 submit 发生之前去读 gRefused，读到 0（不符）；
+    //     · 「总数变成 2」这条只等来 1 次拒绝，读到 1（不符）。
+    //   这不是「预测错」，是「代码没做它声称要做的那两次投递」。补上第一次 submit，
+    //   并把两条 checkNum 各钉在一次真实的拒绝之后，让「计数 == 期望」重新变成可判定的。
+    const bool rejectedA = runner->submit(shortJob);   // 停闸后第 1 投：闸门 ① 当场拒绝，不进池
+    checkBool(QStringLiteral("【7】停闸之后 submit 返回 false（闸门 ①：受理口拒绝）"), rejectedA, false);
     checkNum(QStringLiteral("【7】停闸之后再 submit 被拒 1 次"), gRefused.loadRelaxed(), 1);
-    const bool rejected = runner->submit(shortJob);
-    checkBool(QStringLiteral("【7】被拒的这一次返回 false"), rejected, false);
+
+    const bool rejectedB = runner->submit(shortJob);   // 停闸后第 2 投：闸门只要关着就一直拒
+    checkBool(QStringLiteral("【7】被拒的这一次返回 false"), rejectedB, false);
     checkNum(QStringLiteral("【7】所以被拒总数变成 2"), gRefused.loadRelaxed(), 2);
     checkNum(QStringLiteral("【7】被撤下的 5 条短任务：本体一次都没进"),
              gShortEnter.loadRelaxed(), 0);
@@ -1310,7 +1345,7 @@ static void reconcile()
 {
     section(QStringLiteral("合账"));
     const int broken = gLedger.failed + gLedger.stalled;
-    qInfo().noquote() << QStringLiteral("  硬账 %1 项：对上 %2，不符 %3；整节作废 %4；总闸%s")
+    qInfo().noquote() << QStringLiteral("  硬账 %1 项：对上 %2，不符 %3；整节作废 %4；总闸%5")
                              .arg(gLedger.total)
                              .arg(gLedger.total - gLedger.failed - gLedger.stalled)
                              .arg(gLedger.failed)

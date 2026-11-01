@@ -21,17 +21,19 @@
 //   set(CMAKE_AUTOMOC ON)   # 本文件里**没有** Q_OBJECT 类，无需 #include "02_....moc"
 //
 // 运行前须知：
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     每个 API 都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件核对（行号见下）。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 widgets_02_text_widgets，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/widgets_02_text_widgets.log）。
 //   · 全程无人值守：QTimer::singleShot 驱动 setText/insert/del，
 //     再用 QCoreApplication::sendEvent 投两个 QKeyEvent 模拟「真实键盘输入」与回车；
 //     关键结论用 qInfo() 打印，最后 QCoreApplication::quit()。**没有任何阻塞调用**。
 //   · Qt5 → Qt6 差异（本讲重点）：
-//       - **QRegExp 整个类在 Qt6 已移除**，QRegExpValidator 也随之没了。
+//       - **QRegExp 整个类在 Qt6 已移除**，QRegExpValidator 也随之没了。   name-ok:QRegExpValidator Qt6 已移除的类，本行正在说它不存在
 //         本机 QtWidgets/QtGui/QtCore 三处都搜不到 qregexpvalidator.h，
 //         校验器头文件只有 QtGui/qvalidator.h 一个文件，里面同时定义
 //         QValidator / QIntValidator / QDoubleValidator / QRegularExpressionValidator
-//         （第 24/56/89/141 行）。→ 老代码 `new QRegExpValidator(QRegExp("\\d+"))`
+//         （第 24/56/89/141 行）。→ 老代码 `new QRegExpValidator(QRegExp("\\d+"))`   name-ok:QRegExpValidator 复述老写法，供对照
 //         必须换成 `new QRegularExpressionValidator(QRegularExpression("\\d+"))`。
 //       - QValidator / QIntValidator / QDoubleValidator 在 Qt6 位于 **QtGui**（qvalidator.h），
 //         不在 QtWidgets；链接 Qt6::Gui 即可，`#include <QtGui/qvalidator.h>` 或直接
@@ -281,7 +283,7 @@ int main(int argc, char *argv[])
     root->addWidget(priceEdit);
 
     auto *codeEdit = new QLineEdit;
-    // ⚠ Qt5→Qt6：QRegExp / QRegExpValidator 在 Qt6 已**整体移除**，这里只能用 QRegularExpression
+    // ⚠ Qt5→Qt6：QRegExp / QRegExpValidator 在 Qt6 已**整体移除**，这里只能用 QRegularExpression   name-ok:QRegExpValidator 说它被移除了，不是叫它去用
     const QRegularExpression reCode(QStringLiteral("^[A-Z]{2}-\\d{4}$"));
     auto *reVal = new QRegularExpressionValidator(reCode, &window);        // qvalidator.h 148 行
     codeEdit->setValidator(reVal);

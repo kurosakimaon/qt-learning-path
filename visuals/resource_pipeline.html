@@ -60,40 +60,41 @@ window.STEPS = [
         <rect class="svg-box" x="25" y="30" width="330" height="250" rx="10"/>
         <text class="svg-small" x="45" y="56">storage/resource_demo.qrc（节选）</text>
         <text class="svg-mono" x="45" y="86">&lt;RCC&gt;</text>
-        <text class="svg-mono" x="45" y="110">  &lt;qresource prefix="/storage"&gt;</text>
-        <text class="svg-mono" x="45" y="134">    &lt;file&gt;demo/hello.txt&lt;/file&gt;</text>
-        <text class="svg-mono" x="45" y="158">    &lt;file&gt;demo/logo.svg&lt;/file&gt;</text>
-        <text class="svg-mono" x="45" y="182">  &lt;/qresource&gt;</text>
-        <text class="svg-mono" x="45" y="206">  &lt;qresource prefix="/brand"&gt;</text>
-        <text class="svg-mono" x="45" y="230">    &lt;file alias="logo.svg"&gt;demo/logo.svg&lt;/file&gt;</text>
-        <text class="svg-mono" x="45" y="254">  &lt;/qresource&gt;</text>
-        <text class="svg-mono" x="45" y="278">&lt;/RCC&gt;</text>
+        <text class="svg-mono" x="45" y="108">  &lt;qresource prefix="/storage"&gt;</text>
+        <text class="svg-mono" x="45" y="128">    &lt;file&gt;demo/hello.txt&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="148">    &lt;file&gt;demo/logo.svg&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="168">  &lt;/qresource&gt;</text>
+        <text class="svg-mono" x="45" y="188">  &lt;qresource prefix="/brand"&gt;</text>
+        <text class="svg-mono" x="45" y="208">    &lt;file alias="qt-style-logo.svg"&gt;</text>
+        <text class="svg-mono" x="45" y="228">        demo/logo.svg&lt;/file&gt;</text>
+        <text class="svg-mono" x="45" y="248">  &lt;/qresource&gt;</text>
+        <text class="svg-mono" x="45" y="268">&lt;/RCC&gt;</text>
 
         <rect class="svg-field" x="380" y="30" width="355" height="250" rx="10"/>
         <text class="svg-small" x="400" y="58">路径是怎么拼出来的：</text>
         <text class="svg-mono" x="400" y="88">":" + prefix + "/" + 条目路径(或 alias)</text>
-        <text class="svg-small" x="400" y="114">所以上面四条分别是：</text>
+        <text class="svg-small" x="400" y="114">所以上面三条分别是：</text>
         <text class="svg-mono" x="400" y="142">:/storage/demo/hello.txt</text>
         <text class="svg-mono" x="400" y="166">:/storage/demo/logo.svg</text>
-        <text class="svg-mono" x="400" y="190">:/brand/logo.svg</text>
+        <text class="svg-mono" x="400" y="190">:/brand/qt-style-logo.svg</text>
         <text class="svg-small" x="400" y="220">★ &lt;file&gt; 的路径相对 .qrc 所在目录</text>
         <text class="svg-small" x="400" y="244">★ alias 只换「挂载后的路径」，不换磁盘文件名</text>
-        <text class="svg-small" x="400" y="268">★ 同一份字节挂两次 = 真的存两份</text>
+        <text class="svg-small" x="400" y="268">★ 同一份字节挂两次 = 真的存两份（实测各 940 字节）</text>
 
         <rect class="svg-box-warn" x="25" y="300" width="710" height="95" rx="10">
         </rect>
         <text class="svg-small" x="45" y="328">最常犯的错：以为 qrc 里写了目录，就自动包含目录下所有文件。</text>
         <text class="svg-small" x="45" y="354">它是一行一行的清单：没列进去的文件，运行期就是「不存在」。</text>
-        <text class="svg-small" x="45" y="380">（用 qt_add_resources 时同理：每个文件都要出现在 FILES / BASE 里。）</text>
+        <text class="svg-small" x="45" y="380">（qt_add_resources 同理：没写进 FILES 的文件，运行期同样不存在。）</text>
       </svg>`,
-    caption: '<code>.qrc</code> 是<strong>一行一行的清单</strong>，不是目录扫描：没列进去的文件，运行期就是「不存在」。路径公式是 <code>":" + prefix + 条目路径(或 alias)</code>；<code>&lt;file&gt;</code> 里的路径<strong>相对 .qrc 所在目录</strong>；<code>alias</code> 只改挂载后的路径，不改磁盘文件名；<strong>同一份字节挂两个路径 = 真的存两份</strong>。',
+    caption: '<code>.qrc</code> 是<strong>一行一行的清单</strong>，不是目录扫描：没列进去的文件，运行期就是「不存在」。路径公式是 <code>":" + prefix + 条目路径(或 alias)</code>；<code>&lt;file&gt;</code> 里的路径<strong>相对 .qrc 所在目录</strong>；<code>alias</code> 只改挂载后的路径，不改磁盘文件名；<strong>同一份字节挂两个路径 = 真的存两份</strong>（本机实测 <code>:/storage/demo/logo.svg</code> 与 <code>:/brand/qt-style-logo.svg</code> 两条路径的 <code>QFileInfo.size()</code> 都是 940，见 <code>runlogs/storage_04_resource_system.log</code> 第 260~262 行）。这一页的 qrc 是 <code>storage/resource_demo.qrc</code> 的节选，alias 用的就是文件里那个 <code>qt-style-logo.svg</code>。',
     code: `<RCC>
     <qresource prefix="/storage">
         <file>demo/hello.txt</file>
         <file>demo/logo.svg</file>
     </qresource>
     <qresource prefix="/brand">
-        <file alias="logo.svg">demo/logo.svg</file>
+        <file alias="qt-style-logo.svg">demo/logo.svg</file>
     </qresource>
 </RCC>`,
     highlight: [2, 3, 6, 7]
@@ -128,22 +129,26 @@ window.STEPS = [
         <text class="svg-small" x="45" y="198">代价一：exe 变大</text>
         <text class="svg-small" x="45" y="222">（图标、翻译、qss 都算在里面）</text>
 
-        <rect class="svg-field" x="25" y="270" width="710" height="125" rx="10"/>
-        <text class="svg-small" x="45" y="298">CMake 侧只需要三行，AUTORCC 会替你调 rcc：</text>
-        <text class="svg-mono" x="45" y="328">set(CMAKE_AUTORCC ON)</text>
-        <text class="svg-mono" x="45" y="352">qt_add_executable(demo main.cpp)</text>
-        <text class="svg-mono" x="45" y="376">target_sources(demo PRIVATE resource_demo.qrc)</text>
-        <text class="svg-small" x="45" y="398">★ 也可以直接用 qt_add_resources(demo "demo" PREFIX "/storage" FILES …)，效果等价。</text>
+        <rect class="svg-field" x="25" y="268" width="710" height="144" rx="10"/>
+        <text class="svg-small" x="45" y="292">CMake 侧只需要三行，AUTORCC 会替你调 rcc：</text>
+        <text class="svg-mono" x="45" y="314">set(CMAKE_AUTORCC ON)</text>
+        <text class="svg-mono" x="45" y="336">qt_add_executable(demo main.cpp)</text>
+        <text class="svg-mono" x="45" y="358">target_sources(demo PRIVATE resource_demo.qrc)</text>
+        <text class="svg-small" x="45" y="382">★ 也可以直接用 qt_add_resources(demo "demo" PREFIX "/storage" FILES …)。</text>
+        <text class="svg-small" x="45" y="402">★ 但它的资源路径 = PREFIX + 文件的相对路径，不是 PREFIX + 文件名。</text>
       </svg>`,
-    caption: '构建期 <code>rcc</code> 把清单里的文件变成<strong>一个 <code>unsigned char[]</code> 数组 + 注册结构</strong>，链接进 exe。运行期不读磁盘，直接从内存里给——所以「拷一个 exe 就能跑」。代价是 <strong>exe 变大</strong>，而且图标、翻译、qss 都算在里面。CMake 里三行就够：<code>AUTORCC ON</code> + 目标 + <code>target_sources(... .qrc)</code>。',
+    caption: '构建期 <code>rcc</code> 把清单里的文件变成<strong>一个 <code>unsigned char[]</code> 数组 + 注册结构</strong>，链接进 exe。运行期不读磁盘，直接从内存里给——所以「拷一个 exe 就能跑」。代价是 <strong>exe 变大</strong>，而且图标、翻译、qss 都算在里面。CMake 里三行就够：<code>AUTORCC ON</code> + 目标 + <code>target_sources(... .qrc)</code>。<strong>用 <code>qt_add_resources</code> 最容易踩的坑（本机实测）</strong>：资源路径是 <code>PREFIX + 文件相对路径</code>，不是 <code>PREFIX + 文件名</code>——<code>FILES demo/hello.txt</code> 不带 <code>BASE</code> 进的是 <code>:/storage/demo/hello.txt</code>，加 <code>BASE demo</code> 才压平成 <code>:/storage/hello.txt</code>。症状是运行期 <code>No such file or directory</code>，构建期一声不响；实证见 <code>build_deploy/qt_cmake_03_resources</code>（同一份文件用带/不带 <code>BASE</code> 各挂一次，跑起来三条路径都在）。',
     code: `# CMakeLists.txt
 set(CMAKE_AUTORCC ON)                                  # 让 CMake 自动调 rcc
 qt_add_executable(storage_04_resource_system main.cpp)
 target_sources(storage_04_resource_system PRIVATE
     storage/resource_demo.qrc)                         # 清单进构建
 
-# 等价写法（不用 .qrc 文件）：
-# qt_add_resources(target "demo" PREFIX "/storage" FILES demo/hello.txt)`,
+# 等价写法（不用 .qrc 文件）——★路径 = PREFIX + FILES 的相对路径，不是文件名：
+# qt_add_resources(target "demo" PREFIX "/storage" FILES demo/hello.txt)
+#     → ":/storage/demo/hello.txt"          # 目录跟着进去了
+# qt_add_resources(target "demo" PREFIX "/storage" BASE demo FILES hello.txt)
+#     → ":/storage/hello.txt"               # 加 BASE 才压平`,
     highlight: [1, 3, 4]
   },
   {
@@ -172,11 +177,11 @@ target_sources(storage_04_resource_system PRIVATE
         <rect class="svg-field" x="25" y="285" width="710" height="110" rx="10"/>
         <text class="svg-small" x="45" y="313">两个「不像文件」的地方：</text>
         <text class="svg-text" x="45" y="343">· 只读：open(WriteOnly) 一律失败，这不是权限问题，是设计如此。</text>
-        <text class="svg-text" x="45" y="371">· QDir(":/") 能列出条目，但不存在「修改时间 / 大小」这类有意义的属性。</text>
+        <text class="svg-text" x="45" y="371">· 时间戳别信：lastModified() 实测有效，但那是构建时间戳，不是修改时间。</text>
 
         <text class="svg-small" x="45" y="412">★ 判断「它在不在」：QFile::exists(":/…") 或 QFileInfo(":/…").exists()。</text>
       </svg>`,
-    caption: '读资源跟读普通文件<strong>一模一样</strong>：<code>QFile(":/…")</code>、<code>QPixmap(":/…")</code>、<code>QIcon(":/…")</code>。只要接受 <code>QIODevice</code> 的类都能吃：<code>QTextStream</code>、<code>QXmlStreamReader</code>、QSS 的 <code>url()</code>、<code>QTranslator::load</code>。两个不像文件的地方：<strong>只读</strong>（写会失败，是设计如此），以及 <code>QDir</code> 读不到有意义的修改时间。',
+    caption: '读资源跟读普通文件<strong>一模一样</strong>：<code>QFile(":/…")</code>、<code>QPixmap(":/…")</code>、<code>QIcon(":/…")</code>。只要接受 <code>QIODevice</code> 的类都能吃：<code>QTextStream</code>、<code>QXmlStreamReader</code>、QSS 的 <code>url()</code>、<code>QTranslator::load</code>。两个不像文件的地方：<strong>只读</strong>（写会失败，是设计如此），以及<strong>时间戳没有意义</strong>。★ 但别说「大小也没意义」：<code>QFileInfo::size()</code> 是<strong>真实字节数</strong>——本机实测 <code>hello.txt</code> 的 <code>size()</code> 与 <code>readAll()</code> 都是 523（<code>runlogs/storage_04_resource_system.log</code> 第 265 行）；<code>lastModified()</code> 也<strong>不是无效</strong>，它 <code>isValid() = true</code>，值却是构建那一刻的 <code>2026-10-31 08:47:46</code>（同一 runlog 第 278 行）——<strong>能拿到值 ≠ 能拿来判断</strong>，改一次构建它就变。',
     code: `// 存在性检查要用 : 路径
 if (!QFile::exists(QStringLiteral(":/storage/demo/hello.txt")))
     qWarning() << "资源没编进来：检查 qrc 与 AUTORCC";
@@ -211,7 +216,7 @@ qInfo() << "可写吗" << f.open(QIODevice::WriteOnly);   // false`,
         <text class="svg-small" x="285" y="110">· 多语言包、主题包</text>
         <text class="svg-small" x="285" y="134">· 体积大但不常变的资源</text>
         <text class="svg-small" x="285" y="158">· 想「不重编 exe 就更新」</text>
-        <text class="svg-text" fill="#b45309" x="285" y="190">用法：QResource::registerResource()</text>
+        <text class="svg-warn-text" x="285" y="190">QResource::registerResource()</text>
         <text class="svg-small" x="285" y="218">注册后同样是 :/ 路径</text>
         <text class="svg-small" x="285" y="246">★ 文件本身仍要随安装包发出去</text>
 
@@ -241,7 +246,7 @@ QFile theme(QStringLiteral(":/themes/dark.qss"));   // 与内置资源同样写�
 // 用户数据的位置：交给 QStandardPaths
 const QString dir = QStandardPaths::writableLocation(
     QStandardPaths::AppDataLocation);`,
-    highlight: [2, 3, 5, 8]
+    highlight: [1, 2, 4, 7]
   },
   {
     title: '容易翻车的三个细节',

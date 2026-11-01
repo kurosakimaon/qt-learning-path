@@ -49,9 +49,11 @@
 //     才 exit(0)，有一项对不上 exit(1)；12 秒看门狗一旦触发也直接判红，故障藏不住。
 //   · 收尾顺序：先关服务器（close），reply 早就各自 deleteLater 了，再 quit。
 //   · 可以无头跑：`network_01_network_access_manager -platform offscreen`。
-//   · 未实测声明：**本文件未在本机实测编译运行**，文中所有「预期」后面是推理，不是实测；
-//     本机只做了 moc + g++ -fsyntax-only（-std=c++17 -Wall -Wextra）的编译期核对，
-//     0 error 0 warning；未链接、未运行。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 network_01_network_access_manager）。本机这一轮：【硬账】67/67 项核对通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>                 // QtWidgets/qapplication.h
@@ -80,6 +82,7 @@
 #include <QHash>
 #include <QList>
 #include <QPointer>
+#include <QSharedPointer>               // QtCore/qsharedpointer.h（证据② 累积正文缓冲用）
 
 #include <chrono>                       // std::chrono::milliseconds（setTransferTimeout 用）
 
@@ -115,7 +118,7 @@ void checkBool(const char *what, bool got, bool want = true)
 } // namespace
 
 // ============================================================================
-// 一、对着本机头文件核过的签名（C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、对着本机头文件核过的签名（D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtNetwork/qnetworkaccessmanager.h
 //   第 42~51 行 enum Operation { HeadOperation = 1, GetOperation, PutOperation,
@@ -144,9 +147,18 @@ void checkBool(const char *what, bool got, bool want = true)
 //
 // QtNetwork/qnetworkreply.h
 //   第 29 行 class Q_NETWORK_EXPORT QNetworkReply: public QIODevice   ← 它是 QObject + QIODevice
-//   第 36~73 行 enum NetworkError { NoError = 0, ConnectionRefusedError = 1, ... TimeoutError = 4,
+//   第 33~78 行 enum NetworkError { NoError = 0, ConnectionRefusedError = 1, ... TimeoutError = 4,
 //                    OperationCanceledError, ..., TooManyRedirectsError, InsecureRedirectError,
 //                    ContentNotFoundError = 203, ... InternalServerError = 401 }
+//              ★ 勘误：旧稿写「36~73」。本机 6.12.0：enum NetworkError 从 **33** 行开，
+//                `};` 在 **78** 行。旧稿的 36 落在 35 行那句分组注释上
+//                （`// network layer errors [relating to the destination server] (1-99):` 是 36），
+//                73 落在 `// Server side errors (401-499)` 那行注释上——两个数都指到了注释，
+//                不是指到枚举本身。这一段里每个值都逐个核过：NoError=0(34)、
+//                ConnectionRefusedError=1(37)、TimeoutError 是隐式 4(40)、
+//                ContentNotFoundError 隐式 203(61)、InternalServerError=401(74)、
+//                UnknownServerError=499(77)。隐式接续的那几个只能按行号数出来，
+//                头文件里不写数字，别凭印象报「XXError = 几」。
 //   第 94 行 NetworkError error() const;   ← Qt6 里读错误码用它；老代码 connect(nam,&...error) 早废了
 //   第 95/96 行 isFinished() / isRunning()
 //   第 104~114 行 rawHeader / rawHeaderList / rawHeaderPairs()；RawHeaderPair = std::pair<QByteArray,QByteArray>
@@ -308,6 +320,22 @@ private:
         if (path.startsWith(QStringLiteral("/moved"))) {
             writeAll(sock, frame(QStringLiteral("302 Found"), QByteArray(),
                                   { "Location: /api/device" }));
+            return;
+        }
+        if (path.startsWith(QStringLiteral("/slow"))) {
+            // 证据⑤专用：把响应压后 20ms 再写。
+            // 为什么要专门慢——回环上的 GET 常在 <1ms 内就完成，客户端发出请求到收到 finished
+            // 之间，事件循环可能一次 1ms 心跳都没轮到（本机实测「耗时 0ms、心跳 0 次」）。
+            // 这不是「线程被钉死」，纯粹是这一趟太快、测不出轮数。给服务器加 20ms 真实延迟，
+            // 让「等待一个请求」这段时间跨过若干个 1ms 心跳，才能可靠地证明事件循环一直在转。
+            QTimer::singleShot(20, this, [this, sock]() {
+                QJsonObject o;
+                o.insert(QStringLiteral("id"), 42);
+                o.insert(QStringLiteral("name"), QStringLiteral("巡检网关-A3"));
+                o.insert(QStringLiteral("online"), true);
+                writeAll(sock, frame(QStringLiteral("200 OK"),
+                                     QJsonDocument(o).toJson(QJsonDocument::Compact), {}));
+            });
             return;
         }
         if (path.startsWith(QStringLiteral("/api/device"))) {
@@ -477,6 +505,12 @@ static void doHttpGet(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
 
     QNetworkReply *reply = nam->get(req);
     const int codeRightAfterSend = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    // ★ 累积缓冲：readyRead 里读到一段就 append 一段，finished 里再把「最后一小段」读空 append 上，
+    //   拼成完整正文。为什么必须这样：readyRead 与 finished 读的是**同一条 QIODevice 的读队列**，
+    //   谁先 readAll() 谁就把字节取走了；如果 readyRead 已经读干，finished 再 readAll() 只会拿到 0 字节
+    //   （本机实测：正文被 readyRead 吃掉后，finished 里 body.size()=0，JSON 解析全成默认值）。
+    //   用 QSharedPointer 持有，两个 lambda 各自拷一份指针引用，reply 结束后自动释放。
+    auto streamBuf = QSharedPointer<QByteArray>::create();
     qInfo() << "  发出去立刻看：isRunning =" << reply->isRunning()
             << "isFinished =" << reply->isFinished()
             << "｜此刻读 attribute(HttpStatusCode) =" << codeRightAfterSend
@@ -486,10 +520,11 @@ static void doHttpGet(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
     check("② 刚发出去读状态码只能是 0（头还没到）", codeRightAfterSend, 0);
     checkBool("② 刚发出去 rawHeader(\"Server\") 是空的", reply->rawHeader("Server").isEmpty());
 
-    QObject::connect(reply, &QNetworkReply::readyRead, reply, [reply]() {
+    QObject::connect(reply, &QNetworkReply::readyRead, reply, [reply, streamBuf]() {
         ++Stats::getReadyReads;
         ++Stats::readyReadHits;
         const QByteArray chunk = reply->readAll();
+        streamBuf->append(chunk);
         qInfo() << "    readyRead 第" << Stats::getReadyReads << "次：这次读到" << chunk.size()
                 << "字节（有正文可读了，流式写法就在这里落盘/喂解析器）";
     });
@@ -504,9 +539,11 @@ static void doHttpGet(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
                 "Qt5 的 error(QNetworkReply::NetworkError) 已不存在";
     });
 
-    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, nam, srv]() {
+    QObject::connect(reply, &QNetworkReply::finished, reply, [reply, nam, srv, streamBuf]() {
         ++Stats::finishedHits;
-        const QByteArray body = reply->readAll();               // 一次性读法：finished 后兜底读空
+        // finished 里把「readyRead 之后可能还剩的一小段」也读干，拼进累积缓冲得到完整正文
+        streamBuf->append(reply->readAll());
+        const QByteArray body = *streamBuf;                // 一次性读法的兜底：到这里一定读空了
         dumpReplyEvidence("GET /api/device", reply, body);
         qInfo() << "  finished 时：readyRead 共触发" << Stats::getReadyReads
                 << "次｜downloadProgress" << Stats::progressSignals
@@ -578,6 +615,7 @@ static void doVerbMatrix(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
         QNetworkReply *reply = replies[i];
         const char *tag = tags[i];
         QObject::connect(reply, &QNetworkReply::finished, reply, [reply, tag, p, srv, nam, i]() {
+            ++Stats::finishedHits;                          // 全局计数：每条 reply 收口都算一次
             const QByteArray body = reply->readAll();
             const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             qInfo() << QStringLiteral("  %1 → 状态 %2｜operation()=%3｜正文 %4 字节｜error()=%5")
@@ -640,6 +678,7 @@ static void doRedirectDemo(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
     struct Pair { int left; };
     Pair *pair = new Pair{ 2 };
     QObject::connect(r1, &QNetworkReply::finished, r1, [r1, pair, srv, nam]() {
+        ++Stats::finishedHits;
         dumpReplyEvidence("A 组（自动跟随）", r1, r1->readAll());
         qInfo() << "  A 组最终 url() =" << r1->url().toString()
                 << "｜request().url() =" << r1->request().url().toString()
@@ -654,6 +693,7 @@ static void doRedirectDemo(QNetworkAccessManager *nam, LoopbackHttpServer *srv)
         if (--pair->left == 0) { delete pair; QTimer::singleShot(20, [srv, nam]() { evidenceEventLoopAlive(nam, srv); }); }
     });
     QObject::connect(r2, &QNetworkReply::finished, r2, [r2, pair, srv, nam]() {
+        ++Stats::finishedHits;
         dumpReplyEvidence("B 组（停在 302）", r2, r2->readAll());
         const QVariant target = r2->attribute(QNetworkRequest::RedirectionTargetAttribute);
         qInfo() << "  B 组 RedirectionTargetAttribute =" << target.toUrl().toString()
@@ -690,13 +730,17 @@ static void evidenceEventLoopAlive(QNetworkAccessManager *nam, LoopbackHttpServe
     qInfo() << "【证据⑤】等待期间事件循环一直在转（本讲零阻塞）";
     const int turnsBefore = Stats::eventLoopTurns;
 
-    QNetworkRequest req(loopUrl(srv->port(), QStringLiteral("/api/device")));
+    // 走 /slow：服务器故意晚 20ms 才回（见 LoopbackHttpServer::respond 里的注释）。
+    // 只有这样这一趟才跨得过若干个 1ms 心跳——回环直连的 /api/device 常在 1ms 内完成，
+    // 那时「心跳次数 = 0」是真实测量、不是线程被钉死，用它当证据会误报。
+    QNetworkRequest req(loopUrl(srv->port(), QStringLiteral("/slow")));
     req.setTransferTimeout(std::chrono::milliseconds(2000));
     QNetworkReply *reply = nam->get(req);
     QElapsedTimer timer;
     timer.start();
 
     QObject::connect(reply, &QNetworkReply::finished, reply, [reply, srv, turnsBefore, timer, nam]() {
+        ++Stats::finishedHits;
         const qint64 ms = timer.elapsed();
         const int turns = Stats::eventLoopTurns - turnsBefore;
         qInfo() << "  这一个请求耗时" << ms << "ms｜期间 1ms 心跳定时器跳了" << turns << "次";
@@ -725,12 +769,26 @@ static void evidenceStallAndCleanup(QNetworkAccessManager *nam, LoopbackHttpServ
     QElapsedTimer stallClock;
     stallClock.start();
     QObject::connect(reply, &QNetworkReply::errorOccurred, reply, [](QNetworkReply::NetworkError e) {
+        ++Stats::errorHits;                                   // 全局计数：超时这次 errorOccurred 也要记进硬账
         qInfo() << "  卡住的请求 errorOccurred →" << int(e)
                 << (e == QNetworkReply::TimeoutError ? QStringLiteral("= TimeoutError(4)")
                                                      : QStringLiteral("（别的错误码）"));
     });
     QObject::connect(reply, &QNetworkReply::finished, reply, [reply, srv, nam, stallClock]() {
+        ++Stats::finishedHits;
         const qint64 waited = stallClock.elapsed();
+        // ★ 下面这行 readAll() 在本机会让 Qt 先打一条警告再给你空字节：
+        //     QIODevice::read (QNetworkReplyHttpImpl): device not open
+        //   这不是示例写歪了，是**超时收尾的真实形状**：请求以 TimeoutError 收场时设备已经关了，
+        //   isOpen() = false，readAll() 走 QIODevice 的守卫分支，警告 + 返回空。
+        //   故意留着：①「finished 一定到，但正文不一定有」这句话只有警告当证人才立得住；
+        //   ② 工程里读之前先看 isOpen()，或者干脆判 error() != NoError 就别碰正文。
+        //   （别去找什么 `isRawDataEnabled()`：本机 qiodevice.h 只有 54 行 isOpen()
+        //     和 77 行 bytesAvailable()，QNetworkReply 身上是 95/96 行的
+        //     isFinished()/isRunning()——网上有些文章编的开关名，编译第一关就过不去。）
+        qInfo() << "  读正文前先看门的开关：isOpen() =" << reply->isOpen()
+                << "｜bytesAvailable() =" << reply->bytesAvailable()
+                << "（isOpen=false => 下面这口 readAll() 会带一条 device not open 的警告，属预期）";
         dumpReplyEvidence("GET /stall（超时收尾）", reply, reply->readAll());
         qInfo() << "  → 超时也一定走 finished：**收尾代码只写在 finished 里**永远是对的。"
                    "只 connect(errorOccurred) 做清理的人，正常路径漏 deleteLater；"

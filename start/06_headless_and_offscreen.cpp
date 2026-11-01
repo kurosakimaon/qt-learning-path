@@ -23,9 +23,13 @@
 //     不设该环境变量时，在 Windows 上会走默认的 windows 平台，弹出真窗口——
 //     本示例同样能跑完（它不依赖「必须无头」，只是无头才适合 CI）。
 //   · 本机 Qt6 的 platforms 插件目录实测存在这些插件（本讲据此而写）：
-//         C:\msys64\ucrt64\plugins\platforms\  下有 qwindows.dll、qoffscreen.dll、
+//         D:\Qt\6.12.0\mingw_64\plugins\platforms\  下有 qwindows.dll、qoffscreen.dll、
 //         qminimal.dll、qdirect2d.dll —— 所以 offscreen / minimal 在这台机器上都能选到。
-//   · 本机当前无法编译链接 Qt，本示例**未在本机实测编译**；API 均对本机头文件核对过。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 start_06_headless_and_offscreen）。本机这一轮：全部断言通过。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
 #include <QApplication>
@@ -158,14 +162,14 @@ int main(int argc, char *argv[])
  * 找 platforms/ 子目录（也可用 -platformpluginpath 或 QT_QPA_PLATFORM_PLUGIN_PATH
  * 指路，见第 1 讲的命令行选项）。
  *
- * 你在开发机上能跑，是因为插件都在 C:\msys64\ucrt64\plugins 下、PATH 也对。
+ * 你在开发机上能跑，是因为插件都在 D:\Qt\6.12.0\mingw_64\plugins 下、PATH 也对。
  * 但把 exe 单独拷到别的机器 / CI 镜像里，就会报经典的
  *     "This application failed to start because no Qt platform plugin could be
  *      initialized"  /  "could not find/load the Qt platform plugin 'windows'"
  * ——99% 是 platforms 目录没跟着拷。
  *
  * 正确做法：Windows 上用随 Qt 提供的 windeployqt（本机在
- * C:\msys64\ucrt64\bin\windeployqt.exe）对每个 exe 跑一次：
+ * D:\Qt\6.12.0\mingw_64\bin\windeployqt.exe）对每个 exe 跑一次：
  *     windeployqt start_06_headless_offscreen.exe
  * 它会分析 exe 依赖，把 Qt6*.dll、platforms\*.dll（含你要的 qwindows/qoffscreen）、
  * styles\、imageformats\ 等**按需要的插件**拷到 exe 旁边。CI 里通常再配合

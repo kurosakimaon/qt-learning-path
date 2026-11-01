@@ -34,6 +34,10 @@
 //   本文件**不含 Q_OBJECT 类**（只覆写 paintEvent，不需要元对象），末尾不需要 .moc。
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_05_images_and_pixmaps，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_05_images_and_pixmaps.log）。
 //   · 会往**当前工作目录**写这些 PNG：
 //       painting_05_images_and_pixmaps.png（六格总览卡）、
 //       painting_05_scaled_fast.png / painting_05_scaled_smooth.png（放大对照）、
@@ -47,15 +51,18 @@
 //     （CMake 里已经把 QT_QPA_PLATFORM=offscreen 设进测试环境了）。
 //   · 证据里凡是 QElapsedTimer 的耗时数字都**强烈依赖你的机器**，
 //     我只承诺「相对关系」，具体数值请你自己跑出来抄回注释里。
-//   · 未实测声明：本机当前无法编译链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；所有 PNG 与所有打印数字都还没被任何机器验证过，
-//     「预期」两个字后面写的是推理，不是实测。
+//   · 实测状态：本示例已在 **Qt 6.12.0 / MinGW-w64 GCC 13.1.0 / Windows 11** 上编译通过并
+//     **无头跑通**（`QT_QPA_PLATFORM=offscreen`，退出码 0），本目录下的
+//     painting_05_*.png 全是它自己写出来的；下面「预期」后面跟的是本机日志里的数，
+//     耗时类仍随机器不同，请把你自己的数字抄回注释。
+//     头文件在 `D:\Qt\6.12.0\mingw_64\include`，Qt 源码在 `D:\Qt\6.12.0\Src\qtbase\src`。
+//     Windows 上 Qt 日志按本地代码页 GBK 输出，重定向时 `| iconv -f GBK -t UTF-8` 才不乱码。
 //   · Qt5 → Qt6 差异，本讲涉及四处（都是**头文件里能看见**的）：
 //       ① QPixmap::fromImage 的第二参数在 Qt6 是 `Qt::ImageConversionFlags`（qpixmap.h 第 90 行），
 //          Qt5 老代码写的是 Qt::ColorMode/Qt::DefaultColorMode，搬过来会编不过；
 //       ② `QBitmap(const QPixmap &)` 与 `QBitmap::operator=(const QPixmap &)` 在 Qt6.0 起弃用
-//          （qbitmap.h 第 22、29 行的 QT_DEPRECATED_VERSION_X_6_0），改用 fromPixmap()；
+//          （qbitmap.h 第 21、29 行的 QT_DEPRECATED_VERSION_X_6_0，各自被 20/28 行的
+//           `#if QT_DEPRECATED_SINCE(6, 0)` 包着），改用 fromPixmap()（第 40 行）；
 //       ③ `QPixmapCache::replace(const Key &, const QPixmap &)` 在 Qt6.6 起弃用
 //          （qpixmapcache.h 第 50~53 行），头文件直接写明「用 remove(key) 再 key = insert(pixmap)」；
 //       ④ QImage 的字节数在 Qt6 叫 `sizeInBytes()`（qimage.h 第 165 行，返回 qsizetype），
@@ -93,7 +100,7 @@
 #include <utility>               // std::as_const（证明「只读不 detach」要用 const 引用）
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，全部带行号；对不上的一律不用）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0，全部带行号；对不上的一律不用）
 // ============================================================================
 // QtGui/qimage.h
 //   第 37 行    class Q_GUI_EXPORT QImage : public QPaintDevice   ← 所以 QImage 本身就是画布
@@ -160,7 +167,9 @@
 //   第 113/114 行 bool isDetached() const; void detach();
 // QtGui/qbitmap.h
 //   第 16 行    class Q_GUI_EXPORT QBitmap : public QPixmap     ← 注意：**是 QPixmap 的子类**
-//   第 22/29 行 QBitmap(const QPixmap &) / operator=(const QPixmap &) —— Qt6.0 起弃用
+//   第 21/29 行 QBitmap(const QPixmap &) / operator=(const QPixmap &) —— Qt6.0 起弃用
+//                 （21 行是构造、29 行是赋值，两者各自被 20/28 行的 `#if QT_DEPRECATED_SINCE(6, 0)`
+//                  包着；旧注释写「22/29」，22 行其实是那个 #endif）
 //   第 23 行    QBitmap(int w, int h);            第 24 行 explicit QBitmap(const QSize &);
 //   第 25 行    explicit QBitmap(const QString &fileName, const char *format = nullptr);
 //   第 36/37 行 static QBitmap fromImage(const QImage &, Qt::ImageConversionFlags = Qt::AutoColor);
@@ -180,6 +189,9 @@
 //   第 48/49 行 int logicalDpiX() const; int logicalDpiY() const;
 //   第 52 行    qreal devicePixelRatio() const;   第 53 行 qreal devicePixelRatioF() const
 //                 ← QWidget / QImage / QPixmap 三者都从这里继承到 devicePixelRatio()
+//                 ← 53 行那个 F 版**就是** `{ return devicePixelRatio(); }` 的内联别名（头文件原文如此），
+//                   所以「两个返回值相等」不是测量结果，别拿它当 DPR 的证据；
+//                   平台的真实 DPI 在 48~51 行（logicalDpiX/Y、physicalDpiX/Y）。
 // QtGui/qpainter.h
 //   第 55 行    SmoothPixmapTransform = 0x04       ← 画 QPixmap/QImage 放大时要用它
 //   第 342 行   void drawImage(const QRectF &targetRect, const QImage &image,
@@ -362,8 +374,14 @@ static void evidenceSharing()
     qInfo() << "  b = a 之后: a.isDetached() =" << a.isDetached()
             << "b.isDetached() =" << b.isDetached()
             << "（预期都 false：两份 QImage 指向同一块数据）";
-    qInfo() << "  数据地址是否相同: bits() 相等 =" << (a.bits() == b.bits())
-            << "（qimage.h 161 行 bits()；共享就是同一个指针）";
+    // ⚠ 比对指针这件事**必须用只读接口**：非 const 的 bits() 里第一个带副作用的动作就是
+    //   detach()（qimage.cpp 第 1705~1716 行；1707~1708 是「空数据直接返回 nullptr」的早退，
+    //   1709 那句 detach() 才是原话——别说成「函数第一行」，那跟自己标的行号对不上）。
+    //   用它来"证明共享"，
+    //   会在你眼皮底下把共享拆成两份拷贝，量出来的自然是"地址不同"，把结论反过来。
+    qInfo() << "  数据地址是否相同: constBits() 相等 =" << (a.constBits() == b.constBits())
+            << "（qimage.h 163 行 constBits()；共享就是同一个指针。"
+            << "161 行的非 const bits() 会 detach，别拿它当只读探针）";
 
     // 只读访问**不**触发 detach
     b = a;
@@ -374,10 +392,10 @@ static void evidenceSharing()
 
     // 写操作触发 detach
     b.setPixelColor(5, 5, QColor(255, 0, 0, 255));             // 非 const 写 → detach
-    const bool sharedAfterWrite = (a.bits() == b.bits());
+    const bool sharedAfterWrite = (a.constBits() == b.constBits());
     qInfo() << "  b.setPixelColor(...) 之后: a.isDetached() =" << a.isDetached()
             << "b.isDetached() =" << b.isDetached()
-            << "bits() 仍相等 =" << sharedAfterWrite;
+            << "constBits() 仍相等 =" << sharedAfterWrite;
     qInfo() << "  行为证明：改 b(5,5) 之后 a(5,5) ="
             << a.pixelColor(5, 5).name(QColor::HexArgb)
             << "b(5,5) =" << b.pixelColor(5, 5).name(QColor::HexArgb)
@@ -459,16 +477,29 @@ static void evidenceScaled()
         t.start();
         for (int k = 0; k < 300; ++k)
             (void)edge.scaled(300, 300, Qt::IgnoreAspectRatio, Qt::FastTransformation);
-        const qint64 f = t.nsecsElapsed();
+        // ⚠ 两段之间必须把表**归零**：nsecsElapsed() 读的是「从 start() 起累计」，
+        //   上一版读完 Fast 直接再读一次，第二段拿到的其实是 Fast+Smooth，
+        //   于是"比值"变成 (Fast+Smooth)/Fast，把 Smooth 的贵凭空抬高了一截。
+        const qint64 f = t.nsecsElapsed();                     // 此刻累计 == Fast 这一段
+        t.restart();                                           // 归零。注意 restart() 的返回值是
+                                                               // **毫秒**（qelapsedtimer.cpp 239~240 行
+                                                               // 写明 milliseconds），别拿它当纳秒用
         for (int k = 0; k < 300; ++k)
             (void)edge.scaled(300, 300, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
-        const qint64 s = t.nsecsElapsed();
+        const qint64 s = t.nsecsElapsed();                     // 现在累计里只有 Smooth 这一段
         if (pass) { nsFast = f; nsSmooth = s; }
     }
     qInfo() << "  300 次 scaled 耗时：Fast =" << nsFast / 1000 << "us,"
             << "Smooth =" << nsSmooth / 1000 << "us,"
             << "比值 =" << (nsFast > 0 ? double(nsSmooth) / double(nsFast) : 0.0)
-            << "（**具体数值看你机器**，这里只要「Smooth 明显更贵」这个关系成立）";
+            << "（**具体数值看你机器**：本机连跑三轮是 1.26 / 1.48 / 1.55，别把倍数当常识背。"
+               "要注意的是一个 100x100 的小图放大到 300x300，Smooth 只贵 30%~60%，"
+               "『Smooth 贵到不能用』在这种尺寸下是不成立的；图越大、倍数越高，差距才拉开）";
+    qInfo() << "  读表口径：如果第二段读的是累计值，打印出来的『比值』会正好等于 1 + 真比值"
+               << "（本机这轮就是 1 + " << (nsFast > 0 ? double(nsSmooth) / double(nsFast) : 0.0)
+               << " = " << (nsFast > 0 ? 1.0 + double(nsSmooth) / double(nsFast) : 0.0)
+               << "）—— 上一版就中了这一枪，看到 2.x 还以为 Smooth 真贵一倍。"
+                  "凡是量两段耗时，先问自己第二段有没有归零。";
     qInfo() << "  同样两个模式在 QPixmap 上也有（qpixmap.h 79~85 行），"
                "但画的时候更常用 QPainter::setRenderHint(QPainter::SmoothPixmapTransform)"
                "（qpainter.h 55 行）；drawImage 重载不带模式参数，靠 render hint 决定。";
@@ -528,17 +559,29 @@ static void evidencePixmapAndCache()
     QPixmap gone;
     qInfo() << "  remove 之后再 find ="
             << QPixmapCache::find(QStringLiteral("badge64"), &gone) << "（预期 false）";
-    qInfo() << "  淘汰行为：往 64KB 的限额里灌 40 张 256x256 的 ARGB32 图（每张约 256KB），"
-               "早先插入的必然被挤出去：";
+    qInfo() << "  淘汰行为①（**单张就超限额**）：往 64KB 的限额里灌 40 张 256x256 的 ARGB32 图，"
+               "每张自己 256*256*4 = 256KB，是限额的 4 倍：";
     QPixmap big(256, 256);                                     // QPixmap 没有「带颜色」的构造函数
     big.fill(QColor(0, 0, 0, 0));                              // 只能构造完再 fill（qpixmap.h 62 行）
     for (int i = 0; i < 40; ++i)
         QPixmapCache::insert(QString::asprintf("big_%d", i), big);
     QPixmap probe;
-    const bool firstSurvived = QPixmapCache::find(QStringLiteral("big_0"), &probe);
-    const bool lastSurvived = QPixmapCache::find(QStringLiteral("big_39"), &probe);
-    qInfo() << "  big_0 还在吗 =" << firstSurvived << "big_39 还在吗 =" << lastSurvived
-            << "（后者 true / 前者 false 才说明限额真的在起作用）";
+    const bool bigFirst = QPixmapCache::find(QStringLiteral("big_0"), &probe);
+    const bool bigLast = QPixmapCache::find(QStringLiteral("big_39"), &probe);
+    qInfo() << "  big_0 还在吗 =" << bigFirst << "big_39（最后插的那张）还在吗 =" << bigLast
+            << "← 两个都是 false：**单张自己就超过限额的图，插进去也留不住**。"
+               "上一版把这两个数字当成'限额起作用'的证据，其实它演示的是另一件事";
+    qInfo() << "  淘汰行为②（每张都小于限额，才轮到 LRU）：换成 64x64（每张 16KB，限额 64KB 只装得下 4 张）"
+               "灌 40 张：";
+    QPixmap small(64, 64);
+    small.fill(QColor(0, 0, 0, 0));
+    for (int i = 0; i < 40; ++i)
+        QPixmapCache::insert(QString::asprintf("small_%d", i), small);
+    const bool smallFirst = QPixmapCache::find(QStringLiteral("small_0"), &probe);
+    const bool smallLast = QPixmapCache::find(QStringLiteral("small_39"), &probe);
+    qInfo() << "  small_0 还在吗 =" << smallFirst << "small_39 还在吗 =" << smallLast
+            << "← 后者 true / 前者 false，这才是'挤掉最久没被访问的'那条规则"
+               "（qpixmapcache.cpp 460~465 行的说明：空间不够时按最近最少访问淘汰）";
     qInfo() << "  注意：replace(Key&, pm) 在 Qt6.6 起弃用（qpixmapcache.h 50~53 行），"
                "头文件给的替代就是 remove(key) + key = insert(pm)；"
                "另外**缓存 Key 与 QPixmapCache 都是 GUI 线程的东西**，别在别的线程里使。";
@@ -647,22 +690,31 @@ static void evidenceHiDpi()
                 << "逻辑视口 window =" << p.window() << "设备视口 viewport =" << p.viewport();
         p.setPen(QPen(QColor(30, 30, 30), 2));                 // 逻辑 2 像素宽
         p.setBrush(QColor(60, 180, 90, 255));
+        // 这块画布上**只画这一个方块**。旧版在后面还画了第二块 (120,10,50,50)，
+        // 而 inkBounds()/countOpaque() 数的是**整幅图**，于是打印出来的包围盒其实是两块的并集
+        // （本机实测 QRect(9,9 161x102)：那个 161 = 110-9+1 是第一块，一直到 170 是第二块，
+        //  跟「(10,10,100,100) 这个方块」根本无关），比值 2、面积 4 只是碰巧对上。
+        // 证据必须**单独取样**才叫证据；要两块就准备两块独立画布。
         p.drawRect(10, 10, 100, 100);                          // **逻辑坐标**下同一个方块
-        p.setPen(Qt::NoPen);
-        p.drawRect(120, 10, 50, 50);
     }
 
     const QRect b1 = inkBounds(one);
     const QRect b2 = inkBounds(two);
-    qInfo() << "  逻辑 (10,10,100,100) 方块的着墨包围盒："
+    // 手算对照：方块外沿 = 逻辑 (10,10)~(110,110)，2 像素宽的笔**沿路径居中**，各外扩 1
+    //   DPR=1 → 设备 (9,9)~(110,110) → QRect(9,9 102x102)
+    //   DPR=2 → 全部乘 2          → QRect(18,18 204x204)
+    qInfo() << "  逻辑 (10,10,100,100) 方块的着墨包围盒（这块画布上**只有它**）："
             << "DPR=1 →" << b1 << ", DPR=2 →" << b2;
+    qInfo() << "  手算 DPR=1 应为 QRect(9,9 102x102)，DPR=2 应为 QRect(18,18 204x204)"
+            << " → 实测吻合 =" << (b1 == QRect(9, 9, 102, 102) && b2 == QRect(18, 18, 204, 204));
     qInfo() << "  包围盒宽高比 DPR2/DPR1 ="
             << (b1.width() > 0 ? double(b2.width()) / double(b1.width()) : 0.0)
-            << "（预期约 2：证明 QPainter 把 DPR 当成整体缩放塞进了变换链）";
-    qInfo() << "  非透明像素数 DPR1 =" << countOpaque(one) << "DPR2 =" << countOpaque(two)
-            << "面积比 ="
-            << (countOpaque(one) > 0 ? double(countOpaque(two)) / double(countOpaque(one)) : 0.0)
-            << "（约 4 = 2^2）";
+            << "（预期 **正好 2**：证明 QPainter 把 DPR 当成整体缩放塞进了变换链）";
+    const qint64 ink1 = countOpaque(one);
+    const qint64 ink2 = countOpaque(two);
+    qInfo() << "  非透明像素数 DPR1 =" << ink1 << "DPR2 =" << ink2
+            << "面积比 =" << (ink1 > 0 ? double(ink2) / double(ink1) : 0.0)
+            << "（预期约 4 = 2^2；两边都只含这一个方块，所以这个比值就是它自己的面积比）";
     one.save(QStringLiteral("painting_05_hidpi_1x.png"));
     two.save(QStringLiteral("painting_05_hidpi_2x.png"));
 
@@ -674,6 +726,29 @@ static void evidenceHiDpi()
             << "，逻辑尺寸 = size()/devicePixelRatio；"
             "控件上读 DPR 用 QPaintDevice::devicePixelRatio()（qpaintdevice.h 52 行）"
             "或 windowHandle()->devicePixelRatio()（qwidget.h 646 行 windowHandle）。";
+
+    // 【把「继承来的所以能调」做成可运行的证据，而不是只挂在嘴上的注释】
+    // QWidget 公有继承 QPaintDevice（qwidget.h 98 行：
+    //   class Q_WIDGETS_EXPORT QWidget : public QObject, public QPaintDevice），
+    // 所以 widget->devicePixelRatio() / devicePixelRatioF() 都是合法调用 ——
+    // 它们在 qwidget.h 里 grep 不到，只说明定义在基类，**不说明不能调**。
+    // 这一段能编过、能跑出数，就是对「grep 不到 ≠ 不能用」这条方法论最省事的证明。
+    QWidget probe;
+    probe.resize(120, 60);
+    qInfo() << "  控件侧继承来的读法（QWidget 上没有这两个名字，照样能调）："
+            << "probe.devicePixelRatio() =" << probe.devicePixelRatio()          // qpaintdevice.h 52 行
+            << "probe.devicePixelRatioF() =" << probe.devicePixelRatioF()        // qpaintdevice.h 53 行
+            << "；QImage 侧同名接口 =" << one.devicePixelRatio()
+            << "，QPixmap 侧 =" << px.devicePixelRatio()
+            << "（QImage/QPixmap/QWidget 三个都从 QPaintDevice 继承，读法统一）。";
+    // 上一版这里还打印「两者相等 = true」当证据 —— 那句话**什么也没证明**：
+    // qpaintdevice.h 53 行的 devicePixelRatioF() 就是 `{ return devicePixelRatio(); }` 的内联别名，
+    // 两个名字后面是同一段代码，比它等于自己。要读平台给的真实 DPI，用同一个类的 48~51 行。
+    qInfo() << "  真正该读的是 DPI 本身（qpaintdevice.h 48~51 行）：logicalDpiX ="
+            << probe.logicalDpiX() << " physicalDpiX =" << probe.physicalDpiX()
+            << " → 本机 offscreen 这一轮 devicePixelRatio =" << probe.devicePixelRatio()
+            << "，也就是说**这台机器不是高 DPI**，上面所有 DPR=2 的数字都是我们手动 setDevicePixelRatio() 造出来的，"
+               "不是平台给的。换到 4K 屏上重跑，这几个数会变，但代码一行都不用改。";
     qInfo() << "  → 实操口径：**图元资源**（图标/照片）按 DPR 备好 1x/2x；"
                "把 1x 的 QImage 直接 setDevicePixelRatio(2) 只是「告诉 Qt 我这几像素代表多大逻辑尺寸」，"
                "不会凭空变出细节，放大照样糊。";
@@ -953,7 +1028,10 @@ int main(int argc, char *argv[])
  *
  * 四、QPixmapCache 的正确期待
  *   它是个「按字节限额的、进程内、GUI 线程」的位图缓存：
- *     · setCacheLimit(int) 单位是 KB；超了会淘汰（本讲用 40 张大图把 big_0 挤掉来证实）；
+ *     · setCacheLimit(int) 单位是 KB；超了会淘汰。**本讲有两个坑，都实测过**：
+ *         ① 单张自己的 cost 就大于限额时，插进去也留不住（40 张 256x256 灌进 64KB，
+ *            连最后插的那张都 find 不到 —— 拿这组数字当"LRU 生效"是错的）；
+ *         ② 每张都小于限额时才轮到 LRU：64x64（16KB）灌 40 张，small_0 没了、small_39 还在。
  *     · insert 有两个版本：给你自己的 QString 键（返回 bool），或者给你一个 Key（返回 Key）；
  *     · Key 比 QString 快（不用哈希字符串），但 Key 一旦 remove/clear 就失效，find 会 false；
  *     · replace() Qt6.6 起弃用；别指望它当「图片资源池」——那是你自己 QHash<QIcon> 的活。
@@ -964,11 +1042,18 @@ int main(int argc, char *argv[])
  *              之后 QPainter 全用逻辑坐标画 → 出来就是「同样大小、更细」的那张。
  *   资源侧：从文件读来的 1x 图标**不要**给它 setDevicePixelRatio(2) 来「假装高清」，
  *            那只会让它在屏幕上变大/变糊；要么按 DPR 选 2x 资源，要么用 SVG（第 8 讲之外）。
- *   控件侧：读 DPR 用继承来的 QPaintDevice::devicePixelRatio()（qpaintdevice.h 52 行），
- *            或 windowHandle()->devicePixelRatio()（qwidget.h 646 行有 windowHandle()）。
- *            **本机 QtWidgets/qwidget.h 里搜不到 devicePixelRatio / devicePixelRatioF 这两个名字**，
- *            所以 Qt5 那句 `widget->devicePixelRatioF()` 在 Qt6 别再照抄（这条是头文件证据，
- *            不是我背的文档）。
+ *   控件侧：读 DPR 用继承来的 QPaintDevice::devicePixelRatio()（qpaintdevice.h 52 行）
+ *            或 devicePixelRatioF()（同一文件 53 行，它就是个 `return devicePixelRatio();`
+ *            的内联别名），也可以用 windowHandle()->devicePixelRatio()
+ *            （qwidget.h 646 行有 windowHandle()）。
+ *            **`widget->devicePixelRatioF()` 在 Qt6 依然合法**：qwidget.h 98 行写的是
+ *            `class Q_WIDGETS_EXPORT QWidget : public QObject, public QPaintDevice`，
+ *            公有继承，所以这个名字从 QPaintDevice 一路带过来直接能调。
+ *            （旧注释在这里写反了：它的证据是「本机 qwidget.h 里搜不到这两个名字」，
+ *             而「搜不到」只说明名字在**基类**里，不说明不能调 ——
+ *             上面第 675/676 行我自己也写的是「继承来的」，前后矛盾就是这条错漏的现场。
+ *             查 API 的规矩要补全：派生类头文件里 grep 不到 → 去看继承列表 → 沿链查到定义，
+ *             到定义为止才能下结论。）
  *
  * ——— 老师傅的话 ———
  *   徒弟，这一讲的干货其实就一句话：**先分清「内存里的图」和「屏幕上的图」，

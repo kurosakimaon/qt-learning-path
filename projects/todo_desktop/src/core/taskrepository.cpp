@@ -18,6 +18,26 @@ void setError(QString* error, const QString& message)
 
 const QString kSelectColumns = QStringLiteral("id, title, done, priority, due, notes");
 
+// 把「可能是 null 的 QString」归一成「一定非 null 的 QString」再进 bindValue。
+// 为什么要这一步（对着 Qt 源码核，别凭记忆）：
+//   · qsql_sqlite.cpp 第 501~507 行 exec() 里，每个绑定值先过
+//     QSqlResultPrivate::isVariantNull(value)，为真就 sqlite3_bind_null；
+//   · 而 isVariantNull 对 QString 的判据在 qsqlresult.cpp 第 604~605 行：
+//     「variant 里那个 QString 本身 isNull()」——注意 null QString ≠ 空串 ""。
+//   · Task 的 title/notes 默认成员初始化是 QString()（null），不是 QStringLiteral("")。
+//     一条没写备注的任务，notes 就是 null QString，直接绑 → 绑成 SQL NULL。
+//   · 表结构里 title / notes 都是 NOT NULL：
+//       upsert 走 INSERT OR REPLACE —— SQLite 的 REPLACE 冲突解决会把违反 NOT NULL 的
+//         NULL 悄悄换成列默认值 ''（见 SQLite conflict resolution 文档），所以「看着成功」；
+//       replaceAll 走普通 INSERT —— 没有冲突兜底，NULL 当场撞 NOT NULL，报
+//         "NOT NULL constraint failed: tasks.notes"。
+//   两条路径一隐一现，就是 bug 的根因。正解：**别让 NOT NULL 列收到 null QString**，
+//   在边界上把 null 归一成 ""，upsert 与 replaceAll 从此行为一致，也不再依赖 REPLACE 的副作用。
+QString notNull(QString value)
+{
+    return value.isNull() ? QStringLiteral("") : value;
+}
+
 } // namespace
 
 TaskRepository::TaskRepository(QString connectionName)
@@ -141,12 +161,12 @@ bool TaskRepository::upsert(const Task& task, QString* error)
     }
 
     query.bindValue(0, task.id);
-    query.bindValue(1, task.title);
+    query.bindValue(1, notNull(task.title));          // NOT NULL：null QString 归一成 ""
     query.bindValue(2, task.done ? 1 : 0);
     query.bindValue(3, static_cast<int>(task.priority));
     query.bindValue(4, task.due.isValid() ? QVariant(task.due.toString(Qt::ISODate))
                                           : QVariant());
-    query.bindValue(5, task.notes);
+    query.bindValue(5, notNull(task.notes));          // NOT NULL：同上
 
     if (!query.exec()) {
         setError(error, QStringLiteral("写入失败：%1").arg(query.lastError().text()));
@@ -212,12 +232,12 @@ bool TaskRepository::replaceAll(const QVector<Task>& tasks, QString* error)
 
         for (const Task& task : tasks) {
             insert.bindValue(0, task.id);
-            insert.bindValue(1, task.title);
+            insert.bindValue(1, notNull(task.title)); // NOT NULL：与 upsert 同一条归一规则
             insert.bindValue(2, task.done ? 1 : 0);
             insert.bindValue(3, static_cast<int>(task.priority));
             insert.bindValue(4, task.due.isValid() ? QVariant(task.due.toString(Qt::ISODate))
                                                    : QVariant());
-            insert.bindValue(5, task.notes);
+            insert.bindValue(5, notNull(task.notes)); // NOT NULL：同上
             if (!insert.exec()) {
                 const QString message = insert.lastError().text();
                 database.rollback();

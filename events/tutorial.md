@@ -12,9 +12,11 @@ Qt 的程序不是「从 `main` 走到 `return`」，而是「走进 `exec()` �
 
 本模块还有一个**核心技巧**贯穿全部 7 个示例：所有演示都在**没有鼠标、没有键盘**的情况下跑完。做法是自己构造 `QEvent` / `QMouseEvent` / `QKeyEvent` / `QDragEnterEvent` / `QDropEvent`，再用 `QCoreApplication::sendEvent()` / `postEvent()` 投给控件，然后**把进入次数、到达顺序打印出来当证据**。这样每个示例都能无人值守跑完、自己吐结论，也是你在 CI 里能测 GUI 的原因。
 
-> 环境事实：Qt 6.12.0、Windows、MinGW-w64（MSYS2 ucrt64，gcc 15.2/16.2）、CMake ≥ 3.21 + Ninja、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`，目标名统一是 `events_0N_xxx`。
+> 环境事实：Qt 6.12.0、Windows、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。构建走 `find_package(Qt6 COMPONENTS Widgets)` + `Qt6::Widgets` + `CMAKE_AUTOMOC=ON`，目标名统一是 `events_0N_xxx`。
 >
-> 诚实标注：**本机当前无法编译链接 Qt 程序**，7 个示例**都未在本机实测编译**。每个类、函数、枚举、重载都对着本机 `C:\msys64\ucrt64\include\qt6` 里的真实头文件核对过（注释里给了文件名与行号），核对不上的 API 一律不用；依赖平台插件或真实指针操作的行为，都标成「文档语义／以你打印的数字为准」。
+> 实测口径：7 个示例**都在本机真实编译、链接、运行过**（`cmake --build` → `ctest` 7/7 绿 → `bash _tools/run_all.sh`）。第 5、7 讲还各自带一个**自检台账**（`[PASS]/[FAIL]/[SKIP]` 计数行），任何一条 FAIL 都把进程退出码变成非 0，所以「打印出来的结论」是被 ctest 盯着的，不是背出来的。每个 `.cpp` 顶部都写明了本机那一轮的台账数字，完整输出存档在 `runlogs/events_0N_*.log`（原始字节是 GBK，`.log` 是转过 UTF-8 的那一份）。
+>
+> 仍然要留一分的地方：凡是依赖**平台插件或可见光标**的行为（例：第 7 讲的禁止/复制光标形状、`QDrag::exec` 在 Windows 原生 OLE 拖放里的阻塞语义），在 `QT_QPA_PLATFORM=offscreen` 下**跑不出真相**——这类条目在代码注释里一律标注「源码读出来、本机不可见」，不作断言。核对不上的 API 一律不用。
 
 ## 二、学习目标
 
@@ -37,7 +39,11 @@ Qt 的程序不是「从 `main` 走到 `return`」，而是「走进 `exec()` �
   01_event_loop.cpp            ← 事件循环解剖（本模块总纲）
     重点：exec() = 取事件 → 派发 → 再取；QEventLoop 可嵌套（模态对话框的原理），
           嵌套带来重入（re-entrancy）——示例把「当前深度/最大深度」打出来；
-          processEvents() 的 ProcessEventsFlag（ExcludeUserInputEvents vs AllEvents）；
+          processEvents() 的 ProcessEventsFlag（ExcludeUserInputEvents vs AllEvents）——
+          ★ 实测更正：ExcludeUserInputEvents 只过滤**原生队列输入**（Windows 分发器里把键盘/鼠标
+          MSG 挪进 queuedUserInputEvents 压后），它对 postEvent 手工投进 postEventList 的合成事件
+          **无效**：processEvents 一开头就无条件 sendPostedEvents()，所以自己 new 一条 QKeyEvent 再
+          postEvent，照样在带 ExcludeUserInputEvents 的这一轮里送达；
           quit() / exit(int) / 从槽里 return 三者后果不同（exit 的返回码能被 outer.exec() 读到）；
           sendEvent 同步 vs postEvent 入队，用流水号顺序当证据；
           自旋 400ms 期间心跳定时器一次不响 = 「循环被占住」的实证
@@ -69,21 +75,51 @@ Qt 的程序不是「从 `main` 走到 `return`」，而是「走进 `exec()` �
           用 QElapsedTimer 实测每 tick 的真实间隔并求平均；
           低级路线 startTimer()/killTimer() + timerEvent(QTimerEvent*)，
           还能 sendEvent 一个手工 QTimerEvent 看穿「它其实就是投一个事件」；
-          interval=0 的合并（连续 start() 500 次 ≠ 500 个 tick）；
+          interval=0 的合并：A 组只 start() 1 次、B 组对同一定时器 start() 2000 次，
+          150ms 窗口内两组命中数一样多（比值≈1）→ 待决 tick 只有一个；
+          而那个数本身远大于 1（本机实测四位数）→ interval=0 的重复定时器是每轮循环排一次，
+          命中数取决于循环转了几圈，不是 start() 调了几次
           QElapsedTimer::restart() 在 Qt6 返回 qint64（Qt5 是 void）
     写法纪律：跨回调的状态一律放**堆或 static**，排进循环的 lambda 用 & 捕获局部变量就是悬空
     本文件有 Q_OBJECT 类，末尾必须 #include "04_timers.moc"
 
   05_mouse_keyboard_focus.cpp  ← 输入事件与焦点（Qt5→Qt6 改动最集中的一片）
     重点：坐标全变 QPointF —— position() / scenePosition() / globalPosition()
-          （Qt5 的 pos() / globalPos() / screenPos() 对照表在文件末尾）；
-          button()「哪一个按钮变了」vs buttons()「此刻按住哪些」，双键同按实测；
-          双击时序 Press → Release → MouseButtonDblClick → Release + doubleClickInterval()；
-          滚轮 angleDelta()（DefaultDeltasPerStep = 120）vs pixelDelta()、phase/inverted；
-          键盘 key() / text() / modifiers() / isAutoRepeat()，Qt6 的 QKeyCombination；
-          Qt::FocusPolicy 五档逐个验证、setTabOrder 与创建顺序之别、
-          setFocus(Qt::FocusReason) + focusIn/focusOut + QApplication::focusChanged；
-          QShortcut + QKeySequence（含标准键 QKeySequence::Copy）
+          （Qt5 的 pos() / globalPos() / screenPos() 对照表在文件末尾，pos() 在 qevent.h 221 行，
+           还被 QT_NO_INTEGER_EVENT_COORDINATES 包着）；实测 position() 原样是局部坐标、
+          globalPosition() == mapToGlobal(局部)；
+          button()「哪一个按钮变了」vs buttons()「此刻按住哪些」，双键同按实测 button=0x2 buttons=0x3；
+          双击时序 Press → Release → MouseButtonDblClick → Release + doubleClickInterval()，
+          ⚠ 但**handler 计数实测是 press 2 / dbl 1 / release 2**：QWidget::mouseDoubleClickEvent 的
+          默认实现函数体只有一行 mousePressEvent(event)（qwidget.cpp 9573~9576），
+          你调了基类，同一个 type=4 的事件就会再进一次你的按下处理；
+          滚轮 angleDelta()（DefaultDeltasPerStep = 120，qevent.h 293 行）vs pixelDelta()、
+          hasPixelDelta() / phase / inverted（Qt6 构造里 phase+inverted 必填，295~298 行）；
+          键盘 key()(436) / text()(445) / modifiers()(440) / isAutoRepeat()(446) / matches()(438)，
+          Qt6 的 QKeyCombination（**类本体在 QtCore/qnamespace.h 1926~1980，不在 qkeycombination.h**；
+          取修饰键的方法叫 keyboardModifiers() 而不是 modifiers()，operator int() 已弃用）；
+          Qt::FocusPolicy **是五档不是四档**：NoFocus=0 / TabFocus=0x1 / ClickFocus=0x2 /
+          StrongFocus=0xb / WheelFocus=0xf（qnamespace.h 118~124），逐个实测；
+          ⚠ 这一讲最大的坑：**策略只管「Qt 替你决定焦点」的三条路，不管你的代码**——
+            · setFocus() 压根不查 focusPolicy，只查 isEnabled()（qwidget.cpp 6546）
+              和 isActiveWindow()（6581）→ 本机实测 NoFocus 的控件被手写 setFocus() 照样 hasFocus=true；
+            · 鼠标点击给焦点那段代码只在 **e->spontaneous()** 时才被调用（qapplication.cpp 2719~2721），
+              所以 sendEvent 合成的点击**永远**触发不了 ClickFocus（实测 focusIn 增量 0）；
+              键盘那条反而不看 spontaneous（2661~2666），合成的 Tab/Backtab 能正常走链；
+            · Tab 链的门槛是平台提示给的：focus_flag = tabFocusBehavior()==TabFocusAllControls
+              ? Qt::TabFocus : Qt::StrongFocus（qapplication.cpp 1982 + 345~348 + 2004~2005）。
+              本机 offscreen 实测 0xff → 门槛 0x1，TabFocus 可达；示例再把提示改成 0x01 做反证，
+              门槛立刻变 0xb，只剩 StrongFocus/WheelFocus 可达 → **要能被 Tab 走到就写 StrongFocus，别赌平台**；
+          setTabOrder 与创建顺序之别，⚠ 两只控件必须**在同一个窗口**，
+              否则 Qt 直接打印 "'first' and 'second' must be in the same window" 并放弃建立顺序
+              （本讲上一版就是因为把面板做成各自顶层的窗口，才出现「五档 hasFocus 全 false」的假象）；
+          setFocus(Qt::FocusReason) + focusIn/focusOut + QApplication::focusChanged
+              （本机开机那两条的 reason=3 = Qt::ActiveWindowFocusReason：窗口激活时 Qt 自己会把焦点给出去）；
+          QShortcut + QKeySequence（含标准键 QKeySequence::Copy）：窗口没激活时合成按键触发数为 0，
+              activateWindow() 之后同一份代码实测 = 1（自定义键与标准键各一次），
+              非 spontaneous 的按键 Qt 会先补发 ShortcutOverride（qapplication.cpp 2651~2659），
+              所以**快捷键是可以自动化测的**，别一看到 0 就归因给平台
+    本讲结尾有汇总自检行（本机 17 PASS / 0 FAIL / 0 SKIP，FAIL 会把退出码带成 1）
     本讲不需要 Q_OBJECT（重写 handler 只是虚函数继承），正好与第 3 讲「过滤器要发信号」对照
 
   06_custom_events.cpp         ← 自定义事件
@@ -101,16 +137,39 @@ Qt 的程序不是「从 `main` 走到 `return`」，而是「走进 `exec()` �
   07_drag_and_drop.cpp         ← 拖放（唯一跨进程说话的一类事件）
     重点：QMimeData 是唯一载体（**它在 QtCore 不在 QtGui**）：
           setText/setUrls/setData + hasText/hasFormat/formats/data；
-          dragEnterEvent 里必须 acceptProposedAction()（或 setDropAction）——
-          只调 accept() 时 dropAction 与光标反馈走的是另一条路，示例把两者并排打印；
+          **表态其实是两个字段**：isAccepted（qcoreevent.h 311/313/314）与 dropAction
+          （qevent.h 736/737）。QDropEvent 构造函数（qevent.cpp 3198~3207）已经把
+          m_defaultAction 和 m_dropAction **同时**设成提议的动作，只多干了 ignore()——
+          所以对本机 6.12 的新鲜事件，accept() 与 acceptProposedAction() **结果完全一样**
+          （演示③ 六行真值表打出来了：A/B/C 三行同值，D 的 setDropAction+accept 才换成 0x2，
+          E 行说明 acceptProposedAction 会**覆盖**你刚 set 的动作）；
+          「一直是禁止光标」的根因是 isAccepted 为假或动作不在 supportedActions 里
+          （qsimpledrag.cpp 285/437 行），不是少调了一次 acceptProposedAction；
+          **收件人不由你定**：DragEnter 沿父链上溯找第一个 isEnabled() && acceptDrops()
+          的祖先（qapplication.cpp 2996~3008），每上一层 m_pos 被 mapToParent 重写一次；
+          DragMove/Drop 一律改投 QDragManager::currentTarget()（3021），没有目标就直接丢弃
+          （3023~3031），落完一次 Drop 又清空目标（3042~3047）——
+          演示②⑤ 把这四条全跑成了可断言的计数（含「残留目标跨轮留任」这一条）；
           dropEvent 里取数据，含自定义 MIME「application/x-qt-learning-item」的内部拖放特权；
-          真正拖动：mousePressEvent 记起点 → mouseMoveEvent 里
-          manhattanLength() 超过 QApplication::startDragDistance() 才 QDrag::exec()，
-          exec() 内部自开嵌套事件循环（回指第 1 讲）；
-          e->source() 在跨进程时为 nullptr；
-          无鼠标演示：栈上 QMimeData + 手工构造 QDragEnterEvent / QDropEvent + sendEvent，
-          把「接住了几个字节／什么文本」打印出来
-    诚实标注：真实拖动（QDrag::exec）需要指针按下与移动，本示例**不自动跑它**，只给完整正确写法
+          QDragMoveEvent 比 QDropEvent 多的只有 answerRect()/accept(QRect)（766/771 行，
+          **没有 reply()**）；
+          真正拖动：mousePressEvent 记起点 + 一个 bool 守卫 → mouseMoveEvent 里
+          manhattanLength() >= QApplication::startDragDistance()（本机实测 10 px）才 QDrag::exec()；
+          exec(supported, IgnoreAction) 的默认动作按 **Move > Copy > Link** 换算
+          （qdrag.cpp 241~248，演示⑦ 实测 defaultAction=0x2）；
+          **起拖后别 delete drag**：QPlatformDrag::ownsDragObject() 是 false
+          （qplatformdrag.cpp 184~187）→ QDragManager::drag() 已经替你 deleteLater
+          （qdnd.cpp 83~84）；
+          exec() 的阻塞语义**分平台**：Windows 阻塞 Qt 事件循环（qdrag.cpp 223~229），
+          Linux/macOS 不阻塞（199~203）——重入清单按最坏的那一代写；
+          e->source() 由 Qt 填（qevent.h 743 行 friend class QApplication），合成事件里必是 nullptr；
+          无鼠标演示：栈上 QMimeData + 手工构造 QDragEnterEvent / QDragMoveEvent / QDropEvent
+          + sendEvent，把「接住了什么文本、几个 URL、谁进的 handler」打印出来
+    实测口径：本讲**连真起拖都自动跑了**——离屏平台的 QOffscreenDrag::drag() 是个桩
+          （qoffscreencommon.h 58~61，函数体一行 `return Qt::IgnoreAction;`），
+          所以 exec() 不阻塞、立刻返回 0x0，阈值判定与 mimeData 装配都是真代码。
+          只有「带桌面的光标形状 / 跨进程 OLE 会话」必须手动验（文件末尾小练习 4）。
+    本讲结尾有汇总自检台账（本机 26 PASS / 0 FAIL / 0 SKIP，FAIL 会让退出码非 0）
 ```
 
 > 为什么第 2、3 讲要拆成两个文件：同一条派发链，**改行为有两个入口**——第 2 讲是「你是这个控件的作者」，重写 `event()` 或某个 handler；第 3 讲是「你不是作者」，从外面挂过滤器。合在一个文件里，新手会以为拦截只有一招；分开写、各自把计数打印出来，才能看出两者在链上的**位置差**（过滤器在 `event()` 之前，`notify` 之内）。
@@ -222,8 +281,20 @@ QKeyEvent    新增 keyCombination() 返回 QKeyCombination；text()/isAutoRepea
 QWidget      enterEvent(QEvent*) → enterEvent(QEnterEvent*)
 QEvent       新增 virtual QEvent *clone() const（不重写，postEvent 的默认实现可能给出警告）
              registerEventType(int hint = -1)（Qt6 带 hint 与 noexcept）
-QEvent::Type 枚举有增删（如 QEvent::Enter/Leave 号段调整、新增 DeviceRemoved 等）
-             → 结论同上：**永远不要用整数硬编码事件类型**
+QEvent::Type 内置值**没动过**：本机 6.12 的 qcoreevent.h 74~75 行仍是
+             `Enter = 10`、`Leave = 11`（显式赋值，跨版本不变）；也**不存在**
+             `QEvent::DeviceRemoved` 这个值——Qt6 里带 Device 字样的只有
+             `DevicePixelRatioChange = 222`（qcoreevent.h 288 行，后面依次是
+             ChildWindowAdded 223 … SafeAreaMarginsChange 227）。
+             新增的是**尾部号段**（222 往后）与 clone() 这类虚函数，不是重排。
+             → 那「永远不要用整数硬编码事件类型」这条规矩还成立吗？成立，但理由要换对：
+               会变的从来不是内置枚举，而是 **`registerEventType()` 的返回值**——
+               实现是 `registerEventTypeZeroBased(MaxUser - hint)`（qcoreevent.cpp 505~509），
+               一个**反向**的位图分配器：不带 hint 时从 `MaxUser`(65535) **往下**发号，
+               带 hint 时只有「那个值还空着」才给你 hint，否则静默忽略 hint 另发一个。
+               本机实测：`ProgressEvent = 65535`（无 hint）、`HeartbeatEvent = 1001`
+               （hint = User+1）——注册顺序一变，两个数就可能撞车或换位。
+               所以写 `QEvent::Type(1052)` 这种「记住上次的号」才是找崩。
 QElapsedTimer::restart()  Qt6 返回 qint64（Qt5 返回 void）
 Qt::TimerType  三档仍是 Precise/Coarse/VeryCoarse（本模块只用本机头里查得到的三个值）
 notify()     本机 Qt 6.12 的 qcoreapplication.h 里它在 **public** 段；
@@ -278,9 +349,10 @@ QCoreApplication::postEvent(&target, new MyEvent(...));  // ✅ 所有权交给 
 
 判据一句话：**「等某件事发生」→ 事件/信号；「每隔一段时间做一次」→ 定时器；「延后到本轮结束」→ `singleShot(0)`。** 三者混用就是卡顿与竞态的开端。
 
-### 7. 额外两条：拖放与输入的「在我机器上好好的」
+### 7. 额外三条：拖放与输入的「在我机器上好好的」
 
-- **`dragEnterEvent` 里只调 `accept()`**：`accept()` 只表示「这个事件我认领了」，而**光标反馈和最终 `dropAction()` 走的是 `proposedAction()`/`acceptProposedAction()` 这条路**。只 `accept()` 不 `acceptProposedAction()`，常见症状是「能放下但一直是禁止光标」或「放下的动作和你想的不一样」。第 7 讲把两者并排打印 `dropAction()` 结果。
+- **把「禁止光标」归因给 `accept()` vs `acceptProposedAction()`**：这条老说法本机测下来是**错的**。`QDropEvent` 的构造函数（qevent.cpp 3198~3207）已经把 `m_dropAction` 和 `m_defaultAction` 同时设成了提议的动作，只额外做了 `ignore()`；而 `acceptProposedAction()` 的实现就是 `m_dropAction = m_defaultAction; accept();`（qevent.h 734）——对一个没人 `setDropAction()` 过的新鲜事件，那句赋值是**空操作**，两种写法逐字段相同（第 7 讲演示③ 六行真值表打出来了）。真正该查的是这三处：① `isAccepted` 到底有没有被置真（没接受 → `setCanDrop(false)` → `ForbiddenCursor`，qsimpledrag.cpp 437/285 行）；② 你想要的动作在不在拖动方的 `supportedActions` 里（不在就被回退，qplatformdrag.cpp 107~116 行）；③ 要**换**动作必须显式 `setDropAction()`，`acceptProposedAction()` 反而会把刚 set 的动作覆盖回默认值（演示③ E 行）。
+- **给 `sendEvent` 的收件人当真**：拖放事件的收件人**不由投递方决定**。`DragEnter` 会沿父链上溯找第一个 `isEnabled() && acceptDrops()` 的祖先（qapplication.cpp 2996~3008），`DragMove`/`Drop` 一律改投 `QDragManager::currentTarget()`（3021），没有目标就直接丢弃（3023~3031），落完一次 Drop 又清空（3042~3047）。断点在 `dropEvent` 里却不进、数据落进隔壁控件、`position()` 读到的不是你投的坐标——三条症状同一条根因，第 7 讲演示⑤ 逐条实测。
 - **用 `button()` 判断「此刻按住了什么」**：`button()` 是「这一次**哪个**按钮变了」，`MouseMove` 事件里它常是 `Qt::NoButton`；要看按住状态用 `buttons()`。这个坑在 Qt5 时代靠 `mouseButtons()` 躲过，Qt6 改名后照踩。第 5 讲双键同按的打印专门对上了它。
 
 ## 七、老师傅的经验之谈
@@ -297,16 +369,16 @@ QCoreApplication::postEvent(&target, new MyEvent(...));  // ✅ 所有权交给 
 
 想改一个 `QPushButton` 的行为：接 `QMouseEvent`（层 ⑥，你得继承），还是接 `clicked()`（信号，层 ⑥ 之后控件翻译好的），还是挂 `eventFilter`（层 ④，不继承），还是在 `notify` 里拦（层 ③，影响全程序）？四个位置四种代价。选错了，症状是「明明收到事件了但按钮外观不更新」（你在 `mousePressEvent` 里 return 而没调基类）或者「一个过滤器搅黄了整个界面」（全局过滤器返回了 true）。
 
-### 4. 数字要自己跑，别信师傅报的数
+### 4. 数字要自己跑一遍，别只信师傅抄的数
 
-本机跑不出 Qt 程序，所以师傅在示例里**一个具体数字都没编**：定时器三档的真实间隔、`paintEvent` 的次数、重入深度、`registerEventType()` 的返回值，全部写成「以你终端上的数字为准」，只承诺**相对关系**（Precise ≥ Coarse 的抖动更小、`exec()` 前 tick 为 0、吞掉 release 后 `clicked` 为 0）。这既是不骗你，也是逼你亲自跑一遍——这一阶段每个示例都设计成跑完自己吐结论，就是在训练你「看证据下判断」的手感。
+这一版的数字是**本机跑出来的**（Qt 6.12.0 / MinGW 13.1，`QT_QPA_PLATFORM=offscreen`）：定时器三档的真实间隔、`paintEvent` 的次数、重入深度、`registerEventType()` 的返回值（实测 `ProgressEvent=65535`、带 hint 的 `HeartbeatEvent=1001`）都印在输出里，第 5、第 7 讲结尾还有一张自检台账把关键结论变成 `[PASS]/[FAIL]` 计数，`ctest` 直接拿退出码判。但师傅仍然要你亲自跑：**你机器上的绝对数字一定和这台不同**（定时器抖动看系统负载、`QDrag::exec` 的阻塞语义看平台），本仓库只把**相对关系**（Precise 的抖动 ≤ Coarse、`exec()` 前 tick 为 0、吞掉 release 后 `clicked` 为 0）当成承诺，绝对值一律以你终端上那一行为准。台账的意义不是「记住 26」，而是训练你「看证据下判断」的手感——哪天你改出一堆 FAIL，那正是它该有的反应。
 
 ### 5. 静默 bug 只能靠打印计数抓
 
-不调基类、`postEvent` 传栈对象、`accept()` 与 `acceptProposedAction()` 之差、`true` 吃掉事件——这四类 bug 的共同点是**不崩、不报错、不警告**，只是功能悄悄没了。对付它们唯一的办法是在每一层放一个计数器，让「应该被叫到的次数」变成可见的数字。本模块 7 个示例里所有 `int xxxCount` 都是这个用途，别嫌它啰嗦；你以后查 GUI 的「点不动」问题，也是这个路子。
+不调基类、`postEvent` 传栈对象、`isAccepted()` 与 `dropAction()` 是两个互不相干的字段、`true` 吃掉事件、`sendEvent` 的收件人被 `notify` 悄悄改投——这几类 bug 的共同点是**不崩、不报错、不警告**，只是功能悄悄没了。对付它们唯一的办法是在每一层放一个计数器，让「应该被叫到的次数」变成可见的数字。本模块 7 个示例里所有 `int xxxCount` 都是这个用途，别嫌它啰嗦；第 7 讲那条「Drop 落进了不是收件人的盒子」就是靠 `dropCount` + 坐标回读才抓住的。你以后查 GUI 的「点不动」问题，也是这个路子。
 
-### 6. 诚实对待「编没编过」
+### 6. 诚实对待「测没测过」
 
-本机此刻运行时在升级、编不动，就大方写「未在本机实测编译」，但**每个 API 都查真实头文件核对**，注释里给到文件与行号；本机头里查不到的重载和枚举，一律不用、或者明确标成「文档语义」。写 Qt 和做人一样：不确定就别乱说——这正是这套资料能叫「无谬误」的原因。
+编得动、跑得起、有台账，就大方写「本机实测」并给出那一轮的 PASS/FAIL 数；**编不动或平台不给出的行为**（真实鼠标拖起的系统光标形状、跨进程 drop、Windows 上 `exec()` 阻塞期间的界面表现）就明确标成「本机不可测，以文档语义为准」，并把每个 API 都查真实头文件/源码核对，注释里给到文件与行号；本机头里查不到的重载和枚举，一律不用或明确标注。写 Qt 和做人一样：不确定就别乱说——这正是这套资料能叫「无谬误」的原因。第 7 讲本身就是这条纪律的产物：一句广为流传的「只调 `accept()` 会变禁止光标」被源码里 `QDropEvent` 构造函数的两行赋值推翻，改成了六行真值表。
 
 > 第叁阶段就到这儿。这 7 个文件把「事件到底怎么走到你手上」这件事钉死了：一条链、三个插手位置、四类具体事件、一整套无鼠标的验证手法。接下来进入绘制与控件阶段，你会看到 `paintEvent` 怎么画、布局怎么在链里响应尺寸事件——那些都建在你现在能背出的这条派发链上。想看动画复盘，随时回来翻 [图解 · 事件循环](../visuals/event_loop.html) 与 [图解 · 事件过滤器](../visuals/event_filter.html)。加油，徒弟！

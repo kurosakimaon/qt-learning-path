@@ -1,0 +1,157 @@
+============================================================
+storage 第 1 讲 · QSettings（Qt = 6.12.0 ）
+工作目录 = "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01"
+============================================================
+
+【步骤①】组织名/应用名 = 构造期快照
+  已执行 setDefaultFormat(IniFormat) 与 setPath(IniFormat,UserScope,临时目录)
+  defaultFormat() 现在 = 1 （0=NativeFormat, 1=IniFormat, 2/3=Registry*, 16=InvalidFormat）
+  此刻全局名字：organizationName =[ "" ] applicationName =[ "storage_01_qsettings" ]
+  先构造 snapA(QSettings("QtCourseOrg","SnapA"))：fileName =[ "\\HKEY_CURRENT_USER\\Software\\QtCourseOrg\\SnapA" ]
+  改完全局名字：organizationName =[ "QtCourseOrg" ] applicationName =[ "MyApp" ]
+  snapA 的 fileName 变了吗？还是 [ "\\HKEY_CURRENT_USER\\Software\\QtCourseOrg\\SnapA" ] ← **没变**：组织/应用名在构造时就抄进对象里了。
+  之后默认构造的 snapB：fileName =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01\\QtCourseOrg\\MyApp.ini" ] org = "QtCourseOrg" app = "MyApp" → 这才是「谁先 set 谁后构造」的区别：**先定名字，再 new QSettings**。
+      ［对］ snapA 的 fileName 在全局改名后不变 → 期望 1，实测 1
+      ［对］ snapB 抓到的是改名后的组织名 → 期望 1，实测 1
+      ［对］ snapB 抓到的是改名后的应用名 → 期望 1，实测 1
+  反面教材（本讲不实测，标 待复核）：如果在 setOrganizationName 之前就默认构造 QSettings，Qt 会用一个「Unknown Organization」的兜底名并打警告，路径也跟着错——这是「配置莫名其妙丢了」的头号原因。
+
+【步骤②】三组构造 × 三种作用域：落点各在哪
+  (a) QSettings(Format,Scope,org,app)：fileName =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01\\QtCourseOrg\\MyApp.ini" ] format = 1  scope = 0  isWritable = true ← 位置是被 setPath(IniFormat,UserScope) 改道过的临时目录
+  (b) QSettings(fileName, Format)     ：fileName =[ "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01\\app.ini" ] format = 1  scope = 0  isWritable = true ← **本讲的主战场**：路径你说了算，导出/便携版就用这条
+     它的 scope() 仍然是 0 （0=UserScope）：构造时传了路径，scope 只是个标签，别拿它当落点依据。
+  (c) QSettings(org, app)             ：fileName =[ "\\HKEY_CURRENT_USER\\Software\\QtCourseOrg\\MyApp" ] format = 0 ｜此刻 defaultFormat() = 1  ← ★ 它**不**跟随 defaultFormat：这条构造在 qsettings.cpp 第 2536~2540 行把格式**写死成 NativeFormat**（=0，所以 fileName 是注册表路径），文档第 2531 行原话：calling setDefaultFormat() before calling this constructor has no effect。同理 QSettings(Scope,org,app)（第 2561~2563 行）也写死 NativeFormat；真正吃 defaultFormat() 的只有默认构造/QSettings(Scope, parent) 那两条（第 2661/2674 行）。
+      ［对］ sFs 用 IniFormat → 期望 1，实测 1
+      ［对］ sFs 是 UserScope → 期望 0，实测 0
+      ［对］ sFile 用 IniFormat → 期望 1，实测 1
+      ［对］ sOrg(org,app) 恒为 NativeFormat（.cpp 第 2537 行写死） → 期望 0，实测 0
+      ［对］ sOrg 与 defaultFormat() 不一致 → setDefaultFormat 对它无效 → 期望 1，实测 1
+  (d) NativeFormat 在 Windows 上 = 注册表 HKEY_CURRENT_USER\Software\<org>\<app>；在 Linux/macOS 上 = ini/XDG。**本讲不构造写它的对象**，免得真写注册表。
+     SystemScope 需要管理员权限，普通安装请用 UserScope。
+
+【步骤③】写六种类型 → 读回，看类型名变没变
+  写完并 sync()：status = "NoError"
+"  窗口/宽度          → %2" "int(id=2) = 1280"
+"  窗口/透明度         → %2" "double(id=6) = 0.85"
+"  界面/深色模式        → %2" "bool(id=1) = true"
+"  界面/语言          → %2" "QString(id=10) = zh_CN"
+"  界面/最近目录        → %2" "QStringList(id=11) = "
+"  服务/端口          → %2" "int(id=2) = 18080"
+  ★ 重点看「窗口/透明度」：ini 里存的是文本，读回来却是 QVariant(double)——**QSettings 按格式自己做了类型推断**，但这套推断只保证「它自己写出去的文本」，不保证你手改的 ini。
+      ［对］ 窗口/宽度 读回 typeId = Int → 期望 2，实测 2
+      ［对］ 窗口/透明度 读回 typeId = Double → 期望 6，实测 6
+      ［对］ 界面/深色模式 读回 typeId = Bool → 期望 1，实测 1
+      ［对］ 界面/语言 读回 typeId = QString → 期望 10，实测 10
+
+【步骤④】类型不一致时到底发生什么
+  存 int 42，用 QString 默认值去读 → "int(id=2) = 42" （★ 返回的还是**存的那个 int**，QSettings 没转成 QString；上面那句 "42" 是代码里 toString() 转的。默认值更没出场——它只在**键不存在**时才回来）
+  存 "42"，用 int 默认值 7 去读 → "QString(id=10) = 42" （同上：给的还是存的 QString，7 没用上；toInt() 是 QVariant 自己在转）
+  存 "abc"，用 int 默认值 7 去读 → "QString(id=10) = abc" ← ★ 拿到的**不是 7**，而是存着的那串 "abc"：Qt6 的 value() 里根本没有「按默认值的类型去 convert」这一步（qsettings.cpp 第 3361~3372 行：命中键就 原样 return，只有取不到才 return *defaultValue）。默认值掩盖不了任何事，因为它压根没参与。
+     再 toInt() 才是 0 —— 静默失败发生在你自己调的 QVariant::toInt() 上，不是 QSettings 上（原预测「给默认值 7」是把 Qt5 的 requiredType/convert 当成现在的行为了，那份签名在 Qt6 已整段删除）。
+     同一份数据单参读回来再 toInt(&ok)：值 = 0  ok = false （第 613 行的 bool* 出参才是「转换成没成」的真相，**默认值掩盖它**）
+      ［对］ int 42 用 QString 默认值读回 "42" → 期望 1，实测 1
+      ［对］ ★ 存 int 读出来仍是 int（QSettings 不转换） → 期望 1，实测 1
+      ［对］ 字符串 "42" 用 int 默认值读回 42 → 期望 42，实测 42
+      ［对］ 字符串 "abc" 读回来仍是存的 QString（默认值 7 没出场） → 期望 10，实测 10
+      ［对］ 字符串 "abc" 转不动 → toInt() 默默给 0（**不是** 7） → 期望 0，实测 0
+      ［对］ 裸 toInt(&ok) 对 "42" 给出 42 → 期望 42，实测 42
+      ［对］ 裸 toInt(&ok) 对 "42" 的 ok 为 true → 期望 1，实测 1
+      ［对］ 裸 toInt(&ok) 对 "abc" 给 0 → 期望 0，实测 0
+      ［对］ 裸 toInt(&ok) 对 "abc" 的 ok 为 false → 期望 0，实测 0
+  存 int 42，toStringList() 硬转 → QList() ｜canConvert(QStringList) = false （想读列表先 canConvert，别 toXxx 猜）
+  → 纪律：**每个配置项固定一种读法**（写 int 就永远按 int 读），并把默认值的类型写成和存储类型一致。★ 但别再指望 QSettings 替你兜底：Qt6 的 value() 不做类型转换，键在就原样给你存的 QVariant，「看起来合理」的 0 / 空串是**你自己那句 toInt()/toString() 造出来的**，一句错误都不报——这才是最难查的那类 bug。
+
+【步骤⑤】配置里没有这一项的时候
+  contains(ghost) = false ｜value(ghost) 单参版 → "<无效 QVariant（isValid()=false）>" ｜value(ghost,96) 双参版 → "int(id=2) = 96"
+  所以「用户从没设过 → 走首次运行引导」这种判断，要用**单参版 + isValid()**，或者 contains()；用双参版你永远分不清「是存着的默认值」还是「我给的兜底值」。
+      ［对］ 缺失键 contains 为 false → 期望 0，实测 0
+      ［对］ 缺失键单参 value 无效 → 期望 0，实测 0
+      ［对］ 缺失键双参 value 拿到兜底 96 → 期望 96，实测 96
+
+【步骤⑥】层级 key 与 group
+      ［对］ beginGroup 后 group 为「窗口」 → 期望 1，实测 1
+  beginGroup("窗口") 之后 group() =[ "窗口" ]
+      ［对］ 嵌套 beginGroup 后 group 为「窗口/停靠」 → 期望 1，实测 1
+  嵌套 beginGroup("停靠") 之后 group() =[ "窗口/停靠" ] ← **group 是会叠加的**，所以这里是 窗口/停靠
+  endGroup() 回到 group() =[ "窗口" ]
+  再 endGroup() 回到 group() =[ "" ]（空串 = 根）
+      ［对］ 第一次 endGroup 回到「窗口」 → 期望 1，实测 1
+      ［对］ 第二次 endGroup 回到根（空串） → 期望 1，实测 1
+  「窗口/宽度」现在读回来 = 1920 ← beginGroup 里写的「宽度」和根上写的「窗口/宽度」是**同一个键**
+      ［对］ group 里写的宽度覆盖了根上那个 1280 → 期望 1920，实测 1920
+  根上 childGroups() = QList("实验", "服务", "界面", "窗口")
+      ［对］ 根上 childGroups 含「窗口」 → 期望 1，实测 1
+  进到「窗口」里：childKeys() = QList("宽度", "透明度") ｜childGroups() = QList("停靠")
+      ［对］ 「窗口」的 childKeys 含 宽度 → 期望 1，实测 1
+      ［对］ 「窗口」的 childGroups 含 停靠 → 期望 1，实测 1
+  allKeys() 共 10 项：
+      "实验/字符串乱码"
+      "实验/字符串数字"
+      "实验/整数"
+      "服务/端口"
+      "界面/最近目录"
+      "界面/深色模式"
+      "界面/语言"
+      "窗口/停靠/左"
+      "窗口/宽度"
+      "窗口/透明度"
+      ［对］ allKeys 含 窗口/宽度 → 期望 1，实测 1
+      ［对］ allKeys 含 窗口/停靠/左 → 期望 1，实测 1
+      ［对］ allKeys 含 界面/语言 → 期望 1，实测 1
+      ［对］ allKeys 不含 beginGroup 里的短名「宽度」 → 期望 0，实测 0
+  ★ allKeys() 永远给你**完整的、带 / 的键**，不受当前 group 影响；childKeys/childGroups 才看当前 group。begin/end 必须配对——中间提前 return 就把 group 漏在里层了，用 RAII 包一层最稳。
+
+【步骤⑦】sync() 之前磁盘上是什么
+"  磁盘字节数：开讲时 364 → 写了新键之后 364 → sync() 之后 393"
+  文件原文里搜 only_in_memory：sync 前 = "没搜到" ｜sync 后 = "搜到" （readAll 共 393 字节）
+  内存侧永远立刻可见：value(probe/only_in_memory) = 1 → 写进去就能读，磁盘上要等 sync()
+      ［对］ sync 前磁盘原文搜不到 only_in_memory → 期望 0，实测 0
+      ［对］ sync 后磁盘原文出现 only_in_memory → 期望 1，实测 1
+      ［对］ sync 前文件大小没被改动（证明“择机刷盘”） → 期望 1，实测 1
+      ［对］ 另开的 QSettings 从磁盘读回 probe 键 → 期望 1，实测 1
+  isAtomicSyncRequired = true （第 118 行；true 时 sync 走「写临时文件再改名」，**断电不容易写坏**）
+  → 三条时机：① 用户点「应用」→ 立刻 sync()；② 程序退出前 → sync()；③ 崩溃也要保住的东西 → setAtomicSyncRequired(true) + 频繁 sync()。别指望「对象析构时自动刷」——它只在**正常析构**时刷。
+
+【步骤⑧】QSettings 会不会告诉你「配置变了」？
+  在 QSettings 上装了 eventFilter，做了 2 次 setValue + 1 次 sync 之后： 收到事件总数 = 1 ｜其中 User 段（QEvent::User=1000 .. QEvent::MaxUser=65535）= 0
+  事件类型分布（type 枚举值:次数）： "77:1"
+  结论（保守）：qsettings.h 里**没有任何 Q_SIGNALS**，第 180 行只有 protected event()。老资料里的 QSettingsEvent 在本机 6.12 查无此名：qsettings.cpp 全文 grep 0 处，真实机制是第 330 行 postEvent 一个普通的 QEvent(QEvent::UpdateRequest)、再由第 3320 行 event() 自己接住 —— 公共头文件里既没有它的类型值也没有它的声明，所以**不能当成可依赖的 API**（本讲实测到的分布只是佐证，别写成产品逻辑）。
+     → 真要变更通知，两条正路：① **自己包一层 setter**（下面的 ConfigStore，值真变了才 emit）；② 轮询：定期把 allKeys()+value() 拼个串比哈希。②有延迟、①要求所有写入都走你的门——这就是纪律，不是技术。
+     [ConfigStore::changed] 键 =[ "服务/端口" ] 真的变了
+     [ConfigStore::changed] 键 =[ "界面/语言" ] 真的变了
+  ConfigStore：写了 3 次、sync 了 0 次，changed 响了 2 次
+  flush() 返回 = true ｜status = "NoError"
+      ［对］ 写同值不发信号，两次真变化 → changed 共 2 次 → 期望 2，实测 2
+      ［对］ ConfigStore::set 调了 3 次 → 期望 3，实测 3
+      ［对］ flush 之前没有隐式 sync → 期望 0，实测 0
+      ［对］ flush() 成功 → 期望 1，实测 1
+      ［对］ flush 之后 syncCount = 1 → 期望 1，实测 1
+
+【步骤⑨】导出配置、导入配置
+  做法一（键级搬运）：搬了 12 个键 → "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01\\backup.ini" ｜字节数 = 504
+  做法二（原文拷贝）：读 434 字节 → 写 434 字节 → "C:\\Users\\Kuros\\AppData\\Local\\Temp\\qt_storage_01\\backup.ini.copy" ｜两边字节数相等 = true
+      ［对］ 源 ini 原文非空 → 期望 1，实测 1
+      ［对］ 键级搬运的键数 = 源 allKeys 条数 → 期望 1，实测 1
+      ［对］ 原文拷贝写满源文件字节数 → 期望 434，实测 434
+  导入核对：导出件里 13 个键，与源不一致的有 0 个（0 才算过）｜imported->status() = "NoError"
+      ［对］ 导出件键数 = 源键数 + 1（多了元信息） → 期望 13，实测 13
+      ［对］ 导出件与源逐键比对，不一致数为 0 → 期望 0，实测 0
+  remove("服务/端口") 之后 contains = false ｜clear() 之前 allKeys = 12
+  clear() 之后 allKeys = 0 ｜status = "NoError" ｜isWritable = true ← clear 是「清空这个对象能看到的整棵树」，**不是清当前 group**；用户点「恢复默认」想清干净就得用它，但得先问用户一句。
+      ［对］ remove 之后 contains 为 false → 期望 0，实测 0
+      ［对］ remove 只少一个键 → 期望 12，实测 12
+      ［对］ clear 之后 allKeys 为 0 → 期望 0，实测 0
+
+【清理】removeRecursively() = true ｜目录还在吗 = false （临时目录里删掉 3 个文件： QList("app.ini", "backup.ini", "backup.ini.copy") ）
+      ［对］ 清理前临时目录里有文件 → 期望 1，实测 1
+      ［对］ removeRecursively() 成功 → 期望 1，实测 1
+      ［对］ 清理后目录不存在 → 期望 0，实测 0
+
+【本讲可核对的证据】
+  ① snapA 的 fileName 在全局改名后不变、snapB 用新名字 → 构造期快照
+  ② 三种构造的 fileName/format/scope 已逐项打出（IniFormat=1, UserScope=0）
+  ③ 六个类型写回读回的类型名与值一致；"abc" 读成 int 时 Qt6 **不给默认值 7**，给的是存的 QString，toInt() 之后才是 0（默认值只在缺键时出场）
+  ④ allKeys() 的条数与层级前缀、childKeys/childGroups 的分工已对照
+  ⑤ sync 前后磁盘字节数、eventFilter 事件计数、导出件字节数、清理结果
+
+【硬账】56/56 项核对通过 → 退出码 0

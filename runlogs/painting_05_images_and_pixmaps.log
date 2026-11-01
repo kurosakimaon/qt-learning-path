@@ -1,0 +1,82 @@
+================================================================
+painting 第 5 讲 · QImage / QPixmap / QBitmap（平台 = "offscreen" ）
+================================================================
+【证据①】格式 / 字节序 / bytesPerLine 行填充
+  本机字节序: LittleEndian（x86/ARM 常见）
+  ARGB32 (0,0) 内存前 4 字节: "33 22 11 AA" "| pixel() 读回 0xAA112233" | pixelColor().alpha() = 170
+  RGB32  写入 alpha=0 后读回 alpha = 255 （预期恒为 255：RGB32 不存 alpha，低字节固定 0xFF）
+  hasAlphaChannel(): ARGB32 = true , RGB32 = false （qimage.h 202 行）
+  灰度/Alpha 的行对齐（bytesPerLine vs width）：
+"    w= 1  Grayscale8: bpl= 4 sizeInBytes=  4 | Alpha8: bpl= 4  Mono 视角 bpl= 4"
+"    w= 4  Grayscale8: bpl= 4 sizeInBytes=  4 | Alpha8: bpl= 4  Mono 视角 bpl= 4"
+"    w= 5  Grayscale8: bpl= 8 sizeInBytes=  8 | Alpha8: bpl= 8  Mono 视角 bpl= 4"
+"    w=18  Grayscale8: bpl=20 sizeInBytes= 20 | Alpha8: bpl=20  Mono 视角 bpl= 4"
+"    w=19  Grayscale8: bpl=20 sizeInBytes= 20 | Alpha8: bpl=20  Mono 视角 bpl= 4"
+  → 记住这一条：写 scanLine 的裸内存循环时，**列上限要用 width()，行首地址要用 scanLine(y)**，别用 y*width*4 手算偏移。
+  Indexed8: colorCount = 4 色表大小 = 4 | (0,0) 索引 = 0 , (3,0) 索引 = 3 "| pixel(3,0) 当颜色读 = 0xFFFAFA28" （**同一个数**，索引格式里它是索引、32 位格式里它是 QRgb）
+  Indexed8 有 alpha 通道吗: false （色表项本身可含 alpha，所以 Qt 说没有）
+  createAlphaMask(): 格式 = 2 (Format_Mono/…), 32 x 24 bytesPerLine = 4
+  QBitmap::fromImage 得到 32 x 24 的掩膜；QBitmap 继承自 QPixmap，所以它**同样是窗口系统的图**
+  非透明像素数：原图(带 alpha) = 454 , 全图面积 = 768
+  ARGB32 的 QPixelFormat: bitsPerPixel = 32 channelCount = 4 alphaSize = 8 alphaPosition(枚举值) = 0
+【证据②】隐式共享（implicit sharing）与 detach
+  b = a 之后: a.isDetached() = false b.isDetached() = false （预期都 false：两份 QImage 指向同一块数据）
+  数据地址是否相同: constBits() 相等 = true （qimage.h 163 行 constBits()；共享就是同一个指针。 161 行的非 const bits() 会 detach，别拿它当只读探针）
+  通过 constScanLine(0) 只读一行后 b.isDetached() = false （读到首字节 = 200 ，red= 10 ）
+  b.setPixelColor(...) 之后: a.isDetached() = true b.isDetached() = true constBits() 仍相等 = false
+  行为证明：改 b(5,5) 之后 a(5,5) = "#ff0a78c8" b(5,5) = "#ffff0000" （a 应保持原色：这就是 copy-on-write）
+  c = a 后 c.isDetached() = false
+  拿**非 const** scanLine(0) 之后 c.isDetached() = true （指针 w 有效，但 c 已经是自己的一份了）
+  写 c 的首字节之后：c(0,0)=0x "FF0A7840"  a(0,0)=0x "FF0A78C8" （a 没被改动，正是 detach 的意义）
+  → 纪律：只读就用 constScanLine()，或把 QImage 声明成 const 再传。否则你以为在「读」，其实已经复制了整幅图。
+  d.detach() 后 d.isDetached() = true d.copy(QRect(0,0,50,50)).size() = QSize(50, 50)
+  QPixmap 同理有 isDetached()/detach()（qpixmap.h 113/114 行）；但 QPixmap 你没法读像素来验证，只能 toImage() 之后测。
+【证据③】scaled：Qt::AspectRatioMode × Qt::TransformationMode
+  源图尺寸: QSize(100, 50)
+  IgnoreAspectRatio        → QSize(200, 200) （宽高各拉，**变形**）
+  KeepAspectRatio          → QSize(200, 100) （取小比例，四周留空）
+  KeepAspectRatioByExpanding→ QSize(400, 200) （取大比例：**会超出你给的目标框**，要自己裁）
+  scaledToWidth(120)       → QSize(120, 60) （比例不变，100:50=2:1）
+  scaledToHeight(120)      → QSize(240, 120)
+  放大 4 倍后，斜边上一个跨界像素 (118,42) 的 alpha： Fast = 255 , Smooth = 255
+  非透明像素数：Fast = 11856 , Smooth = 13088 （两者都远大于 160*160/2=12800 的直觉值，因为边界被展宽）
+  300 次 scaled 耗时：Fast = 48461 us, Smooth = 76620 us, 比值 = 1.58106 （**具体数值看你机器**：本机连跑三轮是 1.26 / 1.48 / 1.55，别把倍数当常识背。要注意的是一个 100x100 的小图放大到 300x300，Smooth 只贵 30%~60%，『Smooth 贵到不能用』在这种尺寸下是不成立的；图越大、倍数越高，差距才拉开）
+  读表口径：如果第二段读的是累计值，打印出来的『比值』会正好等于 1 + 真比值 （本机这轮就是 1 +  1.58106  =  2.58106 ）—— 上一版就中了这一枪，看到 2.x 还以为 Smooth 真贵一倍。凡是量两段耗时，先问自己第二段有没有归零。
+  同样两个模式在 QPixmap 上也有（qpixmap.h 79~85 行），但画的时候更常用 QPainter::setRenderHint(QPainter::SmoothPixmapTransform)（qpainter.h 55 行）；drawImage 重载不带模式参数，靠 render hint 决定。
+【证据④】QPixmap 的构造时机与 QPixmapCache
+  QGuiApplication::instance() 非空 = true 平台 = "offscreen"
+  QPixmap.isNull() = false hasAlpha() = true isDetached() = true
+  QPixmap 不能读像素：本讲所有像素统计都走 toImage()（qpixmap.h 89 行）
+  pm.toImage() 非透明像素 = 3044 包围盒 = QRect(4,4 56x56)
+  toImage→fromImage 往返后再取像素： "#ffc82828"
+  setCacheLimit(64) 后 cacheLimit() = 64 KB（原来是 10240 KB）
+  insert(QString,…) = true  find(QString, &pm) = true 取回尺寸 = QSize(64, 64) 取回后 out.isDetached() = false （命中的那份与缓存里那份**共享像素数据**，所以不是 detached；缓存省的就是这次复制）
+  insert(pm) 返回 Key，isValid = true 用 Key find = true
+  remove 之后再 find = false （预期 false）
+  淘汰行为①（**单张就超限额**）：往 64KB 的限额里灌 40 张 256x256 的 ARGB32 图，每张自己 256*256*4 = 256KB，是限额的 4 倍：
+  big_0 还在吗 = false big_39（最后插的那张）还在吗 = false ← 两个都是 false：**单张自己就超过限额的图，插进去也留不住**。上一版把这两个数字当成'限额起作用'的证据，其实它演示的是另一件事
+  淘汰行为②（每张都小于限额，才轮到 LRU）：换成 64x64（每张 16KB，限额 64KB 只装得下 4 张）灌 40 张：
+  small_0 还在吗 = false small_39 还在吗 = true ← 后者 true / 前者 false，这才是'挤掉最久没被访问的'那条规则（qpixmapcache.cpp 460~465 行的说明：空间不够时按最近最少访问淘汰）
+  注意：replace(Key&, pm) 在 Qt6.6 起弃用（qpixmapcache.h 50~53 行），头文件给的替代就是 remove(key) + key = insert(pm)；另外**缓存 Key 与 QPixmapCache 都是 GUI 线程的东西**，别在别的线程里使。
+【证据⑤】save / load（图像由代码生成）
+  本机 QImageWriter 支持的格式数 = 12 前几个: "BMP,CUR,ICO,JFIF,JPEG,JPG,PBM,PGM"
+  PNG: save = true load = true 尺寸一致 = true 中心像素  "#ffe18c82" -> "#ffe18c82"
+  存进 QBuffer: true 字节数 = 7819
+  fromData 读回: QSize(180, 90) alpha = 255 isNull = false
+"  同一张 180x90：PNG=7819 字节, JPG(85)=3439 字节, BMP=48654 字节（BMP 是无压缩的裸行，正好等于 bytesPerLine*height 量级）"
+  save 的第二个参数是**格式名字符串**（"PNG"/"JPG"/"BMP"…），它和文件后缀无关：写成 .png 但传 "BMP" 就存成 BMP；传 nullptr 才按后缀猜。
+  无损性检查：PNG 往返后非透明像素数  14916 → 14916
+【证据⑥】devicePixelRatio：物理像素 vs 逻辑坐标
+  QPainter.isActive = true devicePixelRatio = 1 逻辑视口 window = QRect(0,0 200x200) 设备视口 viewport = QRect(0,0 200x200)
+  QPainter.isActive = true devicePixelRatio = 2 逻辑视口 window = QRect(0,0 400x400) 设备视口 viewport = QRect(0,0 400x400)
+  逻辑 (10,10,100,100) 方块的着墨包围盒（这块画布上**只有它**）： DPR=1 → QRect(9,9 102x102) , DPR=2 → QRect(18,18 204x204)
+  手算 DPR=1 应为 QRect(9,9 102x102)，DPR=2 应为 QRect(18,18 204x204)  → 实测吻合 = true
+  包围盒宽高比 DPR2/DPR1 = 2 （预期 **正好 2**：证明 QPainter 把 DPR 当成整体缩放塞进了变换链）
+  非透明像素数 DPR1 = 10402 DPR2 = 41608 面积比 = 4 （预期约 4 = 2^2；两边都只含这一个方块，所以这个比值就是它自己的面积比）
+  QPixmap 设 DPR=2 后 size() 仍是 QSize(200, 200) ，逻辑尺寸 = size()/devicePixelRatio；控件上读 DPR 用 QPaintDevice::devicePixelRatio()（qpaintdevice.h 52 行）或 windowHandle()->devicePixelRatio()（qwidget.h 646 行 windowHandle）。
+  控件侧继承来的读法（QWidget 上没有这两个名字，照样能调）： probe.devicePixelRatio() = 1 probe.devicePixelRatioF() = 1 ；QImage 侧同名接口 = 1 ，QPixmap 侧 = 2 （QImage/QPixmap/QWidget 三个都从 QPaintDevice 继承，读法统一）。
+  真正该读的是 DPI 本身（qpaintdevice.h 48~51 行）：logicalDpiX = 96  physicalDpiX = 100  → 本机 offscreen 这一轮 devicePixelRatio = 1 ，也就是说**这台机器不是高 DPI**，上面所有 DPR=2 的数字都是我们手动 setDevicePixelRatio() 造出来的，不是平台给的。换到 4K 屏上重跑，这几个数会变，但代码一行都不用改。
+  → 实操口径：**图元资源**（图标/照片）按 DPR 备好 1x/2x；把 1x 的 QImage 直接 setDevicePixelRatio(2) 只是「告诉 Qt 我这几像素代表多大逻辑尺寸」，不会凭空变出细节，放大照样糊。
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+【证据⑧】总览卡: QSize(560, 300) format = 6 save = true 非透明像素 = 168000 / 面积 = 168000 （整张被 fill 过，所以两个数应当相等；不相等就是 fill 没生效）

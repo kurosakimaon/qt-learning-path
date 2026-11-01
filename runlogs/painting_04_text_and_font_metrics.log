@@ -1,0 +1,73 @@
+
+=== 证据〇 字体环境自检（先确认在量什么，再谈数字对不对）===
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+  QFontDatabase::families().size() = 0 前几个 = QList() isScalable(" "" ") = false
+  QFontInfo(默认 QFont, pixelSize=32)：family = "" styleName = "" pixelSize = -1 exactMatch = false fixedPitch = false （QFontInfo 才是「落到哪张真实字面」的答案；exactMatch = false 就是没落到你要的那个）
+  同一个 font 的度量：ascent = 32 descent = 0 height = 32 capHeight = 32 xHeight = 32 averageCharWidth = 32 maxWidth = 32
+  判定：families 为空 = true ｜ascent=capHeight=xHeight=maxWidth 且 descent=0（退化合成字形才长这样）= true ｜「H」与「i」的 advance 相等 = true （真实比例字体这三个判定应当全是 false；本机这一轮全是 true）。
+  【注意】 于是本讲后面每个数字都得这样读：它们**不是**某个真实字体的度量，而是「这台机器一个字体都没有」时 Qt 退路的合成字形的数。 换一台装了字体的机器，ascent/行高/字宽全都会变，「H 与 i 不等宽」也会成立。所以凡是我写「相等」的项，先怀疑环境，再怀疑公式；真要验证居中/基线那几条，先让 families().size() > 0（装字体，或把字体打进 qrc 再 QFontDatabase::addApplicationFont —— 那条线在 storage 阶段，本模块只到第 8 讲）。
+
+=== 证据① setPixelSize(24) vs setPointSize(18) ===
+  设备 logicalDpi = 96 x 96  devicePixelRatio = 1
+  byPixel （setPixelSize(24)）：pixelSize() = 24  pointSize() = -1 （**用 pixelSize 设过之后，pointSize() 预期读到 -1**，那是「单位未定」的哨兵值）
+  byPoint （setPointSize(18)）：pointSize() = 18  pixelSize() = -1 （预期同样是 -1；像素尺寸要**问度量才知道**，QFont 自己不知道）
+  同一台设备上：24px 字体 height() = 24 ，18pt 字体 height() = 24
+  两者相等吗 = true ；fontDpi() 分别 = 96 96 （**fontDpi() 在 Qt6 是 qreal**，分数 DPI 会打出小数）
+  换算关系：像素 = 磅 × dpi / 72。请按你机器上的 fontDpi 手算 18 × dpi / 72， 和上面 18pt 的高度对一下；**dpi 不是 96 时两者就不会相等**—— 这就是「同一份 UI 在不同机器上字大小不一致」的全部原因。
+  实务结论：控件里想「字号恒定」→ setPixelSize；想「跟随系统字号/DPI」→ setPointSize； 两者混用时，**永远不要假设 pointSize 与 pixelSize 都能读到有效值**。
+  QFontMetricsF（不取整）版本：ascentF = 24  heightF = 24 ；对应的 int 版 ascent = 24  height = 24 （差值来自取整——做居中对齐时这种 1px 抖动就是「文字总差一格」的病根）
+
+=== 证据② ascent/descent/height/leading/lineSpacing/capHeight/xHeight ===
+  ascent = 28  descent = 0  height = 28  leading = 4  lineSpacing = 32
+  capHeight = 28  xHeight = 28  averageCharWidth = 28  maxWidth = 28
+  自检（代码里自己判，不背公式）：ascent+descent = 28  与 height = 28  是否相等 = true ; lineSpacing - height = 4  这一列就是实际的行间距（leading 的说法请以这两行为准）
+  这一组是不是退化值（ascent == capHeight == xHeight == maxWidth 且 descent == 0）= 是（见证据〇：本机一个字体都没有） ｜真实字体里 capHeight < ascent、xHeight < capHeight、descent > 0 才是常态。
+  画一条「行盒」时要记住：顶边 = 基线 - ascent，底边 = 基线 + descent。 Qt 的 descent 已经是正数，**不要再写成 -descent**。
+  下划线/删除线的位置也是现成的：underlinePos = 1  strikeOutPos = 9  lineWidth = 1
+
+=== 证据③ horizontalAdvance / boundingRect / tightBoundingRect ===
+  horizontalAdvance(" "Hangping 评测" ") = 352  px —— 这是「笔往下走多少」
+  boundingRect = QRect(100000,100000 352x32) （x= 100000  y= 100000  w= 352  h= 32 ） 命中 100000 哨兵 = true → 文档口径是「以基线为原点、y 通常为负」； 本机这一轮 x/y 根本没被算出来（见上面的 glyph_metrics_t），所以**别把这两个数当度量**，看下一行的 tightBoundingRect。
+  tightBoundingRect = QRect(0,-32 352x32) ；size(TextSingleLine) = QSize(352, 32) → tight 这一行才是能用的：y = -32 （负 = 墨从基线往上长，符合文档）
+  advance 与 boundingRect().width() 的差 = 0 、与 tightBoundingRect().width() 的差 = 0 （首尾留白/边距 bearing 造成的，别把几个宽度当同一个数用）
+  单个大写字母也能量（用 54 行的字符串版，别去赌 QChar 的隐式转换）： horizontalAdvance("H") = 32 ，horizontalAdvance("i") = 32 → 相等 = true 。比例字体应当**不相等**、等宽字体才会相等；本机这一轮相等，是因为证据〇 里那个「一个字体都没有」的退路字形给每个字同一份推进  （对照：QFontDatabase::families().size() 与 QFontInfo::exactMatch()）。 （想拿首尾留白还有一条 leftBearing/rightBearing，在 qfontmetrics.h 第 51/52 行， 参数是 QChar，本讲不调用它。）
+  Qt5→Qt6 必考：Qt5 里这些叫 fm.width(s)；**本机 Qt6 的 qfontmetrics.h 里没有 width()**， 只有 horizontalAdvance() 与 maxWidth()。老工程升级时 width() 是编译错误， 改名要改干净（还有 QFontMetricsF 的同名函数，127~129 行）。
+  另外 QFont::setLegacyWeight(int)/legacyWeight() 在本机头文件里已带  QT_DEPRECATED_VERSION_X_6_0 标记（qfont.h 319/320 行）→ 请用 setWeight(QFont::Bold) 这样的枚举。
+
+=== 证据④ elidedText（名字里有 d）与 Qt::TextElideMode ===
+  原文完整宽度 = 540  可用宽度 = 180
+   ElideLeft （枚举值  0 ）→ " "… · 第伍阶段" "  实际宽度 = 160  是否放得下 = true
+   ElideRight （枚举值  1 ）→ " "Qt 从入门到…" "  实际宽度 = 160  是否放得下 = true
+   ElideMiddle （枚举值  2 ）→ " "Qt …伍阶段" "  实际宽度 = 140  是否放得下 = true
+   ElideNone （枚举值  3 ）→ " "Qt 从入门到资深 · 绘图与自定义控件 · 第伍阶段" "  实际宽度 = 540  是否放得下 = false
+  两个坑：① 名字是 elidedText（过去分词），**不是 elideText**，写错就是「找不到成员」； ② flags 默认是 0，不是 Qt::TextShowMnemonic —— 带 & 的文本想让 & 生效要显式传 flags， 否则省略计算会把 & 当普通字符数进去。
+  ③ ElideNone 只是「原文返回」，**不会**替你截断，放得下与否自己负责； 真正的裁剪要靠 painter 的裁剪区（第 7 讲）。
+
+=== 证据⑤ 基线 / 中心 / AlignVCenter 的实测差值 ===
+  A：基线放在 boxY+ascent = 38 （ascent = 26 ）
+  B：基线放在 boxY+boxH/2 = 131 （boxH/2 = 35 ）
+  C：Qt 自己算的 boundingRect（drawText 的 out 参数）= QRect(18,202 130x26)
+  行盒：height() = 26  ascent = 26  descent = 0  → 半行高 = height()/2 = 13
+  **A 与 B 的基线差就是 (ascent - height/2) 那一截**（ascent+descent 与 height 的关系见证据②）， 字越大偏得越多；C 是 Qt 摆的，把 got 的 top 与 A 的行盒顶边对一下就知道 Qt 按哪个基准居中。
+  多行(flags)：这段文本**需要的**矩形 boundingRect(QRect,flags,text) = QRect(12,266 156x236) （area 高 = 130 ）→ 若 needed.height() > area.height()， 说明这块放不下，超出部分会被 area 裁掉
+           实到的 br（drawText 的 out 参数）= QRect(12,266 156x236)
+  多行(QTextOption)：boundingRect(QRectF,text,opt) = QRectF(202,266 182x206)
+  两条并排看：flags 版走的是**简单换行**（官方文档口径：不支持制表符、缩进与完整复杂文字布局）， QTextOption 版才是「带排版选项的完整版本」。上面两组 needed/实测矩形就是证据： 中文这种没有空格的文本能不能断行，**以你跑出来的数字为准**， 我的建议是——需要可靠换行就上 QTextOption （想再快一步是 QStaticText：qpainter.h 第 364~366 行有一整组 drawStaticText 重载， 本讲不展开，属于文本性能专题）。
+  实测 A(基线 = boxY + ascent) ：文字墨迹 y[ 18  x 12  到  143  x 33 ] 重心 y = 22  墨迹像素 = 420
+  实测 B(基线 = boxY + boxH/2) ：文字墨迹 y[ 18  x 105  到  143  x 126 ] 重心 y = 115  墨迹像素 = 420
+  两种摆法的墨迹重心差 = 93 px；两个框的几何中心都应该是各自 boxY+boxH/2 ——  谁落在框正中、谁偏上了半行，看这三行数字就有答案。
+
+=== 存证 ===
+  PNG 尺寸 = 420 x 410  save() = true  非透明像素 = 172200 （背景是不透明的白，所以这个数**必然** = 宽 x 高 = 172200 ，它对「字有没有画出来」毫无判断力，见下一行）
+  全卡深色（文字）墨迹 = 5728 包围盒 y[ 12 .. 395 ] x[ 12 .. 379 ]
+  抽查**量出来的**墨点 pixelColor( 12 , 12 ) = "#d2d2dc" ｜再对照闭眼挑的 pixelColor(20,30) = "#ffffff" → 上一版只打后一个：它命中纯白，读起来像「字没画出来」，其实只是采样点猜错了。抽查点要从墨迹包围盒里取，不能凭坐标赌。（pixelColor/constScanLine 只读，不会 detach，见第 5 讲）
+  Stage::paintEvent：ascent = 22  height = 22  fontDpi = 96  devicePixelRatio = 1
+
+=== 结论 ===
+① pixelSize 与 pointSize 是两种单位，互相读对方时预期得到 -1；点→像素 = dpi/72， 要确定数字就传 QPaintDevice（qfontmetrics.h 24/96 行）。
+② 度量三兄弟：horizontalAdvance 管「走多远」、boundingRect 管「墨在哪儿」（以基线为原点）、 tightBoundingRect 管「紧贴墨」；用错任何一个，居中就会差几像素。 读 boundingRect 之前先认哨兵：x 或 y == 100000 就是「没算出来」 （glyph_metrics_t 的默认值），不是坐标；本机这一轮正是这个值，见证据③。
+③ Qt6 改名清单：width()→horizontalAdvance()；fontDpi() 由 int 变 qreal； QFont::setLegacyWeight()/legacyWeight() 已弃用（改 setWeight(QFont::Bold)）。
+④ 文本垂直居中有两条正路：让 Qt 摆（drawText(QRectF/QRect, flags, text, &br)） 或自己按基线摆（y = 顶边 + ascent）。**AlignBaseline 不是给 drawText 用的**（qnamespace.h 171~174 行原注释）。
+⑤ 中文换行请上 QTextOption + WrapAtWordBoundaryOrAnywhere； flags 版只保证简单换行。要截断用 elidedText（带 d），要真裁剪用裁剪区（第 7 讲）。
+  图解：../visuals/painting_pipeline.html 把「字族→度量→基线→栅格化→合成」画成分步图，跑完去看。

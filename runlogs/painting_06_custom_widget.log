@@ -1,0 +1,64 @@
+This plugin does not support propagateSizeHints()
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+===============================================================
+painting 第 6 讲 · 自定义控件（平台 = "offscreen" ）
+===============================================================
+【证据①】sizeHint 是愿望，size/geometry 是结果
+"  容器 480x320     gauge->size= 480x320  geometry=(   0,   0, 480, 320)  sizeHint=220x140  minimumSizeHint=90x70"
+  sizePolicy 的 horizontal 是 Expanding 吗 = true vertical 是 Expanding 吗 = true
+  heightForWidth(100) = -1 （本讲没覆写它，取的是 QWidget 的默认实现）
+  hasMouseTracking = true updatesEnabled = true
+  overlay 开了 WA_TranslucentBackground = true ；gauge 是**子控件**，给它开这个属性没意义（该属性只管顶层窗口）
+【证据②】容器缩到 200x120（比 sizeHint 小）
+  size = QSize(200, 120) sizeHint = QSize(220, 140) （sizeHint 没变，变的是布局给的 size：Expanding 策略愿意被压缩）
+【证据②b】容器缩到 40x30（比 minimumSizeHint 还小）
+  gauge->size() = QSize(90, 70) minimumSizeHint = QSize(90, 70) window->size() = QSize(90, 70) （顶层窗口有自己的下限，minimumSizeHint 是布局层面的下限，两者别混）
+【证据③】WidgetAttribute 逐个开一遍（qnamespace.h 305 行起的枚举）
+  OpaquePaintEvent = true NoSystemBackground = true StaticContents = true TranslucentBackground（子控件上应为 false）= false
+  四个属性各自解决什么：
+    WA_OpaquePaintEvent   —— 我保证每次把整个脏区涂满，Qt 别帮我在背后刷背景；
+    WA_NoSystemBackground —— 只要「别刷系统背景」，后面我自己决定刷什么；
+    WA_TranslucentBackground —— 顶层窗口整块带 alpha（要合成器支持，offscreen 只是不崩）；
+    WA_StaticContents     —— 内容固定在左上角，控件**变大**时只补画新增的那一条。
+  注意：开了 Opaque 又没真的涂满 = 残影。本讲 paintEvent 里那句
+  `if (!testAttribute(WA_OpaquePaintEvent))` 就是在诚实地区分这两种情况。
+【证据④】update() 一万次 → paintEvent 只跑有限次
+  10000 次 update() 调用耗时 = 463 us， 期间 paintEvent 增量 = 0 （预期 **0**：update() 只是把脏区记下来并投递一个请求，它不画）
+  Throttle 记账：请求 2 次、真正 flush 出 update() 的次数目前 = 0
+【证据④b】中间只过了很短时间、事件循环喂过几轮之后
+  paintEvent 总次数 = 2 整幅/局部 = 2 / 0 最近一次脏区 = QRect(0,0 90x70) 脏区里的矩形个数 = 1
+  → 10000 次请求换来个位数次重绘，这就是**合并（coalesce）**：
+     update() 只是请求 → 事件循环把脏区并起来 → 一次 paintEvent →
+     QPainter 画进后备存储 → 平台合成上屏（见 ../visuals/painting_pipeline.html）。
+  Throttle：请求 2 次 → flush 1 次（40ms 一个闸，多请求只留一次）
+【证据⑤】update(QRect) 的合并 vs repaint() 的同步
+  连提 3 个互不相交的 update(QRect)，提完立刻看 paints = 0 （预期 0：还没进事件循环）
+  一次 repaint(QRect) 返回后 paints 增量 = 1 脏区 = QRect(4,4 81x51) （预期 1，证明 repaint **不排队、直接画**）
+【证据⑤b】三个 update(QRect) 进事件循环之后的合并结果
+  paints（含上面那次 repaint）= 1 脏区包围盒 = QRect(4,4 81x51) 矩形块数 = 6
+  累计脏区面积 = 4131  vs 控件面积 = 6300
+  → 三个窄条被并成**一个包围盒**（rectCount 可能是 1 也可能保留多块，取决于 Qt 的合并策略；包围盒一定覆盖三者）。
+  纪律：**能算准脏区就 update(QRect)**，算不准就 update()；repaint() 只在「我必须这一帧立刻出现在屏幕上」时用（比如刚 resize 完截图）。
+【证据⑥】鼠标交互（sendEvent 手工投，不需要真鼠标）
+  按下/拖动/抬起 之后：value 0.35 -> 0.725114 valueChanged 信号次数 + 2 paintEvent 增量 + 0 （本机实测 **+2**，不是 +1；为什么下面②逐步拆开数）
+  逐步归因（起点 = 上一次停下的 end）：同点按下 + 0  拖回 local + 1  再拖回 end + 1  抬起 + 0 （判定 **+0 / +1 / +1 / +0**）
+  → 结论：一次拖动的路径上有 local 与 end **两个**取值点，mousePressEvent 和 mouseMoveEvent 各自把点交给 updateFromPoint() 一次，两点算出的 value 不同，于是各发一个 valueChanged；mouseReleaseEvent 压根不改 value，所以 +0。**多出来的那一个既不是事件重复派发，也不是 release 替 press 补发的，而是「按下点 ≠ 抬起点」——拖动本来就不是幂等操作。**
+  → 上面那个 **+0（同点按下）就是 setValue() 里 qFuzzyCompare 那道门在起作用**，门没坏；旧版本报 +2 是因为它拿一条**折返路径**（停在 end，又从 local 重新按下）当「同一点再点一次」的实验，中间 value 真的变了两回。
+  投 QEvent::Enter（QEnterEvent）后 isHovering = true （enterEvent 在 Qt6 的参数类型就是 QEnterEvent*）
+  事件里读回三点：local = QPointF(10,10) scene(=窗口) = QPointF(10,10) global(=屏幕) = QPointF(12,12) ；window.mapToGlobal(10,10) = QPoint(12,12)  → 第 3 个实参才是 global，对得上就说明构造次序是 local/scene/global。
+  投 Leave 后 isHovering = false
+  同一点（拖动终点 end）再投一遍：value = 0.725114 信号增量 = 0 paintEvent 增量 = 0 （判定：两个增量都必须是 **0**，否则 setValue() 里那道 qFuzzyCompare 就是坏的）
+  setValue(当前值) 直灌：信号增量 = 0 （判定：**0** —— 这就是 qFuzzyCompare 那道门本身，和事件派发无关）
+【证据⑦】颜色从 palette 来，不从代码里来
+  换前四个 role： Button = "#efefef" Mid = "#b8b8b8" ButtonText = "#000000" Highlight = "#308cc6"
+  数值弧     ( 64, 46) role=Highlight  换前=#ff308cc6 换后=#ffff2828 该 role 新色=#ffff2828 判定=符合
+  环形槽     ( 42,  7) role=Mid        换前=#ffb8b8b8 换后=#ffc800c8 该 role 新色=#ffc800c8 判定=符合
+  指针      ( 51, 27) role=ButtonText 换前=#ff000000 换后=#ff00dc00 该 role 新色=#ff00dc00 判定=符合
+  圆角底     (  9,  9) role=Button     换前=#ffefefef 换后=#ff1e2028 该 role 新色=#ff1e2028 判定=符合
+  判定：四个采样点**逐个**等于对应 ColorRole 的新色，且 changed = 4 （应为 4）。上一版只有 1 个点、且落在没改的 Mid 上，所以它给不出任何判定。
+  对照组·取 palette 的半边： "#ff308cc6" -> "#ffff2828"  变了 = true ；对照组·写死的半边： "#ff0078d7" -> "#ff0078d7"  变了 = false （判定：前者 true、后者 false —— 这才是「写死颜色就不跟着 palette 走」的证据）
+  → 纪律：自定义控件必须吃 palette，否则用户的深色模式跟你无关；而做这种「换 palette 看变不变」的实验时，**采样点必须落在你改的那个 role 上**，并把每个点的归属一起打出来，否则证据会自己骗你。
+  两张 PNG 已写盘： QSize(90, 70) 非透明像素 render 版 = 5300 , 离屏同代码版 = 5300
+  render() 只能在 **paintEvent 之外**使（文档口径：它自己要触发绘制）；想整窗截图更简单的路子是 QWidget::grab()（起步模块第 6 讲用过）。
+【收尾】整轮跑完，paintEvent 总次数 = 5 ；把上面每个数字抄回注释，就是你的实测。

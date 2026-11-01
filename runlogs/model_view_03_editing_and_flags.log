@@ -1,0 +1,52 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+================================================================
+model_view 第 3 讲 · 编辑、flags 与 dataChanged 回路（平台 = "offscreen" , Qt = 6.12.0 ）
+================================================================
+【证据①】flags()：四道门的第一道（另一道是视图的 editTriggers）
+"  第 0 列「任务」→ [Enabled=1 Selectable=1 Editable=1 Checkable=0 DropEnabled=0]  数值=0xa3"
+"  第 1 列「进度」→ [Enabled=1 Selectable=1 Editable=1 Checkable=0 DropEnabled=0]  数值=0xa3"
+"  第 2 列「负责人（只读）」→ [Enabled=1 Selectable=1 Editable=0 Checkable=0 DropEnabled=0]  数值=0xa1"
+"  第 3 列「完成」→ [Enabled=1 Selectable=1 Editable=0 Checkable=1 DropEnabled=0]  数值=0xb1"
+  对照基类：QAbstractTableModel::flags(有效 index) 给的是 Selectable|Enabled， 数值 = 161 （1|32=33）；无效 index 本模型给 NoItemFlags（数值 = 0 ）
+  QModelIndex 上也有便利入口：index(0,ColProgress).flags().testFlag(ItemIsEditable) = true （它内部就是 model->flags(index)，第 144 行）
+  第二道门在视图手里：view.editTriggers() 现在是 31 （NoEditTriggers=0 / DoubleClicked=2 / EditKeyPressed=8 / SelectedClicked=4 / CurrentChanged=1 / AnyKeyPressed=16 / AllEditTriggers=31）
+"  设成 DoubleClicked|EditKeyPressed = 10 之后，**两道门是 AND 关系**：flags 给 Editable 且触发方式命中才会开编辑器；只读列（负责人）永远进不来，哪怕你把触发方式设成 AllEditTriggers。"
+  顺手看一眼勾选列：flags(index(0,ColDone)).testFlag(ItemIsUserCheckable) = true 且 CheckStateRole 有值 = true （**成对**：只给位不给值，或者只给值不给位，勾选框都不出现）
+【证据②】把回路走通一次，并打印 dataChanged 携带的范围与角色
+"  改之前：data(index(3,1), EditRole) = 9；视图的 dataChanged 槽命中 0 次"
+"  setData(77) 返回 true → 模型自测：EditRole = 77 ｜ DisplayRole = 77%"
+  模型侧 dataChanged 被接住：三参数版 1 次、两参数版 1 次（**同一个信号，槽少写一个参数也能连上**，Qt 帮你把多余参数丢掉）
+     携带的范围与角色： "topLeft(3,1) bottomRight(3,1) roles=[0,2,3]"
+  视图侧（覆写 protected 槽）命中 = 0 次｜视图记下的范围 = "" 角色 = ""
+"  回路闭合的最后一环：这次改动之后 data() 又被问了 2 次（视图重画时才把「77」取出来画上去）"
+  轨迹： "emit dataChanged(row=3,col=1,role=2)"
+"  三种情形分别计到：成功 1→1、被拒 0→2、无变化 0→1"
+  → 「值没变就别 emit」不是洁癖：编辑器每次提交都可能带同一个值回来，你照发不误的话视图就白重画一片（更糟的是撤销栈会被空操作灌爆）。
+  轨迹： "setData 被拒（进度 999 越界/非法） → setData 被拒（第 2 列不可编辑）"
+  setHeaderData 之后 headerData(2,Horizontal) = "负责人（只读）" （同时 emit 了 headerDataChanged(Qt::Horizontal, 2, 2)，视图的表头会重画那一节）
+【证据③】漏发信号的现场：模型自测对、视图不知道、一滚就露馅
+"  起点：两个模型的第 5 行进度都是 15"
+  甲（pokeProgress，不发 dataChanged）： 模型自测 data() = "88%" （**已经是 88% 了，数据确实改了**） ｜视图的 dataChanged 槽命中 = 0 次
+  乙（setProgressProperly，emit 了）： 模型自测 data() = "88%" ｜视图的 dataChanged 槽命中 = 0 次
+"  → 一句话结论：**模型侧 data() 两个都对（88/88），但视图只听见了乙（甲 0 次、乙 0 次）**。用户看到的就是「程序改完数据，屏幕不动」。"
+"  对甲的视图**强制 repaint** 之后：paintEvent 1→1 次、dataChanged 槽命中仍是 0 次（视图压根不知道要更新），但屏幕上的格子会画成 88%——因为重画时视图重新去问 data()，拿到的就是新值。"
+  → 现场表现：**「一滚动/一 resize 就自己变对了」的 bug，八成就是漏发 dataChanged**。它不崩、不报错，只在用户眼皮底下错，最难查。
+  两个模型的 setData 统计：成功 1 次、poke 类「只改存储」 1 次（后者是反面计数）
+  补一句 roles 参数的意义：本讲 emit 时给了 {0,2,3}（Display/Edit/ToolTip），如果 roles 留空（默认 QList<int>()），视图会把这一格**当全角色重画**——正确但更贵；如果 roles 写了但值其实没变，视图会白重画。第 8 讲讲这个调优。
+  轨迹（甲乙合流）： "setData 被拒（进度 999 越界/非法） → setData 被拒（第 2 列不可编辑） → pokeProgress：改了存储，**没发 dataChanged** → emit dataChanged(row=5,col=1,role=2)"
+【证据④】insertRows/removeRows：begin/end 之间**不能重入视图**，顺序不能反
+"  insertRows(0,3) 返回 true：行数 60 → 63 ｜ rowsAboutToBeInserted 1 次、rowsInserted 1 次、视图的 rowsInserted 槽命中 1 次"
+  插入对旧坐标的影响：anchor 之前指「 "任务 60" 」， 现在同一个坐标指「 "任务 57" 」 （在 0 处插 3 行 → 老行号全体后移 3，**裸 index 不会告诉你这件事**）； 护栏版 guard：row  59  →  62 、isValid = true （QPersistentModelIndex 会跟着调整，第 1 讲证据③的另一半）
+  删掉刚插的三行：removeRows(0,3) = true ｜行数回到 60 ｜rowsRemoved 命中 1 次
+  越界的调用一律被拒：insertRows(-1,1) = false ｜removeRows(99999,1) = false （**先检查再 begin**：一旦 begin 了就必须 end，半途 return 会把视图卡在「等通知」的状态）
+  纪律：begin/end 必须**严格配对、不许提前 return**；begin 之后到 end 之前，容器必须已经改到位、并且**别在这段时间里碰视图**（emit 别的信号、开编辑器都不行）。
+【证据⑤】beginResetModel/endResetModel 的代价：视图失忆
+"  操作前：滚动条 value = 55（共 60 行，已滚到底）、选中 1 行、护栏 guard.row() = 55 isValid = 1"
+"  甲 insertRows(末尾 +20 行) 耗时 0 us：滚动位置 55 → 55、选中行数 1 → 1、护栏 row 55 → 55（**都保住了**：视图只是把尾巴接上，前面什么都没动）"
+"  乙 reloadEverything(200 行，reset 家族) 耗时 0 us：滚动位置 55 → 55、选中行数 1 → 0、护栏 row/isValid 55/1 → -1/0"
+     ← 这一行就是「reset 让所有 index 作废」的实测口径（第 1 讲证据③的另一面）：QPersistentModelIndex 变成无效，裸坐标更是一个都不能信。
+  → 取舍：**数据「换了一批」用 reset**（配置重载、服务器整表拉回、SQL 重新查询）；**只是在头/中/尾加了几个，就用 insertRows/removeRows**。
+     能用增量就别 reset：视图的选中集、当前项、滚动位置、展开状态、以及**所有** QPersistentModelIndex 都会没，用户只觉得「界面自己动了」。
+  另：reset 期间绝对不要碰视图、也不要 emit 别的信号；begin 之前视图看到的还是老数据，end 之前你说什么它都不认。
+【收尾】回路背一遍：**flags 给权限 → 视图触发编辑 → 委托 setModelData → model.setData（验 index/验 role/校验/比变化）→ emit dataChanged → 视图槽 → 重画时再问 data()**。中间断哪一环，界面就在哪一环骗你。

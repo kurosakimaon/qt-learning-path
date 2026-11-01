@@ -23,18 +23,24 @@
 //   （moc 是为信号/槽/qobject_cast 服务的），所以末尾也就不用 #include "01_painter_basics.moc"。
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_01_painter_basics，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_01_painter_basics.log）。
 //   · 会往**当前工作目录**写 painting_01_painter_basics.png 与 painting_01_hidpi_1x.png /
 //     painting_01_hidpi_2x.png，请在可写目录下运行。
 //   · 无人值守：QTimer::singleShot 排几步动作 → 存图 → 打印 → QCoreApplication::quit()，
 //     全程不要求鼠标键盘，约 2 秒跑完。**不要在示例里用 QDialog::exec() 或裸 QEventLoop::exec()**。
 //   · 可以无头跑：`painting_01_painter_basics -platform offscreen`（需要 platforms/qoffscreen.dll）。
 //     offscreen 平台**照样会派发 paint 事件**，所以控件那条证据链不会断。
-//   · 本机当前无法编译链接 Qt 运行时，本示例**未在本机实测编译**；
-//     每一个 API 都对着 C:\msys64\ucrt64\include\qt6 下的真实头文件逐个核对过（见下面签名清单）。
-//     此外只跑过一次 `g++ -fsyntax-only -I <Qt6 头文件目录>`：那是**纯语法核对**
-//     （不产出目标文件、**没有链接、没有运行、没有生成可执行文件**），
-//     它只证明「这些调用对着 Qt6 头文件编得过」（确实靠它抓出过 setBrush 两参数的错写），
-//     绝不等于画面正确 —— 文中所有「预期」都是推理，**实测数字请你自己跑出来填回去**。
+//   · 实测状态：本示例已在 **Qt 6.12.0 / MinGW-w64 GCC 13.1.0 / Windows 11** 上编译通过并
+//     **无头跑通**（`QT_QPA_PLATFORM=offscreen`，退出码 0），上面两张 PNG 与下面每个数字
+//     都是本机产物；`offscreen` 确实照常派发 paint 事件，这条已经在日志里验证过。
+//     头文件在 `D:\Qt\6.12.0\mingw_64\include`（下面签名清单的行号就是对它核的），
+//     Qt 源码在 `D:\Qt\6.12.0\Src\qtbase\src`。
+//     Windows 上 Qt 日志按本地代码页 GBK 输出，重定向时 `| iconv -f GBK -t UTF-8` 才不乱码。
+//   · 文中所有「预期」都对着本机日志核过一遍；「只证明调用编得过、不证明画面正确」那句话
+//     现在由像素证据接管 —— 但**耗时类数字随机器不同，请以你自己跑出来的为准**。
 //   · Qt5 → Qt6 差异本讲涉及两处：QPainter::RenderHint 里**没有** HighQualityAntialiasing
 //     （Qt6 只剩 6 个 hint，见下）；QImage::pixel() 返回 QRgb（uint），QColor 版本叫 pixelColor()。
 // ============================================================================
@@ -450,10 +456,23 @@ int main(int argc, char *argv[])
         qInfo() << "  调 update() 之后 paintEvent 次数 =" << stage.paints
                 << "（增 1 即证明「update() 只是再次挂号」）";
         qInfo() << "\n=== 关于「铁律一」必须说的实话 ===";
+        // 【这段原来写的是「我不替没跑过的东西作保」，现在跑过了】
+        // 本机单独探针：show() 之后在 paintEvent **之外**对 QWidget 构造 QPainter 并 begin()，
+        // 原样输出是这四行（qWarning，不是断言，也没崩，退出码 0）：
+        //   QWidget::paintEngine: Should no longer be called
+        //   QPainter::begin: Paint device returned engine == 0, type: 1
+        //   begin() 返回 = false   isActive() = false
+        //   QPainter::setPen: Painter not active
+        //   QPainter::drawRects: Painter not active
+        // 所以「非法作画」的下场是**返回 false + 每次 draw 变空操作 + 一串 qWarning**，
+        // 不是崩溃。为什么这里仍然不放进主路径：本机装的 Qt 只有 release 库
+        // （D:\Qt\6.12.0\mingw_64 下是 Qt6Core.dll，没有 d 后缀的 debug 版），
+        // 而 Qt 的不少路径在 debug 库里带 Q_ASSERT——换一套 debug Qt，这段就可能变成断言中止。
+        // 教学材料不能自己带崩，所以规矩照旧：**要验就单独拿探针验**，别塞进无人值守的示例里。
         qInfo() << "  在 paintEvent 之外对 QWidget 构造 QPainter，begin() 会**返回 false**，"
                 << "后续每个 draw* 都变成空操作（isActive() 是 false，不是崩溃）。"
-                << "本讲不实际演示那次非法调用：Qt 在这条路径上可能打出警告甚至断言，"
-                << "而断言行为取决于 debug/release 与平台，我不替没跑过的东西作保。";
+                << "上面那五行 qWarning 原文就是本机单独探针跑出来的（见紧邻的注释）；"
+                << "本讲不放进主路径，是因为换 debug 版 Qt 库时这条路上可能有断言。";
         qInfo() << "  合法的两个入口只有：① paintEvent 里对 this 画；② 对 QImage/QPixmap 等离屏设备随时画。";
     });
 

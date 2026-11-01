@@ -1,0 +1,19 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+================================================================
+model_view 第 4 讲 · 自定义委托（平台 = "offscreen" , Qt = 6.12.0 ）
+================================================================
+【证据①】绘制链：视图把格子交给委托的方式
+  paint 被调 72 次，其中进度列 24 格； 第一张进度格的 option.rect = QRect(100,0 99x22) （宽 99 ×高 22 ，**视图算好递进来的**）
+  initStyleOption 24 次 ｜displayText 120 次（模型 DisplayRole 给的是裸 int，「42%」这三个字符是委托拼的——第 2 讲的债在这还）
+  sizeHint 被视图问了 48 次（竖表头开了 ResizeToContents 才会来问）｜rowHeight(0) = 23 vs 默认 22+进度列加高 10 → 应该更大
+  进度条填充宽（最后一次 paint） = 20 px；对照 option.rect 宽 = 99 （比例 = 行0进度10% → 约 0.1×(rect宽-74)）
+  时机口诀：**sizeHint 定行高（布局期）→ paint 画格子（重绘期）**，都在**视口的循环里**被调，不是你主动调。
+qt.widgets.abtractitemview: QAbstractItemView::commitData called with an editor that does not belong to this view
+  closeEditor 信号发出 ｜委托计数 closeEmitted = 0 ｜旁观收到 = 0
+【证据④前奏】行5 名字编辑器 opened = false ，setText("改到一半") 触发**防抖**（150ms 后才提交）
+  此刻删掉行 5（begin/endRemoveRows 走正规流程）…
+【证据⑥a】editorEvent：点一下进度格 +10（平时由视图调，这里为确定性直接调）
+  返回 = true （true=事件被委托吃掉）｜行0 进度 10 → 20 ｜editorEvent 计数 = 1 （签名注意：**非 const**，第 66~69 行）
+  helpEvent（第 73~76 行）同款入口只管 QHelpEvent（ToolTip/WhatsThis），演示无鼠标悬停，不演。
+【证据⑥b】不提交直接关：改行3 名字 → 防抖没到期就 closeEditor(NoHint)

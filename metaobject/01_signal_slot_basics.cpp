@@ -20,28 +20,15 @@
 //     并用 QTimer::singleShot 排脚本、最后自动 quit()——无人值守能跑完。
 //   · 类都写在 .cpp 里，所以文件末尾必须 #include "01_signal_slot_basics.moc"
 //     （AUTOMOC 会为它生成同名 .moc；这是「Q_OBJECT 类写在 .cpp」的固定接法）。
-//   · 本机当前无法编译链接 Qt 程序，本示例**未在本机实测编译**。所有 API 都对着本机
-//     真实头文件核对过：
-//       QtCore/qobject.h        —— receivers() 第 369 行（注意它在第 366 行起的
-//                                  protected 段里，外部代码调不动）、
-//                                  isSignalConnected() 第 370 行、blockSignals() 第 141 行、
-//                                  destroyed 信号 第 352 行
-//       QtCore/qtmetamacros.h   —— 第 48~49 行 Q_SLOTS/Q_SIGNALS 宏定义、第 51 行 Q_EMIT、
-//                                  第 44~45 行 slots/signals 别名、第 31~32 行
-//                                  QT_ANNOTATE_ACCESS_SPECIFIER 定义为空
-//       QtCore/qobjectdefs.h    —— QMetaObject::indexOfSignal 第 264 行、method(int) 第 272 行
-//       QtCore/qmetaobject.h    —— QMetaMethod::methodSignature 第 26 行、parameterCount 第 32 行、
-//                                  parameterTypes 第 36 行、parameterTypeName 第 37 行、
-//                                  access() 第 41 行、methodType() 第 48 行
-//       QtCore/qtimer.h         —— singleShot(Duration, Functor) 无 context 版第 84~88 行
-//       QtCore/qstring.h        —— static QString number(double, char, int) 第 903 行
-//       QtCore/qdebug.h         —— QDebug 的 quote()/noquote()（第 129/130 行；注意**没有**
-//                                  quoted() 这种函数）
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_01_signal_slot_basics，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_01_signal_slot_basics.log）。
 // ============================================================================
 
 #include <QApplication>
 #include <QObject>
-#include <QMetaMethod>      // 核对：/c/msys64/ucrt64/include/qt6/QtCore/QMetaMethod 存在；
+#include <QMetaMethod>      // 核对：/d/Qt/6.12.0/mingw_64/include/QtCore/QMetaMethod 存在；
                             // 不引它，QMetaMethod 只有前置声明（qobjectdefs.h），是 incomplete type
 #include <QString>
 #include <QStringList>

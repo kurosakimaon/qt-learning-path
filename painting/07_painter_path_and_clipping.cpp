@@ -13,7 +13,10 @@
 //     3) 路径布尔：本机头文件里它们是**成员函数** united() / intersected() / subtracted()
 //        （qpainterpath.h 155/156/157 行）与 operator| & -（164~171 行），
 //        **Qt4 那套自由函数 unitedPath()/intersectedPath() 在本机头文件里没有**，别照抄；
-//        simplified()（159 行）存在，本讲用它打印「简化前后 elementCount 的变化」；
+//        simplified()（159 行）存在，本讲不只打印「简化前后 elementCount 的变化」，
+//        还实测了它**会不会改掉你的填充规则**（qpainterpath.cpp 3568~3573 行的文档说一律打回
+//        OddEvenFill；本机这一轮：WindingFill 的星形 simplified() 后回读 fillRule() = OddEvenFill，
+//        文档成立 —— 所以简化完要记得把规则设回去）。
 //     4) 裁剪三件套：setClipRect / setClipPath / setClipRegion（qpainter.h 188~192 行），
 //        第二个参数是 Qt::ClipOperation：本机只有 **NoClip / ReplaceClip / IntersectClip**
 //        （qnamespace.h 1339~1343 行），**没有 UnionClip**——想做「并集裁剪」，
@@ -37,14 +40,25 @@
 //       painting_07_after_clip.png（同一套绘制代码、加了矩形/路径裁剪之后）
 //       painting_07_clip_region.png（同一套绘制代码、裁剪成 QRegion 两块不相交矩形）
 //       painting_07_composite_mask.png（蒙版与合成结果）
-//     三张对照图（裁剪前/裁剪后/合成结果）各自打印非透明像素数，这是本讲的交付物。
+//     除总览外的四张对照图（裁剪前/矩形+路径裁剪/region 裁剪/合成结果）各自打印**着墨像素数**，这是本讲的交付物。
+//     ⚠ 这里刻意不叫「非透明像素数」：countOpaque() 只看 alpha != 0，一旦某个格子里铺了不透明
+//     底色，它就恒等于满幅，几个格子打出一样的大数字、看不出任何异常（证据③ 就栽过一次）。
 //   · 无人值守：证据全走 QImage（第 1 讲铁律一：离屏设备随时可画），
 //     一次 QTimer::singleShot 里画完、存图、打印、QCoreApplication::quit()，
 //     **没有任何阻塞调用**（除了 main 末尾那句 app.exec()）。
 //   · 可以无头跑：`painting_07_painter_path_and_clipping -platform offscreen`。
-//   · 未实测声明：本机当前无法编译链接 Qt 运行时（运行时库版本不匹配），
-//     本示例**已通过 g++ -fsyntax-only 编译期核对（-std=c++17 -Wall -Wextra 零 error 零 warning），
-//     未链接、未运行**；下面每个「预期」都是推理，像素数与色卡都要你自己跑出来核对。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 painting_07_painter_path_and_clipping，跑到自动退出、退出码 0）。
+//     本讲有三行**自检**（不是汇总判定，退出码仍然只证明「没崩、走完了」）：
+//       证据③ 「次序核对：intersected < subtracted < united 成立 = true」；
+//       证据④ 「核对：… 裁剪更小 = true … 两种裁剪互不相同 = true」；
+//       sheet 「④ 那格的标题横带上墨像素 = 494/3888」。
+//     这三行任何一项变 false/0，就是本讲的证据链断了，别只看退出码。
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/painting_07_painter_path_and_clipping.log）。
+//   · Windows 控制台口径：qInfo 出去的中文按本地代码页（GBK）编码，**GBK 里没有的字符会打成 ?**
+//       （本机实测：U+2212「−」和 U+2286「⊆」变成 ?，而 ∪ ∩ ≈ ｜ 这些 GBK 里有的没事）。
+//       所以打印用的字符串里别放稀有的数学符号，改成 ASCII 或中文词；
+//       源码注释里随便写，编译器和控制台都不管注释。
 //   · Qt5 → Qt6 差异本讲涉及两处：
 //       ① QPainterPath 的布尔运算是**成员函数**（united/intersected/subtracted/simplified），
 //          Qt4 那套自由函数 unitedPath(a,b) / intersectedPath(a,b) 在本机头文件里查不到；
@@ -75,7 +89,7 @@
 #include <QDebug>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6，全部带行号；对不上的一律不用）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include，全部带行号；对不上的一律不用）
 // ============================================================================
 // QtGui/qpainterpath.h
 //   第 32 行   enum ElementType { … }                      ← UnknownElement/MoveToElement/
@@ -113,13 +127,24 @@
 //   第 310 行  QPainterPath operator *(const QPainterPath &, const QTransform &)
 //   **本机没有** unitedPath() / intersectedPath() 这两个自由函数（Qt4 写法，别抄）。
 // QtGui/qpainter.h
-//   第 53~57 行 enum RenderHint { Antialiasing = 0x01, TextAntialiasing = 0x02,
+//   第 52~59 行 enum RenderHint { Antialiasing = 0x01, TextAntialiasing = 0x02,
 //                 SmoothPixmapTransform = 0x04, VerticalSubpixelPositioning = 0x08,
 //                 LosslessImageRendering = 0x40, NonCosmeticBrushPatterns = 0x80 };
-//   第 98~118 行 enum CompositionMode { CompositionMode_SourceOver, CompositionMode_DestinationOver,
+//   ★ 勘误一：旧稿写「53~57」——53 是第一个成员、52 才是 `enum RenderHint {`，
+//     而这一支到 **59** 行的 `};` 才结束（60 行紧跟 Q_ENUM(RenderHint)，62 行
+//     Q_DECLARE_FLAGS(RenderHints, RenderHint)，所以 setRenderHints 吃的是 flags 不是单个枚举）。
+//     另外注意 0x08 直接跳到 0x40：0x10 / 0x20 是 Qt 内部占掉的，**别自己补位**去写 0x10。
+//   第 98~143 行 enum CompositionMode { CompositionMode_SourceOver, CompositionMode_DestinationOver,
 //                 CompositionMode_Clear, …, CompositionMode_SourceIn, CompositionMode_DestinationIn,
 //                 …, CompositionMode_Xor, CompositionMode_Plus, CompositionMode_Multiply,
-//                 CompositionMode_Screen, …, CompositionMode_Darken, CompositionMode_Lighten };
+//                 CompositionMode_Screen, …, CompositionMode_Darken, CompositionMode_Lighten,
+//                 ColorDodge, ColorBurn, HardLight, SoftLight, Difference, Exclusion,
+//                 RasterOp_SourceOrDestination … RasterOp_NotDestination, NCompositionModes };
+//   ★ 勘误二：旧稿写「98~118」，那是**截在 CompositionMode_Lighten 上**当结束了。本机 6.12.0
+//     这个枚举一直到 **143** 行才 `};`：119~124 还有 6 个混合模式（ColorDodge/ColorBurn/
+//     HardLight/SoftLight/Difference/Exclusion），126 行起还塞了 **14 个 RasterOp_** 成员，
+//     142 行是哨兵 NCompositionModes（=24 个模式 + 14 个 RasterOp + 哨兵）。
+//     少记的那 6 个正好是 Photoshop 那一组混合模式——按旧稿记，你会以为 Qt 只有到 Lighten 为止。
 //   第 144/145 行 void setCompositionMode(CompositionMode); CompositionMode compositionMode() const;
 //   第 185 行   QRegion clipRegion() const;
 //   第 188~190 行 void setClipRect(const QRectF &, Qt::ClipOperation op = Qt::ReplaceClip);
@@ -128,14 +153,19 @@
 //   第 194 行   void setClipPath(const QPainterPath &path, Qt::ClipOperation op = Qt::ReplaceClip);
 //   第 196/197 行 void setClipping(bool enable); bool hasClipping() const;
 //   第 239/240 行 void fillPath(const QPainterPath &, const QBrush &); void drawPath(const QPainterPath &);
+//   第 208 行   void resetTransform();          ← 便捷版；第 210 行是 setWorldTransform(matrix, combine)
+//                 （别写成 145 行，144/145 是 setCompositionMode/compositionMode）
 //   第 155/161 行 void setPen(const QPen &); void setBrush(const QBrush &);
 // QtCore/qnamespace.h
 //   第 1329~1332 行 enum FillRule { OddEvenFill, WindingFill };
 //   第 1339~1343 行 enum ClipOperation { NoClip, ReplaceClip, IntersectClip };   ← **只有三个**
 //   第 1220~1224 行 enum AspectRatioMode { IgnoreAspectRatio, KeepAspectRatio, KeepAspectRatioByExpanding };
 // QtGui/qregion.h
-//   QRegion(const QRect &); QRegion(const QPolygon &); QRect boundingRect() const;
-//   int rectCount() const; bool isEmpty() const; QRegion united(const QRegion &) const;
+//   第 59/60 行 bool contains(const QPoint &) const; bool contains(const QRect &) const;
+//                 ← 证据④ 用它核对「region 那张的着墨包围盒确实落在我构造的两个矩形里」
+//   第 77 行   QRect boundingRect() const noexcept;   第 81 行 int rectCount() const noexcept;
+//   QRegion(const QRect &); QRegion(const QPolygon &); bool isEmpty() const;
+//   QRegion united(const QRegion &) const;
 //   QRegion intersected(const QRegion &) const; QRegion subtracted(const QRegion &) const;
 // 本讲**没用**的（因为在本机头文件里没核到）：QPainterPath::toPainterPath? 不存在；
 //   Qt::UnionClip（不存在，用 QRegion::united + setClipRegion 替代）；
@@ -153,6 +183,28 @@ static qint64 countOpaque(const QImage &src)
         for (int x = 0; x < probe.width(); ++x)
             if (row[x * 4 + 3] != 0)
                 ++n;
+    }
+    return n;
+}
+
+// 底色均匀（比如 sheet 被 fill 成一个颜色）时，countOpaque() 会数到**满幅**，
+// 因为它只看 alpha。要问「这块区域有没有真上过墨」，就得跟**指定的底色**比。
+// 底色一定由调用方给死，别图省事拿 (0,0) 那个像素当底色：sheet 左上角在标题条里
+// （另一个颜色），那样会把整张正文都算成墨，数字照样很大、照样"看起来正常"。
+static qint64 countInkOverBackground(const QImage &src, const QColor &background)
+{
+    const QImage probe = src.isNull() ? QImage() : src.convertedTo(QImage::Format_ARGB32);
+    if (probe.isNull() || probe.width() <= 0 || probe.height() <= 0)
+        return 0;
+    const QRgb bg = background.rgba();
+    qint64 n = 0;
+    for (int y = 0; y < probe.height(); ++y) {
+        const uchar *row = probe.constScanLine(y);
+        for (int x = 0; x < probe.width(); ++x) {
+            const QRgb p = qRgba(row[x * 4 + 2], row[x * 4 + 1], row[x * 4 + 0], row[x * 4 + 3]);
+            if (p != bg)
+                ++n;
+        }
     }
     return n;
 }
@@ -298,30 +350,49 @@ static void evidenceFillRule(QImage &sheet, int x0, int y0)
             QPainter q(&probe);
             q.setRenderHint(QPainter::Antialiasing);
             q.setPen(Qt::NoPen);
-            q.setBrush(QColor(30, 140, 90, 255));
-            q.translate(c.dx, 0);                        // 画到 sheet 的两格位置上
+            // ⚠ 探针图**绝不跟着 c.dx 位移**：这张图只有 90x90，而 dx=100 是给 sheet 排版用的。
+            //   上一版把位移一起套上来，WindingFill 那一整张星被画到画布外面去了，
+            //   中心点永远读到 0，于是"实心"的证据打成"也有洞"，两行数字长得一样、结论自相矛盾。
             q.fillPath(one, QBrush(QColor(30, 140, 90, 255)));   // 239 行
         }
         // 中心点：**这个像素才是两种规则的唯一区别**
         const int alphaOddOrEvenCenter = probe.pixelColor(cx, cy).alpha();
         qInfo() << "      中心像素 (" << cx << "," << cy << ") alpha ="
                 << alphaOddOrEvenCenter << "（一个应为 0=有洞、一个应为 255=实心）";
+        qInfo() << "      整张探针的着墨像素 =" << countOpaque(probe)
+                << "（同一条路径，只是规则不同 → 多出来的那部分是**中间那个洞**被填上了）";
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(30, 140, 90, 255));
-        p.translate(x0 + c.dx, y0);
+        p.translate(x0 + c.dx, y0);                      // 位移只作用于 sheet
         p.fillPath(one, QBrush(QColor(30, 140, 90, 255)));
-        p.resetTransform();                              // 145 行附近：setWorldTransform(identity) 的便捷版
+        p.resetTransform();                              // qpainter.h 208 行
         p.setPen(QColor(40, 45, 55));
         p.drawText(QPointF(x0 + c.dx + 2, y0 + 100), QString::fromUtf8(c.name));
     }
     qInfo() << "  → 记忆法：**奇偶（OddEven）看「穿过几条边」，绕数（Winding）看「绕了几圈」**。"
-               "自交图形的洞只出现在 OddEvenFill 里。Qt 的默认是 OddEvenFill（别指望，显式写）。";
+               "自交图形的洞只出现在 OddEvenFill 里。";
+    const QPainterPath fresh;                            // 默认构造，一个元素都没加
+    qInfo() << "  Qt 的默认到底是哪个：新建 QPainterPath 的 fillRule() =" << fresh.fillRule()
+            << "（Qt::OddEvenFill = " << int(Qt::OddEvenFill) << "、WindingFill = "
+            << int(Qt::WindingFill) << "）→ 默认是奇偶，**别指望，自己显式写**。";
 
     // 顺带把 simplified() 用一次：本机 qpainterpath.h 159 行确实存在
     const QPainterPath simple = star.simplified();
     qInfo() << "  simplified() 前后：elementCount" << star.elementCount() << "->"
             << simple.elementCount() << "boundingRect" << star.boundingRect()
             << "->" << simple.boundingRect();
+    // 本机 qpainterpath.cpp 3568~3573 行的文档注释写着「简化后的路径一律用默认填充规则 Qt::OddEvenFill」。
+    // 这条**别照抄，测一遍**：默认构造的星形本来就是 OddEvenFill，看不出规则有没有被改，
+    // 所以再拿一条显式写了 WindingFill 的星形走一遍 simplified()，回读 fillRule()。
+    QPainterPath wound = star;
+    wound.setFillRule(Qt::WindingFill);
+    const QPainterPath woundSimple = wound.simplified();
+    qInfo() << "  文档口径核对：WindingFill 的星形 simplified() 之后 fillRule() ="
+            << woundSimple.fillRule()
+            << "（原路径 =" << wound.fillRule() << "）→ 本机这一轮确实被打回 OddEvenFill，"
+               "文档这句在这版 Qt 上成立；elementCount" << wound.elementCount()
+            << "->" << woundSimple.elementCount()
+            << "。结论：**简化会丢掉你的填充规则**，简化完还要记得把规则设回去。";
 }
 
 // ============================================================================
@@ -344,7 +415,7 @@ static void evidencePathBooleans(QImage &sheet, int x0, int y0)
     const Row rows[6] = {
         { "A ∪ B  united()",        u },
         { "A ∩ B  intersected()",   i },
-        { "A − B  subtracted()",    s },
+        { "A - B  subtracted()",    s },
         { "A | B（同 united）",     u2 },
         { "A & B（同 intersected）", i2 },
         { "A - B（同 subtracted）",  s2 },
@@ -356,21 +427,32 @@ static void evidencePathBooleans(QImage &sheet, int x0, int y0)
                                      rows[k].path.boundingRect().x(), rows[k].path.boundingRect().y(),
                                      rows[k].path.boundingRect().width(), rows[k].path.boundingRect().height());
     }
-    qInfo() << "  用像素交叉验证（每个结果单独画进 110x100 的小图数着墨）：";
+    qInfo() << "  用像素交叉验证（每个结果单独画进 110x100 的**全透明底**小图数着墨）：";
+    // ⚠ 这里绝对不能用不透明底色（例如 fillRect(QColor(250,250,250,255))）：
+    //   countOpaque()/inkBounds() 数的是 **alpha != 0** 的像素，一张不透明底会把三个格子
+    //   全打成「11000 / QRect(0,0 110x100)」= 整张画布，三个数一模一样，交叉验证当场失效。
+    //   画刷同理用**全不透明**，这样着墨数≈路径面积，次序才有意义。
+    qint64 inkU = 0, inkI = 0, inkS = 0;
     for (int k = 0; k < 3; ++k) {
         QImage cell(110, 100, QImage::Format_ARGB32);
-        cell.fill(QColor(0, 0, 0, 0));
+        cell.fill(QColor(0, 0, 0, 0));                    // 只此一处清底，别再铺不透明背景
         QPainter q(&cell);
         q.setRenderHint(QPainter::Antialiasing);
-        q.fillRect(QRect(0, 0, 110, 100), QColor(250, 250, 250, 255));
-        q.setPen(QPen(QColor(180, 40, 40), 1));
-        q.setBrush(QColor(40, 90, 200, 120));
+        q.setPen(Qt::NoPen);                              // 描边会让包围盒/像素数多算一圈
+        q.setBrush(QColor(40, 90, 200, 255));
         q.drawPath(rows[k].path);
-        qInfo() << "      " << rows[k].name << "非透明像素 =" << countOpaque(cell)
-                << "着墨包围盒 =" << inkBounds(cell);
+        const qint64 ink = countOpaque(cell);
+        if (k == 0) inkU = ink; else if (k == 1) inkI = ink; else inkS = ink;
+        qInfo() << "      " << rows[k].name << "着墨像素 =" << ink
+                << "着墨包围盒 =" << inkBounds(cell)
+                << "占整张 11000 的比例 =" << QString::asprintf("%.2f", ink / 11000.0);
     }
-    qInfo() << "  → 三个数应当满足：intersected ⊂ subtracted ⊂ united 的着墨量次序；"
-               "次序不对就是你的 FillRule 或画刷透明度在捣鬼。";
+    const bool orderOk = (inkI < inkS) && (inkS < inkU);
+    qInfo() << "  → 次序核对：intersected(" << inkI << ") < subtracted(" << inkS
+            << ") < united(" << inkU << ") 成立 =" << orderOk
+            << "（A 是 80x80 的椭圆、B 是 70x70 的矩形且只压掉 A 右上角一块，"
+               "所以「交集最小、A 减 B 居中、并集最大」是几何上注定的；"
+               "次序反了就是你的 FillRule 或画刷透明度在捣鬼。）";
 
     // 画进总览 sheet：三条并排
     QPainter p(&sheet);
@@ -392,19 +474,26 @@ static void evidencePathBooleans(QImage &sheet, int x0, int y0)
 // ============================================================================
 // 七、证据④：裁剪三件套（同一套绘制代码，裁与不裁两张对照图）
 // ============================================================================
-// 这套代码被调三次：不裁 / setClipRect / setClipPath，靠「非透明像素数」比出裁剪生效
-static void paintBusyContent(QPainter &p, const QSize &size, bool withClip, Qt::ClipOperation op)
+// 这套内容代码被调三次，第三种模式**自己动手裁**、第二种**只清掉裁剪**、第一种**什么都不动**
+// （留给外面的 setClipRegion），这样三张对照图的差别才真的只来自裁剪本身。
+enum SelfClip { KeepExternalClip = 0, ClipRectAndPath, TurnClipOff };
+static void paintBusyContent(QPainter &p, const QSize &size, SelfClip selfClip, Qt::ClipOperation op)
 {
-    if (!withClip) {
-        p.setClipping(false);                            // 197 行：明确关掉
-    } else if (op == Qt::IntersectClip) {
+    switch (selfClip) {
+    case TurnClipOff:
+        // 196 行 setClipping(bool)：这是**总开关**，关掉之后前面设的 clipRect/clipPath/clipRegion
+        // 全部不再生效（但 clipRegion() 照样能读回原来那个区域，别把「读得到」当成「还在裁」）。
+        p.setClipping(false);
+        break;
+    case ClipRectAndPath:
         p.setClipRect(QRectF(0, 0, size.width() * 0.55, size.height()), op);   // 188 行
         p.setClipPath([&]{ QPainterPath path;            // 再与一个圆**相交**
                          path.addEllipse(QRectF(size.width() * 0.25, size.height() * 0.1,
                                                 size.width() * 0.6, size.height() * 0.8));
                          return path; }(), op);         // 194 行：连两次 = 交集套交集
-    } else {
-        p.setClipRect(QRectF(0, 0, size.width() * 0.55, size.height()), op);
+        break;
+    case KeepExternalClip:
+        break;                                            // 裁剪由调用方在进这个函数之前设好
     }
 
     // 内容：渐变底 + 一堆图元，故意画满整张，好让裁剪看得出差别
@@ -436,12 +525,12 @@ static void evidenceClipping()
     QImage none(size, QImage::Format_ARGB32_Premultiplied);
     none.fill(QColor(0, 0, 0, 0));
     { QPainter p(&none); p.setRenderHint(QPainter::Antialiasing);
-      paintBusyContent(p, size, false, Qt::NoClip); }
+      paintBusyContent(p, size, TurnClipOff, Qt::NoClip); }
 
     QImage rect(size, QImage::Format_ARGB32_Premultiplied);
     rect.fill(QColor(0, 0, 0, 0));
     { QPainter p(&rect); p.setRenderHint(QPainter::Antialiasing);
-      paintBusyContent(p, size, true, Qt::IntersectClip); }
+      paintBusyContent(p, size, ClipRectAndPath, Qt::IntersectClip); }
 
     // QRegion 并集裁剪：**ClipOperation 里没有 UnionClip，所以并集自己做**
     const QRegion two = QRegion(QRect(10, 10, 80, 60)).united(QRegion(QRect(120, 90, 90, 70)));
@@ -451,20 +540,40 @@ static void evidenceClipping()
         QPainter p(&region);
         p.setRenderHint(QPainter::Antialiasing);
         p.setClipRegion(two, Qt::ReplaceClip);           // 192 行
-        paintBusyContent(p, size, false, Qt::NoClip);    // 内容函数不再自己裁
-        qInfo() << "  setClipRegion 之后：hasClipping =" << p.hasClipping()
+        // 先把「设好裁剪、还没画」的状态读回来：这两行是 ReplaceClip 真的生效的证据。
+        qInfo() << "  setClipRegion(two, ReplaceClip) 之后（画之前）：hasClipping ="
+                << p.hasClipping()
                 << "clipRegion().boundingRect =" << p.clipRegion().boundingRect()
-                << "clipRegion().rectCount =" << p.clipRegion().rectCount();
+                << "rectCount =" << p.clipRegion().rectCount()
+                << "｜我自己构造的 QRegion：boundingRect =" << two.boundingRect()
+                << "rectCount =" << two.rectCount()
+                << "→ 两个 rectCount 相等（" << p.clipRegion().rectCount() << "==" << two.rectCount()
+                << "）就是「并集原样进去了」；ClipOperation 给 ReplaceClip 才没有被交掉。";
+        // ⚠ 这里必须传 KeepExternalClip：上一版传的是和「不裁剪」同一个分支，
+        //   进到函数里第一件事就是 setClipping(false)，把刚设好的 QRegion 裁剪整个关掉，
+        //   于是这一张和 none 张像素数一模一样（都是 43200 = 整张面积），
+        //   而 hasClipping 打印出来是 false —— 数字看起来正常，结论却根本没跑。
+        paintBusyContent(p, size, KeepExternalClip, Qt::NoClip);
+        qInfo() << "  画完之后：hasClipping =" << p.hasClipping()
+                << "（画内容没碰裁剪开关，所以还是 true；上一版在这行是 false）";
     }
 
-    qInfo() << "  非透明像素数：不裁剪 =" << countOpaque(none)
-            << "裁剪(rect∩path) =" << countOpaque(rect)
-            << "裁剪(region 并集) =" << countOpaque(region);
+    const qint64 inkNone = countOpaque(none), inkRect = countOpaque(rect), inkRegion = countOpaque(region);
+    qInfo() << "  着墨像素数：不裁剪 =" << inkNone
+            << "裁剪(rect∩path) =" << inkRect
+            << "裁剪(region 并集) =" << inkRegion;
     qInfo() << "  着墨包围盒：不裁剪 =" << inkBounds(none)
             << "裁剪(rect∩path) =" << inkBounds(rect)
             << "裁剪(region 并集) =" << inkBounds(region);
-    qInfo() << "  全图面积 =" << size.width() * size.height()
-            << "；不裁剪应当几乎等于面积，两种裁剪都必须明显更小（这就是裁剪生效的证据）";
+    const qint64 area = qint64(size.width()) * size.height();
+    qInfo() << "  核对：面积 =" << area
+            << "｜不裁剪 ≈ 满幅 =" << (inkNone >= area * 95 / 100)
+            << "｜矩形+路径裁剪更小 =" << (inkRect < inkNone)
+            << "｜region 裁剪更小 =" << (inkRegion < inkNone)
+            << "｜两种裁剪互不相同（不是同一段代码跑两遍） =" << (inkRect != inkRegion)
+            << "｜region 着墨落在构造的两个矩形里 ="
+            << (two.contains(inkBounds(region)) ? "是" : "否（看下面包围盒，说明裁剪没生效）")
+            << "（上一版只有前两项成立，后三项全崩：region 和 none 都是 43200，因为它被 setClipping(false) 关掉了。）";
     qInfo() << "  ClipOperation 只有 NoClip/ReplaceClip/IntersectClip 三个值；"
                "第二次 setClip* 传 IntersectClip 就是「在已有裁剪里再交一块」，"
                "传 ReplaceClip 就是「推翻前面的重新裁」。";
@@ -634,7 +743,8 @@ static void runAllEvidence()
     qInfo() << "===============================================================";
 
     QImage sheet(560, 470, QImage::Format_ARGB32_Premultiplied);
-    sheet.fill(QColor(246, 247, 250, 255));
+    const QColor sheetBg(246, 247, 250, 255);            // 正文底色，自检要跟它比
+    sheet.fill(sheetBg);
 
     {
         QPainter p(&sheet);
@@ -655,28 +765,43 @@ static void runAllEvidence()
         QPainter p(&sheet);
         p.setRenderHint(QPainter::Antialiasing);
         const QRectF cell(330, 250, 210, 160);
-        p.setClipRect(cell, Qt::ReplaceClip);      // 先把自己限制在这一格里
+        // ⚠ 顺序是**先 save 再 setClipRect**。上一版反过来（先裁再存），restore() 只能回到
+        //   save() 那一刻的状态——那一刻裁剪已经生效了，所以出了作用域裁剪还在身上，
+        //   紧接着画在 cell 下方 14px 的那行标题落在裁剪框外，**一个像素都没上纸**，
+        //   而日志里 save = true、图也生成了，看不出任何异常。
         p.save();
+        p.setClipRect(cell, Qt::ReplaceClip);      // 把自己限制在这一格里
         QImage tmp(cell.size().toSize(), QImage::Format_ARGB32_Premultiplied);
         tmp.fill(QColor(0, 0, 0, 0));
         {
             QPainter q(&tmp);
             q.setRenderHint(QPainter::Antialiasing);
-            paintBusyContent(q, cell.size().toSize(), true, Qt::IntersectClip);
+            paintBusyContent(q, cell.size().toSize(), ClipRectAndPath, Qt::IntersectClip);
         }
         p.drawImage(cell.topLeft(), tmp);
-        p.restore();
+        p.restore();                               // 现在这一步才真的把裁剪卸掉
         p.setPen(QColor(40, 45, 55));
         p.setBrush(Qt::NoBrush);
         p.drawRect(cell);
         p.drawText(QPointF(cell.left(), cell.bottom() + 14),
                    QStringLiteral("④ 裁剪后（对照 painting_07_after_clip.png）"));
+        // 数一下标题那条 18px 高的横带里到底有没有墨：这就是「文字真上纸了」的证据。
+        // 横带往左多取 6px，避开文字起点；底色用 sheetBg，不是"取左上角那个像素"。
+        QImage band = sheet.copy(QRect(int(cell.left()) - 6, int(cell.bottom()) + 2,
+                                       int(cell.width()) + 6, 18));
+        qInfo() << "【sheet 自检】④ 那格的标题横带（cell 下方 18px）上墨像素 ="
+                << countInkOverBackground(band, sheetBg) << "/" << band.width() * band.height()
+                << "（sheet 是均匀底色，所以不能用 countOpaque —— 它会直接数到满幅。"
+                   "上一版这里实测为 0：文字被残留的裁剪吃掉了。）";
     }
 
     const bool saved = sheet.save(QStringLiteral("painting_07_painter_path_and_clipping.png"));
     qInfo() << "【主证据】总览 sheet:" << sheet.size() << "save =" << saved
-            << "非透明像素 =" << countOpaque(sheet) << "/ 面积 ="
-            << sheet.width() * sheet.height() << "（整张被 fill 过，两数应相等）";
+            << "非透明像素 =" << countOpaque(sheet) << "/ 面积 =" << sheet.width() * sheet.height()
+            << "→ 这两个数相等**不是**证据（底色本来就把整张铺满了，alpha 全非 0）。"
+               "真正能看出「内容有没有上纸」的是相对底色的上墨像素 ="
+            << countInkOverBackground(sheet, sheetBg)
+            << "（满幅 = 全坏了，0 = 什么都没画）。";
 
     evidenceClipping();                             // 三张对照 PNG + 各自像素数
 }
@@ -692,7 +817,9 @@ int main(int argc, char *argv[])
     // 全部证据都在离屏 QImage 上完成（第 1 讲铁律一），所以一次 singleShot 就够
     QTimer::singleShot(0, [&app]() {
         runAllEvidence();
-        qInfo() << "【收尾】四张 PNG 已写盘；把每张的非透明像素数抄回注释就是你的实测。";
+        qInfo() << "【收尾】五张 PNG 已写盘（总览 + before_clip + after_clip + clip_region"
+                   " + composite_mask）；把每张的像素数抄回注释就是你的实测。";
+
         QCoreApplication::quit();
     });
 
@@ -723,8 +850,14 @@ int main(int argc, char *argv[])
  *  ① 裁剪**跟着变换走**：setClipRect 给的是「当前坐标系」里的矩形，不是设备像素。
  *     先 translate/scale 再 setClip，和反过来，结果不同（第 2 讲的顺序问题在这里复现）。
  *     要「钉死在设备上」的裁剪：resetTransform 之后再裁，或者用 viewport（第 2 讲）。
- *  ② 裁剪**是状态**，save()/restore() 会一起存回来；但 setClip*(..., ReplaceClip)
- *     只替换、不清空，想彻底关掉用 setClipping(false)（197 行）。
+ *  ② 裁剪**是状态**，save()/restore() 会一起存回来 —— 所以**顺序必须是先 save() 再 setClip***。
+ *     本讲实测过反面：先 setClipRect(cell) 再 save()，出了作用域 restore() 时裁剪还在身上
+ *     （restore 只回到 save() 那一刻的状态，那一刻已经裁上了），紧跟在 cell 下方 14px 的
+ *     那行标题一个像素都没上纸：自检横带的上墨像素实测 **0**；改成先 save 后裁，同一个
+ *     自检读到 **494**。而日志里 save = true、PNG 照样生成 —— 只有数像素才看得见。
+ *     另外 setClip*(..., ReplaceClip) 只替换、不清空，想彻底关掉用 setClipping(false)（196 行）；
+ *     ⚠ 关掉之后 clipRegion() **照样读得回**原来那个区域（本机这一轮 hasClipping = false
+ *     而 clipRegion().boundingRect 仍是 QRect(10,10 200x150)）—— 别把「读得到」当成「还在裁」。
  *  ③ **ClipOperation 没有并集**（本机 qnamespace.h 1339~1343 只有三个值）。
  *     要并集就自己把 QRegion united() 好，再 setClipRegion（本讲证据④ 就这么干）；
  *     要「带 alpha 的并集遮挡」，那本来就不该用裁剪，用合成模式（证据⑤）。
@@ -758,6 +891,14 @@ int main(int argc, char *argv[])
  *   第三件：合成模式那 12 格，我把「非透明像素数」和「中心像素 ARGB」一起打，
  *   是因为只打一个必然骗自己 —— 半透明蒙版那条就是例子：像素数几乎没变，
  *   alpha 却差一半。**统计量要选能区分错的哪一个**，这是本模块做证据的统一口径。
+ *   这一讲我又栽了两次，都是统计量选错：
+ *     · countOpaque() 只看 alpha != 0。所以（a）铺了不透明底色的格子里它恒等于满幅
+ *       —— 证据③ 那三个格子曾经全打成 11000，交叉验证形同虚设；换成透明底 +
+ *       全不透明画刷后才是 1995 / 3175 / 8075；（b）总览 sheet 有均匀底色，
+ *       要看「有没有上墨」得用 countInkOverBackground() 跟**指定**底色比。
+ *     · 证据④ 的 region 那张曾经和「不裁剪」一模一样（43200 = 整张面积），
+ *       原因是内容函数进来第一件事就 setClipping(false)，把我刚设好的 QRegion 关了。
+ *       现在它打 11100，正好等于我构造的两个矩形 4800 + 6300，且 hasClipping = true。
  *
  *   最后，本讲我一开始写的 unitedPath()、UnionClip 这两个「想当然」的名字，
  *   都在头文件里查不到（155~157 行是成员函数 united()；ClipOperation 只有三个值）。

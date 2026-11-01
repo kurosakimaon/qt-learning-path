@@ -20,28 +20,10 @@
 //   · 【重要】本示例**不会**故意把自己搞崩：危险路径只用「连接还活着吗」这个可观察事实
 //     来证明隐患存在，然后**不发射**那个会解引用悬空指针的信号。
 //     想亲眼看崩溃，照第 1 节末尾那三行注释自己加一句 model.fire(...) 即可。
-//   · 本机当前无法编译链接 Qt 程序，本示例**未在本机实测编译**；API 全对本机头文件核对过：
-//       QtCore/qobject.h   —— 带 context 的 connect 模板 232~276 行；无 context 版
-//                             278~286 行（函数体：`connect(sender, signal, sender, slot,
-//                             Qt::DirectConnection)`，整段被 QT_NO_CONTEXTLESS_CONNECT 包住）；
-//                             该模板对 lambda 的 UniqueConnection 有 Q_ASSERT_X（268~270 行）；
-//                             destroyed 信号 352 行；deleteLater 364 行
-//       QtCore/qpointer.h  —— class QPointer 19 行起；第 30 行内部存
-//                             QWeakPointer<QObjectType>（所以 T 必须能转成 QObject*）；
-//                             第 21 行 static_assert 禁止 QPointer<T*>；第 38 行 QPointer(T*)；
-//                             data() 75 行、get() 77 行、operator-> 79 行、operator* 81 行、
-//                             isNull() 86 行、explicit operator bool() 88 行、clear() 90 行
-//       QtCore/qobject.h   —— class QSignalBlocker 484 行起：三个构造（QObject*/QObject&/
-//                             移动）都标了 Q_NODISCARD_CTOR（487/489/493 行）；构造体 510/516 行
-//                             调 blockSignals(true)；析构体 546~548 行按 m_inhibited 决定是否还原；
-//                             reblock() 550~555、unblock() 557~562、dismiss() 564~567 行；
-//                             blockSignals(bool) 声明在 141 行，signalsBlocked() 在 140 行
-//       QtCore/qnamespace.h—— enum ConnectionType 1312 行起（DirectConnection / QueuedConnection…）
-//       QtCore/qoverload.h —— qOverload 等三个 constexpr 变量 68~70 行
-//     说明：qpointer.h 里 QPointer 还有 `operator T*() const`（第 84 行），
-//     能隐式变回裸指针——**这条便利性正是新手的坑**：`if (ptr)` 是安全的布尔检查，
-//     但 `ptr->foo()` 走的是 operator->，它对已死对象返回 nullptr 再解引用照崩。
-//     所以规矩是：QPointer 必须先 isNull()／operator bool() 判定，再解引用。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 metaobject_04_lambda_and_lifetime，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/metaobject_04_lambda_and_lifetime.log）。
 // ============================================================================
 
 #include <QApplication>

@@ -1,0 +1,12 @@
+applicationDirPath  = "C:/Users/Kuros/Documents/Qoder/2026-10-31/c6d4ea7f/qt-learning-path/build/bin"
+applicationFilePath = "C:/Users/Kuros/Documents/Qoder/2026-10-31/c6d4ea7f/qt-learning-path/build/bin/start_03_application_object.exe"
+组织名 = "QtLearnDemo" ，应用名 = "start_03_application_object"
+desktopFileName = "org.qtlearn.start03"
+本机可用样式（QStyleFactory::keys）：
+   - windows11
+   - windowsvista
+   - Windows
+   - Fusion
+已切换样式为： "windows11" （当前 style()->objectName = "windows11" ）
+1.2s：主动退出，演示 aboutToQuit 的触发时机
+aboutToQuit 触发：事件循环即将退出，这里做收尾（打印/存配置）

@@ -1,0 +1,58 @@
+===============================================================
+painting 第 7 讲 · QPainterPath / 裁剪 / 合成模式（平台 = "offscreen" ）
+===============================================================
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+【证据①】QPainterPath 构造：API 全都点一遍，然后把它读回来
+  isEmpty = false elementCount = 59 capacity = 84 boundingRect = QRectF(2,2 114x96) currentPosition = QPointF(50,68)
+  前几个元素: "#0 MoveTo(2,2) | #1 LineTo(80,2) | #2 LineTo(80,98) | #3 LineTo(2,98) | #4 LineTo(2,2) | #5 MoveTo(100,60) | #6 CurveTo(100,77) | #7 CurveTo(82,90)"
+  pointAtPercent(0.0/0.5/1.0) = QPointF(2,2) QPointF(34.6361,4) QPointF(50,68)
+  fillRule（我在构造时显式写了 WindingFill）= Qt::WindingFill
+【证据②】Qt::FillRule：OddEvenFill vs WindingFill（自交五角星）
+   OddEvenFill : fillRule 回读 = Qt::OddEvenFill elementCount = 6
+      中心像素 ( 45 , 45 ) alpha = 0 （一个应为 0=有洞、一个应为 255=实心）
+      整张探针的着墨像素 = 1691 （同一条路径，只是规则不同 → 多出来的那部分是**中间那个洞**被填上了）
+   WindingFill : fillRule 回读 = Qt::WindingFill elementCount = 6
+      中心像素 ( 45 , 45 ) alpha = 255 （一个应为 0=有洞、一个应为 255=实心）
+      整张探针的着墨像素 = 2284 （同一条路径，只是规则不同 → 多出来的那部分是**中间那个洞**被填上了）
+  → 记忆法：**奇偶（OddEven）看「穿过几条边」，绕数（Winding）看「绕了几圈」**。自交图形的洞只出现在 OddEvenFill 里。
+  Qt 的默认到底是哪个：新建 QPainterPath 的 fillRule() = Qt::OddEvenFill （Qt::OddEvenFill =  0 、WindingFill =  1 ）→ 默认是奇偶，**别指望，自己显式写**。
+  simplified() 前后：elementCount 6 -> 20 boundingRect QRectF(4.10457,2 81.7909x77.7877) -> QRectF(4.10457,2 81.7909x77.7877)
+  文档口径核对：WindingFill 的星形 simplified() 之后 fillRule() = Qt::OddEvenFill （原路径 = Qt::WindingFill ）→ 本机这一轮确实被打回 OddEvenFill，文档这句在这版 Qt 上成立；elementCount 6 -> 11 。结论：**简化会丢掉你的填充规则**，简化完还要记得把规则设回去。
+【证据③】路径布尔：united / intersected / subtracted（+ operator|&-）
+"  A ∪ B  united()          isEmpty=0 elementCount=114 boundingRect=(0,0,110,92)"
+"  A ∩ B  intersected()     isEmpty=0 elementCount=  9 boundingRect=(40,12,40,58)"
+"  A - B  subtracted()      isEmpty=0 elementCount=112 boundingRect=(0,12,76,80)"
+"  A | B（同 united）          isEmpty=0 elementCount=114 boundingRect=(0,0,110,92)"
+"  A & B（同 intersected）     isEmpty=0 elementCount=  9 boundingRect=(40,12,40,58)"
+"  A - B（同 subtracted）      isEmpty=0 elementCount=112 boundingRect=(0,12,76,80)"
+  用像素交叉验证（每个结果单独画进 110x100 的**全透明底**小图数着墨）：
+       A ∪ B  united() 着墨像素 = 8075 着墨包围盒 = QRect(0,0 110x92) 占整张 11000 的比例 = "0.73"
+       A ∩ B  intersected() 着墨像素 = 1995 着墨包围盒 = QRect(40,12 40x58) 占整张 11000 的比例 = "0.18"
+       A - B  subtracted() 着墨像素 = 3175 着墨包围盒 = QRect(0,12 76x80) 占整张 11000 的比例 = "0.29"
+  → 次序核对：intersected( 1995 ) < subtracted( 3175 ) < united( 8075 ) 成立 = true （A 是 80x80 的椭圆、B 是 70x70 的矩形且只压掉 A 右上角一块，所以「交集最小、A 减 B 居中、并集最大」是几何上注定的；次序反了就是你的 FillRule 或画刷透明度在捣鬼。）
+【证据⑤·导读】合成模式 vs 裁剪，差在哪：
+  裁剪（setClipRect / setClipPath / setClipRegion）只吃**二值**边界：clipRegion()（qpainter.h 185 行）返回的 QRegion 天生非 0 即 1；
+  合成模式吃 **alpha**：半透明蒙版能保留一半颜色。
+  口诀：「形状外面不要」用裁剪，「形状外面要淡出」用合成模式。下面见数字。
+【证据⑤·正式版】CompositionMode：蒙版 + 12 格色卡
+  内容层非透明像素 = 5184 / 5184
+  蒙版层（满 alpha）非透明像素 = 3380 蒙版层（半 alpha）= 3380
+  DestinationIn：非透明 = 3380 中心像素 = "#ffffffff"
+  SourceIn      ：非透明 = 3380 中心像素 = "#ffffffff"
+  Clear         ：非透明 = 0 中心像素 = "#00000000" （预期 0 / 全透明：Clear 就是把目标抹掉）
+  Source        ：非透明 = 3380 中心像素 = "#ffffffff" （预期等于蒙版的非透明数：Source 直接拿新内容替换）
+  → 半透明蒙版再走一遍 DestinationIn：
+      非透明 = 3380 中心 alpha = 160 （alpha 减半但不为 0，所以「非透明像素数」几乎不变、**中心像素的 alpha 变了**：只看像素数会漏判，这就是要同时打印采样值的原因）
+  色卡（格式 模式:非透明像素数(中心像素ARGB十六进制)）: "SourceOver:5184(FFFFFFFF) DestinationOver:5184(FFFFFFFF) Clear:0(FF000000) SourceIn:3380(FFFFFFFF) DestinationIn:3380(FFFFFFFF) Xor:2088(FF000000) Plus:5184(FFFFFFFF) Multiply:5184(FFFFFFFF) Screen:5184(FFFFFFFF) Darken:5184(FFFFFFFF) Lighten:5184(FFFFFFFF) SourceOver 半遮:5184(FFFFFFFF)"
+  painting_07_composite_mask.png 已写盘，尺寸 = QSize(72, 72)
+【sheet 自检】④ 那格的标题横带（cell 下方 18px）上墨像素 = 494 / 3888 （sheet 是均匀底色，所以不能用 countOpaque —— 它会直接数到满幅。上一版这里实测为 0：文字被残留的裁剪吃掉了。）
+【主证据】总览 sheet: QSize(560, 470) save = true 非透明像素 = 263200 / 面积 = 263200 → 这两个数相等**不是**证据（底色本来就把整张铺满了，alpha 全非 0）。真正能看出「内容有没有上纸」的是相对底色的上墨像素 = 67595 （满幅 = 全坏了，0 = 什么都没画）。
+【证据④】裁剪：setClipRect / setClipPath / setClipRegion + Qt::ClipOperation
+  setClipRegion(two, ReplaceClip) 之后（画之前）：hasClipping = true clipRegion().boundingRect = QRect(10,10 200x150) rectCount = 2 ｜我自己构造的 QRegion：boundingRect = QRect(10,10 200x150) rectCount = 2 → 两个 rectCount 相等（ 2 == 2 ）就是「并集原样进去了」；ClipOperation 给 ReplaceClip 才没有被交掉。
+  画完之后：hasClipping = true （画内容没碰裁剪开关，所以还是 true；上一版在这行是 false）
+  着墨像素数：不裁剪 = 43200 裁剪(rect∩path) = 8262 裁剪(region 并集) = 11100
+  着墨包围盒：不裁剪 = QRect(0,0 240x180) 裁剪(rect∩path) = QRect(60,18 72x144) 裁剪(region 并集) = QRect(10,10 200x150)
+  核对：面积 = 43200 ｜不裁剪 ≈ 满幅 = true ｜矩形+路径裁剪更小 = true ｜region 裁剪更小 = true ｜两种裁剪互不相同（不是同一段代码跑两遍） = true ｜region 着墨落在构造的两个矩形里 = 是 （上一版只有前两项成立，后三项全崩：region 和 none 都是 43200，因为它被 setClipping(false) 关掉了。）
+  ClipOperation 只有 NoClip/ReplaceClip/IntersectClip 三个值；第二次 setClip* 传 IntersectClip 就是「在已有裁剪里再交一块」，传 ReplaceClip 就是「推翻前面的重新裁」。
+【收尾】五张 PNG 已写盘（总览 + before_clip + after_clip + clip_region + composite_mask）；把每张的像素数抄回注释就是你的实测。

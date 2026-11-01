@@ -20,7 +20,7 @@
 2. **能换**：今天用 `QTableView`，明天换成 `QListView` 或命令行工具，`todo_core` 不用动。
 3. **能讲清**：面试官问「你的模型和数据库怎么分工」，你可以直接指文件，而不是说「都在 MainWindow 里」。
 
-> 诚实标注：本机 Qt 运行时库不可用，这套代码过了 `moc` + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`（0 error / 0 warning），但**没有在本机链接运行**。下面所有「会发生什么」都是按 Qt 6.12 头文件与信号槽语义推的；请在你自己的机器上跑一遍再下结论。
+> 实测标注（本机 Qt 6.12.0 + MinGW GCC 13.1.0，Windows，`QT_QPA_PLATFORM=offscreen`）：这套代码**已在本机完整编译、链接、运行**。`-Wall -Wextra` 下 0 error / 0 warning；`todo_desktop --self-check` 38 项全 `[PASS]`、退出码 0；`ctest` 2/2 通过（`tst_taskmodel` 9 passed / 0 failed / 0 skipped）。下面凡是「会发生什么」，都已对着本机运行输出核对过；只有文末那张**人眼界面表**仍然是未验证项 —— offscreen 不往屏幕画东西，像素级的事只有真显示器上看得准。
 
 ---
 
@@ -121,14 +121,16 @@
 **重点**：
 
 - 连接名 `"todo_desktop_main"` 是构造参数。`open()` 里 `addDatabase("QSQLITE", name)`，之后全进程靠名字取连接。
-- 建表语句在 `ensureSchema()`：`id INTEGER PRIMARY KEY`、`title TEXT NOT NULL`、`done INTEGER`、`priority INTEGER`、`due TEXT`、`notes TEXT`。
-- `upsert()` 用 `INSERT OR REPLACE`；`due` 无效时绑 `NULL`，读回时 `QDate::fromString(..., Qt::ISODate)` 再判 `isValid()`。
+- 建表语句在 `ensureSchema()`：`id INTEGER PRIMARY KEY`、`title TEXT NOT NULL`、`done INTEGER`、`priority INTEGER`、`due TEXT`、`notes TEXT NOT NULL DEFAULT ''`。注意 `title` 与 `notes` 都是 `NOT NULL`：备注「可以为空」的意思是**空串 `""` 允许、NULL 不允许**。
+- `upsert()` 用 `INSERT OR REPLACE`；`due` 无效时绑 `NULL`（这一列可空，OK），读回时 `QDate::fromString(..., Qt::ISODate)` 再判 `isValid()`。
 - `replaceAll()` 是「清空 + 批量插入」，**整段包在一个事务里**，任何一步失败就 `rollback()`。
 - `close()` 幂等：先判连接在不在，再在花括号里让 `QSqlDatabase` 副本析构，最后才 `removeDatabase()`。
 
 **坑**：
 
 - `removeDatabase()` 之前只要还有一个 `QSqlDatabase` 或 `QSqlQuery` 副本活着，Qt 就会打印 `connection is still in use`，而且**真的不删**。这个文件里每个局部变量都被花括号关住了，不是风格，是纪律。
+- **null QString ≠ 空串：NOT NULL 文本列的第一号坑。** `Task` 的 `title/notes` 默认成员初始化是 `QString()`（null），不是 `QStringLiteral("")`（空串）。当你 `bindValue(col, 一个 null QString)`，QSQLITE 驱动在 `qsql_sqlite.cpp` 的 `exec()` 里对每个值先过 `QSqlResultPrivate::isVariantNull()`——而它判 QString 的标准是「里面那个 QString 自己 isNull()」（`qsqlresult.cpp` 604~605 行），于是 null QString 被绑成 **SQL NULL**，直接撞 `NOT NULL`。
+  最阴的地方在于它**只在一条路径上暴露**：`upsert()` 是 `INSERT OR REPLACE`，SQLite 的 REPLACE 冲突解决会把违反 `NOT NULL` 的 NULL 悄悄换成列默认值 `''`，「看起来成功」；`replaceAll()` 是普通 `INSERT`，没有这层兜底，当场报 `NOT NULL constraint failed: tasks.notes`。**同一条数据，一个成功一个炸** = 靠副作用续命。正解是在边界上把 null 归一成空串（`notNull()` 小函数），让两条路径行为一致，不再依赖 REPLACE 的隐性转换。
 - 错误不靠异常，靠 `QString* error` 出参。上层（`MainWindow`）负责把它显示到状态栏，底层不弹窗。
 - 数据库打不开时，窗口仍然要能显示——`MainWindow` 构造函数里先建界面再开库，失败只影响「能不能落盘」。
 
@@ -397,6 +399,7 @@
 | `QSaveFile` 加 `QIODevice::Text` | Windows 会做 CRLF 转换，破坏字节数与 JSON 内容 |
 | 自检里弹 `QMessageBox` | 无头环境没人点按钮；自检只打印 + 退出码 |
 | 把 `enum class Priority` 直接 `toInt()` | 先 `static_cast<int>()`；读回统一走 `priorityFromInt()` |
+| `bindValue` 把 null `QString()` 塞进 `NOT NULL` 文本列 | null≠空串；`INSERT OR REPLACE` 会悄悄兜默认值、普通 `INSERT` 当场炸。进 NOT NULL 列前把 null 归一成 `""` |
 | 在 `paint()` 里查库/建大对象 | `paint()` 是热路径，只做绘制 |
 | 统计请求每次都排队 | 忙时只保留最后一次快照，算完补算 |
 | 搜索只调 `setFilterFixedString()` | 它只盯一列；要同时搜标题和备注就重写 `filterAcceptsRow()` |
@@ -409,7 +412,7 @@
 
 ```bash
 # 仓库顶层
-cmake -G Ninja -B build -S . -DCMAKE_PREFIX_PATH=C:/msys64/ucrt64
+cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64
 cmake --build build --target todo_desktop tst_taskmodel
 ```
 
@@ -422,7 +425,7 @@ cmake --build build --target todo_desktop tst_taskmodel
 echo $?
 ```
 
-预期：38 项 `[PASS]`，退出码 0。任何一项 `[FAIL]` 都会让退出码非 0。
+实测（本机）：38 项 `[PASS]`，退出码 0。任何一项 `[FAIL]` 都会让退出码非 0。
 
 ### 3. 单元测试
 
@@ -430,7 +433,23 @@ echo $?
 ctest --test-dir build -R "todo_|tst_taskmodel" --output-on-failure
 ```
 
-预期：`todo_selfcheck` 与 `tst_taskmodel` 全绿。
+实测（本机）：`todo_selfcheck`（0.13 s）与 `tst_taskmodel`（9 passed / 0 failed / 0 skipped）全绿。
+
+### 3.5 单独构建这一层（第拾壹阶段那条「工程要能独立 configure」的验收）
+
+```bash
+cd projects/todo_desktop
+cmake -G "MinGW Makefiles" -B build -S . -DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64
+cmake --build build
+ctest --test-dir build --output-on-failure     # 2/2 Passed
+```
+
+★ 这一步在本机**曾经过不去**：这份 `CMakeLists.txt` 是从顶层 `add_subdirectory` 长出来的，
+自己不带 `cmake_minimum_required()` / `project()`，单独 configure 时 CMake 直接报
+`CMake Error: No cmake_minimum_required command is present` → `Configuring incomplete`。
+现在文件里用 `if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)` 补上了这一段，
+上面三条命令实测全通。为什么不能无条件写 `project()`：那会重开作用域，
+`CMAKE_BINARY_DIR` 跟着变成本目录，顶层约定的 `build/bin/` 产物位置就漂移了。
 
 ### 4. 手工界面清单（需要真实 Qt 运行环境）
 
@@ -447,7 +466,7 @@ ctest --test-dir build -R "todo_|tst_taskmodel" --output-on-failure
 | 改窗口大小后关闭再开 | 窗口大小与表头宽度恢复 |
 | 关掉数据库文件权限再启动 | 窗口仍能打开，状态栏提示数据库打不开 |
 
-> 这一张表本机跑不了（Qt 运行时不可用），请在你的机器上逐条过。界面细节（行高、胶囊颜色、状态栏文字）随平台主题有差异，不算缺陷。
+> 这张表**程序本身在本机跑得起来**（`--self-check` 与 `ctest` 全绿就是证据），但它一条都验不了：`offscreen` 平台不往显示器画任何东西，行高、胶囊颜色、状态栏文字、确认框的默认按钮焦点，全都是**像素与焦点顺序**层面的事，只有真显示器上的人眼说得准。请在自己的机器上逐条过。界面细节（行高、胶囊颜色、状态栏文字）随平台主题有差异，不算缺陷。
 
 ### 5. 验收标准：能当场讲清这十个问题
 
@@ -475,7 +494,7 @@ ctest --test-dir build -R "todo_|tst_taskmodel" --output-on-failure
 代理一上，就有两套坐标。这个项目把换算收在 `selectedSourceRow()` 一个函数里，别的地方一律不直接碰。真实项目里代理会一层套一层，写规范了是幂等的，省了就是偶现 bug。
 
 **第三句：能交给别人的东西，才叫交付。**
-源码能编、自检能过、测试能跑、`windeployqt` 能搬走——四件事齐了，才敢说「做完了」。本机跑不了 Qt 运行库是环境问题，不是把「没验证」说成「已验证」的理由。诚实标注，比漂亮话值钱。
+源码能编、自检能过、测试能跑、`windeployqt` 能搬走——四件事齐了，才敢说「做完了」。本机前四件都齐了（编译链接通过、38 项自检全绿、ctest 2/2、`windeployqt` 实测能搬），**唯独「看起来对不对」这一件没有**：无头环境跑不出像素，所以上面那张人眼清单依然只能交给你。写讲义时吃过一次亏：「本机跑不了 Qt」这句话在文件里躺了整整一个阶段，其实只是一时缺 DLL，环境一好，那段免责和它盖住的假绿一起露了馅。诚实标注不是给自己留台阶，是给下一个读的人标出**哪一格还没验过**。
 
 **第四句：改任何一处，先问三个问题。**
 数据归谁？信号谁发？失败怎么告诉用户？这三个问题答不上来，就先别写代码。它们分别对应分层、通知链、错误处理——也是这个项目里每一处设计决定背后的同一把尺子。

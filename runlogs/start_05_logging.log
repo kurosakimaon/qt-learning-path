@@ -1,0 +1,16 @@
+[18:50:33.685] [info] unknown:0 unknown :: —— 1) 五个级别：轻重不同，去向与后果也不同 ——
+[18:50:33.686] [debug] unknown:0 unknown :: debug：啰嗦的调试细节，追踪变量状态用
+[18:50:33.686] [info] unknown:0 unknown :: info：程序走到了一个值得记录的节点
+[18:50:33.686] [warning] unknown:0 unknown :: warning：不对劲，但还能继续
+[18:50:33.686] [critical] unknown:0 unknown :: critical：出了影响功能的错误
+[18:50:33.686] [info] unknown:0 unknown :: —— 3) 链式接口改了输出格式 ——
+[18:50:33.686] [debug] unknown:0 unknown :: noquote()： 你好，Qt
+[18:50:33.686] [debug] unknown:0 unknown :: nospace()：A1B2
+[18:50:33.686] [debug] unknown:0 unknown :: quote() 后： "你好，Qt"
+[18:50:33.686] [info] unknown:0 unknown :: —— 4) 分类日志 QLoggingCategory ——
+[18:50:33.686] [debug] unknown:0 unknown :: 这是 app.start05 分类下的 debug 信息
+[18:50:33.686] [info] unknown:0 unknown :: 这是 app.start05 分类下的 info 信息
+[18:50:33.686] [warning] unknown:0 unknown :: 这是 app.start05 分类下的 warning 信息
+[18:50:33.686] [info] unknown:0 unknown :: 但 info 仍然可见（只关了 debug）
+[18:50:33.987] [info] unknown:0 unknown :: 300ms：由事件循环（定时器）发出的分类日志，带上前面的 pattern
+[18:50:34.287] [info] unknown:0 unknown :: 600ms：日志演示结束，退出

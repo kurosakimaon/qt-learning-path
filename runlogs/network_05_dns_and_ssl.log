@@ -1,0 +1,124 @@
+================================================================
+network 第 5 讲 · 名字与加密（Qt = "6.12.0" ）
+================================================================
+
+========== 【1】QHostInfo::fromName：一句话拿到地址，代价是堵住当前线程 ==========
+  [OK ] 核对  前提：【1】localhost 解析成功 = error = NoError，errorString = Unknown error
+  [OK ] 核对  【1A】解析出了至少一个地址 = 实测 false（期望 false）
+  [实测]  【1】localhost 解析成了什么 = ::1, 127.0.0.1
+  [OK ] 核对  【1B】localhost 的每个地址都是回环地址 = 实测 true（期望 true）
+  [实测]  【1】本机名 / 域 = DESKTOP-O8401LG / <空>
+  → fromName() 是**同步**的：这行代码返回之前，你的线程什么都干不了。
+     在网络好的时候它 1 毫秒就回来了，在 DNS 抽风的时候它能堵你 20 秒。
+     所以界面线程里不许调它 —— 一条规矩，没有例外。
+
+========== 【2】lookupHost：异步，但没有超时参数 ==========
+  [OK ] 核对  前提：【2】回调在 3 秒内回来了 = calls = 1，真实耗时 4 ms
+  [OK ] 核对  【2A】回调恰好被调用 1 次 = 1（期望 1）
+  [OK ] 核对  【2B】结果里的 lookupId 就是发出去的那个号 = 1（期望 1）
+  [OK ] 核对  【2C】结果可用 = 实测 true（期望 true）
+  [实测]  【2】这次异步查询花了多少毫秒 = 4
+  → 注意 qhostinfo.h 第 56~92 行：六个 lookupHost 重载，**没有一个带毫秒参数**。
+     Qt 把「等多久」这件事留给你，是因为它没法替你决定 —— 界面上「转圈圈 3 秒」
+     和后台「重试 30 秒」是两种完全不同的产品决策。
+     abortHostLookup(id)（第 59 行）只保证「不再回调你」，不保证查询被撤回。
+
+========== 【3】查不到不是异常，是常态：给查询加一个自己的期限 ==========
+  [OK ] 核对  【3A】我们自己设的期限一定生效（不会无限等） = 实测 true（期望 true）
+  [实测]  【3】期限到点时，结果到了没有 = 等了 35 ms，calls = 1
+  [预期中] 【3B】失败原因是「没这个名」 = HostNotFound（断网时也可能是 UnknownError，这不算错）
+  [实测]  【3】失败时 errorString = Host not found
+  [OK ] 核对  【3C】失败时地址列表是空的 = 实测 true（期望 true）
+  → 三条经验：
+     ① 名字解析失败是**正常**返回，不是异常，不需要 try/catch，看 error() 就行；
+     ② 你自己的期限到了就继续往下走（报错给用户 / 走缓存 / 降级），
+        别指望 abortHostLookup 让系统解析器停下来；
+     ③ 同一个名字别反复查 —— 加一层缓存（QHash<名字, 地址 + 时间戳>），
+        否则用户每敲一个字你就发一次查询。
+
+========== 【4】QHostAddress：全离线、全同步的五个事实 ==========
+  [OK ] 核对  【4A】"127.0.0.1" 解析成功（不是 null） = 实测 false（期望 false）
+  [OK ] 核对  【4B】它是回环地址 = 实测 true（期望 true）
+  [OK ] 核对  【4C】它是 IPv4 = 实测 true（期望 true）
+  [OK ] 核对  【4D】"::1" 也是回环地址 = 实测 true（期望 true）
+  [OK ] 核对  【4E】它是 IPv6 = 实测 true（期望 true）
+  [OK ] 核对  【4F】非法字符串给出 null 地址（不抛异常） = 实测 true（期望 true）
+  [OK ] 核对  【4G】QHostAddress::LocalHost 就是 127.0.0.1 = 实测 true（期望 true）
+  [实测]  【4】LocalHost / Any / AnyIPv6 三个常数 = 127.0.0.1 / 0.0.0.0 / ::
+  [OK ] 核对  前提：【4】回环上 listen(端口 0) 成功 = errorString = 
+  [OK ] 核对  【4H】系统真的给了一个非零端口 = 实测 true（期望 true）
+  [实测]  【4】系统挑的端口 = 5131（下次运行会不一样）
+  [实测]  【4】绑完之后 serverAddress() = 127.0.0.1
+  [OK ] 核对  【4I】close() 之后不再监听 = 实测 false（期望 false）
+  → 「监听 Any 还是 LocalHost」是一个安全问题，不是一个口味问题：
+     Any 意味着同一局域网里的人也能连进来（Windows 上还会弹防火墙对话框），
+     LocalHost 只有本机能连。测试、单实例通信、进程间调用一律用后者。
+
+========== 【5】TLS 能力探测：能不能上 TLS，只看 supportsSsl() ==========
+  [OK ] 核对  前提：【5】本机 Qt 支持 TLS = supportsSsl() = false：多半是没装 TLS 后端（OpenSSL / Schannel）
+  [实测]  【5】TLS 库版本 = OpenSSL 3.5.9 29 Sep 2026
+  [实测]  【5】编译时的后端（availableBackends） = cert-only, openssl, schannel
+  [实测]  【5】运行时实际用的后端（activeBackend） = openssl
+  [预期中] 【5A】能枚举出密码套件 = 60 个
+  [实测]  【5】第一个密码套件 = TLS_AES_256_GCM_SHA384（AESGCM(256) 位密钥）
+  [预期中] 【5B】系统根证书库非空 = 71 张（容器/精简系统里可能是空的，那就得自己带 CA）
+  [实测]  【5】默认配置当前带的 CA 数量 = 71
+  → supportsSsl() 是**运行时**的答案，不是编译期的：同一个 exe 在装了 OpenSSL 的机器上
+     返回 true，在没装的机器上返回 false。所以桌面程序发布时必须带上 TLS 后端，
+     或者至少准备一个「没有 TLS 也能用」的降级路径 —— 而不是假设它一定在。
+
+========== 【6】默认配置：校验不能关，改副本不能污染全局 ==========
+  [OK ] 核对  前提：【6】本机 Qt 支持 TLS = supportsSsl() = false
+  [OK ] 核对  【6A】默认校验模式不是 VerifyNone = 实测 true（期望 true）
+  [实测]  【6】默认校验模式 = AutoVerifyPeer
+  [OK ] 核对  【6B】PeerVerifyMode 的取值个数 = 4（期望 4）
+  [实测]  【6】默认协议 = SecureProtocols
+  [OK ] 核对  【6C】默认协议不早于 TLS 1.2（Qt6 已不支持 SSLv3） = 实测 true（期望 true）
+  [OK ] 核对  【6D】副本上的修改生效了 = 实测 true（期望 true）
+  [OK ] 核对  【6E】全局默认没被污染 = 实测 true（期望 true）
+  → 关于 ignoreSslErrors()（qsslsocket.h 143/149 行）的两句话：
+     · 它是**给自签名/内网证书**准备的逃生门，不是给「调试方便」准备的；
+     · 用它必须带参数（只忽略你确认过的那一条 QSslError），
+       无参数版本等于「谁冒充都行」—— 中间人只要一张任意证书就能进来。
+     还有一个更常见的错：证书里写的是域名，你却用 IP 去连。
+     校验比的是 peerVerifyName（第 78/79 行），不是路由地址。
+
+========== 【7】让本地 TCP 服务端说一句 HTTP，让 TLS 客户端去接 ==========
+  [OK ] 核对  前提：【7】回环上 listen 成功 = errorString = 
+  [OK ] 核对  前提：【7】4 秒内观察到了失败（sslErrors 或 errorOccurred） = sslErrors = 0，socketError = 1，isEncrypted = 0
+  [OK ] 核对  【7A】握手没有成功：isEncrypted() 为假 = 实测 false（期望 false）
+  [OK ] 核对  【7B】连接最终没能保持（回到 Unconnected） = 实测 true（期望 true）
+  [OK ] 核对  【7C】至少有一个错误信号到过 = 实测 true（期望 true）
+  [实测]  【7】QSslSocket 的错误文本 = Error during SSL handshake: error:0A00010B:SSL routines::wrong version number
+  [实测]  【7】sslErrors 的每一条 = <这次没走 sslErrors，走的是 socket 错误>
+  → 请把这句话记住：**TLS 握手发生在 TCP 连接建立之后**。
+     所以客户端先看到「连上了」，然后才开始谈加密。
+     如果对面说的不是 TLS，你看到的是「记录类型/版本号不对」，
+     而不是「证书无效」—— 这两类错误指向完全不同的故障：
+       · 版本/记录错误 → 端口错了，或者对面根本不是 HTTPS；
+       · 证书错误     → 连接是对的地方，但身份不对（自签名、过期、域名不符）。
+     排查顺序永远是：先确认端口对，再看证书。
+
+========== 【8】从名字到可信连接，一共三道门 ==========
+  [OK ] 核对  前提：【8】回环上再 listen 一个端口 = errorString = 
+  [OK ] 核对  【8A】门①：名字解析成功且给出地址 = 实测 true（期望 true）
+  [OK ] 核对  【8B】门②：服务端在回环地址上听着 = 实测 true（期望 true）
+  [OK ] 核对  【8C】门③：本机具备 TLS 能力 = 实测 true（期望 true）
+  [OK ] 核对  【8D】而且默认就要校验证书 = 实测 true（期望 true）
+  照着抄的连接清单（客户端）：
+    1. 名字解析：QHostInfo::lookupHost + 自己的 QTimer 期限；
+    2. 连接：QSslSocket::connectToHostEncrypted(host, port)，
+       注意传的是**名字**不是 IP（证书校验比名字）；
+    3. 等 encrypted() 信号，而不是 connected —— connected 只说明 TCP 通了；
+    4. 连 sslErrors()：发生即失败，除非你精确地忽略了某一条；
+    5. 收尾用 disconnectFromHost()，别 abort()（abort 会丢写缓冲）。
+  服务端：
+    1. 必须同时有证书和私钥（localCertificate / privateKey），否则握手必失败；
+    2. 用 QSslServer（Qt 6.4+）或 QTcpServer + startServerEncryption；
+    3. 客户端证书校验是另一道门（QSslConfiguration::setCaCertificates）；
+    4. 只监听需要的地址，不要 listen(Any) 图省事。
+
+========== 合账 ==========
+  硬账 36 项：对上 36，不符 0；整节作废 0
+  退出码 = 0（没有硬账不符、没有整节作废）
+进程退出码 = 0

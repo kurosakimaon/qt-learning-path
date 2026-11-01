@@ -1,0 +1,128 @@
+═══ 第 3 讲 · 跨线程信号 ═══
+  moveToThread 返回 = true（挪成了） ｜ worker->thread() = worker ｜ hub->thread() = main·当前
+  元类型对照（fromType<T>() 两个都编译得过）：
+    Pack → isValid=1 isRegistered=0 sizeOf=32 名=Pack
+    Bare → isValid=1 isRegistered=0 sizeOf=4 名=Bare
+  qRegisterMetaType<Pack>("Pack") 返回 65537｜此后 fromType<Pack>().isRegistered()=1
+  ★ 预期：两行 isValid 都是 true（编译期给的接口），差别只出现在 isRegistered 上（运行期给的编号）。id() 本讲**不印**，因为调用它本身可能触发惰性登记，拿它当判据就不干净了 —— 判据只用 2691 行那个 typeId。
+
+【0】自检：谁在跑、谁在听、队列有没有人在处理
+  主线程 = main·当前 句柄=3580
+  workerThread.isRunning()=1 loopLevel()=0
+  ★ loopLevel() 这一行是**主线程读另一条线程**的 int，严格说就是竞态（第 4 讲的靶子）。这里放在两条线程刚起步、没人改它的当口，且只是打印；工程里请让线程自己报（第 1 讲）。
+  idealThreadCount()=16（只是「机器有几核」，跟本讲无关）
+  worker 侧自报：我此刻在 worker·当前[590c]
+
+【1】Auto：裁决只看「emit 那一刻谁在跑」，不看对象归谁
+  1-a 在**主线程**直接调 worker.sigAuto(101)（只为观察裁决，不是推荐用法：跨线程直接调别人线程上的对象，正是第 2 讲骂过的形状）
+      [槽 onProbe   ] 在 main·当前[3580] 执行  n=101  sender()=有（就是 worker 吗：是）  senderSignalIndex()=7
+                          两种口径各解一遍：绝对口径 method(7)=[sigAuto]｜本地口径 method(11)=[acked]｜methodOffset=4  methodCount=22｜indexOfSignal("sigAuto(int)")=7｜method(7) 是信号吗=是
+      回到这一行时 hub.probeHits()=1 ← 已经 +1，说明槽是**当场**跑完的（这边判成了 Direct）
+  1-b 同一个信号、同一条连接，改到 worker 线程里发：
+      invokeMethod(functor, Queued) 返回=1；这一行**先**打印，onProbe 的日志在后 → 那边判成了 Queued
+    > 同一条 Auto 连接，这次在 worker·当前[590c] 发
+      [槽 onProbe   ] 在 main·当前[3580] 执行  n=102  sender()=有（就是 worker 吗：是）  senderSignalIndex()=7
+                          两种口径各解一遍：绝对口径 method(7)=[sigAuto]｜本地口径 method(11)=[acked]｜methodOffset=4  methodCount=22｜indexOfSignal("sigAuto(int)")=7｜method(7) 是信号吗=是
+
+【2】Direct：别的线程发 → 槽在**那条线程**执行（换成 QWidget 这就是崩溃现场）
+      主线程这行先返回，日志里那 5 行 [槽 onDirect]全是在 worker 栈上打的：kBatch=5 条，一条不少
+    > worker 侧发 5 条 sigDirect｜发射线程 = worker·当前[590c]
+      [槽 onDirect ] 在 worker·当前[590c] 执行  n=1  此刻 Hub->thread()=main
+      emit sigDirect(1) 返回（槽早跑完了）
+      [槽 onDirect ] 在 worker·当前[590c] 执行  n=2  此刻 Hub->thread()=main
+      emit sigDirect(2) 返回（槽早跑完了）
+      [槽 onDirect ] 在 worker·当前[590c] 执行  n=3  此刻 Hub->thread()=main
+      emit sigDirect(3) 返回（槽早跑完了）
+      [槽 onDirect ] 在 worker·当前[590c] 执行  n=4  此刻 Hub->thread()=main
+      emit sigDirect(4) 返回（槽早跑完了）
+      [槽 onDirect ] 在 worker·当前[590c] 执行  n=5  此刻 Hub->thread()=main
+      emit sigDirect(5) 返回（槽早跑完了）
+
+【3】Queued：投递完就走，槽等接收者线程的事件循环
+      主线程此刻 hub.queuedHits()=0（这个读数是主线程**自己的**，不是竞态）
+    > worker 侧发 5 条 sigQueued｜连接是 Qt::QueuedConnection
+      emit sigQueued(1) 刚返回：已发 1 条，可 Hub 报上来的送达只有 0 条 → 槽还没跑，参数正躺在主线程的事件队列里
+      emit sigQueued(2) 刚返回：已发 2 条，可 Hub 报上来的送达只有 0 条 → 槽还没跑，参数正躺在主线程的事件队列里
+      emit sigQueued(3) 刚返回：已发 3 条，可 Hub 报上来的送达只有 1 条 → 槽还没跑，参数正躺在主线程的事件队列里
+      [槽 onQueued ] 在 main·当前[3580] 执行  n=1  累计送达=1
+      emit sigQueued(4) 刚返回：已发 4 条，可 Hub 报上来的送达只有 1 条 → 槽还没跑，参数正躺在主线程的事件队列里
+      emit sigQueued(5) 刚返回：已发 5 条，可 Hub 报上来的送达只有 2 条 → 槽还没跑，参数正躺在主线程的事件队列里
+      [槽 onQueued ] 在 main·当前[3580] 执行  n=2  累计送达=2
+    > 本轮「emit 先返回」命中 5 次 / 共 5 条
+      [槽 onQueued ] 在 main·当前[3580] 执行  n=3  累计送达=3
+      [槽 onQueued ] 在 main·当前[3580] 执行  n=4  累计送达=4
+      [槽 onQueued ] 在 main·当前[3580] 执行  n=5  累计送达=5
+
+【4】参数按值拷贝进事件；没登记的类型编译器不管
+      预期紧跟着出现 DLL 里那两行原文（Bare 未登记）；onBare 的日志**不该**出现，hub.bareHits()=0
+      发射前：本地 Pack 地址=63847fc6f0 payload=[发射时写的第1份]
+      发射后：同一个地址 63847fc6f0 上现在是 [★发射之后我在本地把它改了]
+      发射前：本地 Pack 地址=63847fc6f0 payload=[发射时写的第2份]
+      [槽 onPack   ] 在 main·当前[3580] 执行  seq=1 payload=[发射时写的第1份]  收到的对象地址=233b973cb90
+      发射后：同一个地址 63847fc6f0 上现在是 [★发射之后我在本地把它改了]
+      [槽 onPack   ] 在 main·当前[3580] 执行  seq=2 payload=[发射时写的第2份]  收到的对象地址=233b973ce60
+      发射前：本地 Pack 地址=63847fc6f0 payload=[发射时写的第3份]
+      发射后：同一个地址 63847fc6f0 上现在是 [★发射之后我在本地把它改了]
+      发射前：本地 Pack 地址=63847fc6f0 payload=[发射时写的第4份]
+      [槽 onPack   ] 在 main·当前[3580] 执行  seq=3 payload=[发射时写的第3份]  收到的对象地址=233b973c770
+      发射后：同一个地址 63847fc6f0 上现在是 [★发射之后我在本地把它改了]
+      发射前：本地 Pack 地址=63847fc6f0 payload=[发射时写的第5份]
+      发射后：同一个地址 63847fc6f0 上现在是 [★发射之后我在本地把它改了]
+      发一条 sigBare（参数类型 Bare **没登记**）｜线程 worker·当前[590c]
+      [槽 onPack   ] 在 main·当前[3580] 执行  seq=4 payload=[发射时写的第4份]  收到的对象地址=233b973ce60
+      [槽 onPack   ] 在 main·当前[3580] 执行  seq=5 payload=[发射时写的第5份]  收到的对象地址=233b973cc80
+      [槽 onBare   ] 在 main·当前[3580] 执行  seq=907  ← 这条**预期永远不出现**
+
+【5】BlockingQueued：发射方卡在 emit，直到槽在接收者线程跑完（死锁那条见注释）
+      主线程只是**排了个活**给 worker，没等它；等是 worker 等主线程，方向对了才不死锁
+    > 发射前 gBlockingDelivered = 0｜发射线程 = worker·当前[590c]
+      [槽 onBlocking] 在 main·当前[3580] 执行  n=501  ← 发射方此刻正卡在 emit 那一行
+      emit sigBlocking(501) 现在才返回：gBlockingDelivered 从 0 变成 1 → 槽一定跑完了
+
+【6】invokeMethod：functor 版与字符串版，跨线程拿返回值只有两条路
+  (a) 投递返回=1（此刻它还没跑）
+      (a) functor 版在 worker·当前[590c] 执行  compute(7)=22
+  (b) functor+BlockingQueued 返回=1  retB=22（qReturnArg 的出口必须是左值：228 行把右值版 = delete 了）
+  (c) 字符串版 Q_INVOKABLE "compute" 返回=1  retC=22
+QMetaObject::invokeMethod: No such method Worker::uninvokable(int)
+  (d) 字符串版 "uninvokable"（moc 表上没有）返回=0  retD=-1 ← 预期 false / -1，另有一条 qWarning
+
+【7】生命周期：同一个信号、同一种 Queued，只差接收者活没活着
+      主线程只是把这条**排给了 worker**；真正的 3 发 + delete 都在 worker 那个槽里发生
+    > 发完 3 条：此刻 doomed 送达 0、survivor 送达 0（都还是 0 —— 两条都还排在 worker 线程的事件队列里）
+    > 现在在事件被处理**之前**把 doomed 这个接收者 delete 掉（本线程 delete，符合第 2 讲；这里要的是「提前没」这一件事）
+    > delete 之后立刻读：doomed 送达 0
+        · Sink[survivor] 收到 n=1  累计=1  在 worker·当前[590c] 执行
+        · Sink[survivor] 收到 n=2  累计=2  在 worker·当前[590c] 执行
+        · Sink[survivor] 收到 n=3  累计=3  在 worker·当前[590c] 执行
+
+【8】是谁叫我：成员槽里才拿得到，手动调用时是空的
+  > 下面这行是**直接调槽**（不是通过信号）→ 预期 sender() 打「空」
+      [槽 onProbe   ] 在 main·当前[3580] 执行  n=999  sender()=空  senderSignalIndex()=-1
+                          两种口径各解一遍：(拿不到发送者)
+  > 反方向：主线程发 pokeWorker，槽在 worker 那边跑
+      这两行返回时 handleFromHub 一次都没跑（hubHits=0）—— Auto 在这里判成了 Queued
+    > 同一条 Auto 连接，这次在 worker·当前[590c] 发
+      [槽 handleFromHub] 在 worker·当前[590c] 执行  n=701  累计=1  sender()=有，类名=Hub
+      [槽 handleFromHub] 在 worker·当前[590c] 执行  n=702  累计=2  sender()=有，类名=Hub
+      [槽 onProbe   ] 在 main·当前[3580] 执行  n=802  sender()=有（就是 worker 吗：是）  senderSignalIndex()=7
+                          两种口径各解一遍：绝对口径 method(7)=[sigAuto]｜本地口径 method(11)=[acked]｜methodOffset=4  methodCount=22｜indexOfSignal("sigAuto(int)")=7｜method(7) 是信号吗=是
+      [槽 onAcked  ] 在 main·当前[3580] 执行  worker 累计干了 1 趟
+      [槽 onAcked  ] 在 main·当前[3580] 执行  worker 累计干了 2 趟
+
+【9】合账（两条线程都不忙了，这些读数才有意义）
+  Direct   ：槽 5 次（预期 5）｜最后一次执行线程句柄=590c  主线程句柄=3580  → 不同 = 槽真跑在 worker 上
+  Queued   ：槽 5 次（预期 5）｜发射方「emit 先返回」命中 5 次
+  Blocking ：槽 1 次（预期 1）｜Pack：5 次（预期 5）｜Bare：1 次（预期 0）
+  Auto     ：onProbe 4 次（预期 4：1-a + 1-b + 802 + 手动调用）｜反方向 handleFromHub 2 次（预期 2）｜回执 onAcked 2 次（预期 2）
+  索引口径 ：绝对号命中 3 次（预期 3）｜本地号命中 0 次（预期 0）｜idx<0 无效 1 次（预期 1，手动调槽）｜两种都不对 0 次（预期 0）
+  ［对］ senderSignalIndex 口径账：绝对号 3 / 本地号 0 / 无效 1 / 另一种 0
+  生命周期 ：survivor 送达 3（预期 3）｜doomed 送达 0（预期 0）← 差值就是「接收者先没」
+  seqSum   ：531（预期 531 = (1+..+5)×2 + 501）
+
+【10】收尾：挂回挪钩子 → quit → wait(带截止)
+  wait 返回=1（false 就是「还有人在等别人」，八成是【5】那种方向搞反了）
+  回挪是在 worker 线程的 finished 里做的：survivor 挪成=1 worker 挪成=1｜现在 survivor->thread()=main·当前 worker->thread()=main·当前
+  ［对］ 收尾硬账：两个对象都回挪到主线程、且归属确实 = 主线程 → 期望 1，实测 1
+  总耗时 1205 ms（kStep=120 × 10 步的余量，不是结论）
+═══ 跑完了 ═══

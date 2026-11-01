@@ -1,0 +1,31 @@
+=== 1. 函数指针式（首选）：先拿一个不重载的信号做干净示范 ===
+  connect(tick -> onTickCounted) 当 bool 用： true  槽命中 = 1 （槽的返回值是 onTickCounted() 里的 int，但信号是 void，返回值被丢弃）
+=== 2. 重载信号的三种消歧义 ===
+  qOverload<const QString &> ：onText 命中 1  lastText = "hello"
+  显式 void (Sensor::*)(int,int) ：onPair 命中 1  pairSum = 7
+  qNonConstOverload<int>(&Collector::handle) ：非 const 版命中 1  const 版命中 0  lastInt = 41
+=== 3. 槽参数比信号少 / 普通成员函数当槽 ===
+  两参信号 -> 一参槽 ：命中 1  收到第一个参数 = 11
+  非槽成员函数 plainNonSlot 命中 1  收到 = 63 （想让它被元对象反射/字符串式找到，就得改成真正的 slot）
+=== 4. 第 5 个参数：Qt::ConnectionType ===
+  DirectConnection 下发射完立刻可见：onInt 命中 1  lastInt = 7
+=== 5. Qt::UniqueConnection：防重复，但不抹历史 ===
+  UniqueConnection 重连返回值 = false （预期 false：没新增连接）  发射后 onInt 增量 = 1 （=1；若你此前重复连了 N 次，这里就是 N——它一条历史都不删）
+qt.core.qobject.connect: QObject::connect(Sensor, Collector): unique connections require a pointer to member function of a QObject subclass
+  lambda+Unique（Release：断言被编译掉的那条路）连接有效 = false ｜触发 tick 后 lambda 命中 = 0 （两个都该是 false / 0；上面那句 qWarning 就是它的尸检报告）
+=== 6. 带 context object 的 lambda 式 ===
+  带 context 的 lambda ：lastText = "ctx+λ"
+=== 7. 「无 context」三参 connect：它偷偷把 context 设成了 sender ===
+  三参 lambda（context 隐式=sender）：freeHits = 1
+=== 8. 字符串式 SIGNAL()/SLOT()：还活着，但错误被推到运行期 ===
+  字符串式 connect 得到有效连接？ true  发射后 onInt 增量 = 2 （=2：第 4 节那条 + 本节这条，两条都是真实存在的连接）
+=== 9. 用元对象手工校验字符串签名（字符串式的最后一根救草）===
+  normalizedSignature("valueChanged( int )") = "valueChanged(int)"
+  normalizedType("const QString &") = "QString"
+  checkConnectArgs(valueChanged(int), onInt(int))   = true
+  checkConnectArgs(valueChanged(int), onText(QString)) = false
+=== 10. 信号指针 → QMetaMethod（第 8 讲反射的入口）===
+  fromSignal(&Sensor::tick)： "tick()"  是信号? true  所属类 = Sensor
+=== 11. 事件循环里的发射：连接表跨事件循环一直有效 ===
+  onInt 增量 = 2  onText 增量 = 1
+=== 第 2 讲演示结束，自动退出 ===

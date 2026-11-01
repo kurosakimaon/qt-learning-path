@@ -1,0 +1,126 @@
+    面板1 :: focusInEvent reason=3（ActiveWindow）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+
+=== 演示① 鼠标按下/移动/释放（合成，无鼠标）===
+    面板1 :: mousePressEvent  type=2  position=(30.0,20.0) globalPosition=(52.0,42.0) button=0x1 buttons=0x1 modifiers=0x0 source=0
+    面板1 :: mouseMoveEvent position=(60.0,40.0) buttons=0x1
+    面板1 :: mouseReleaseEvent button=0x1 buttons=0x0
+演示① 计数：press 1 move 1 release 1
+  [PASS] 演示① 一发按下+移动+松开 → 三个 handler 各进 1 次
+  坐标契约：position()=(30,20) globalPosition()=(52,42) mapToGlobal(30,20)=(52,42)
+  [PASS] 演示① position() 原样是局部坐标，globalPosition() == mapToGlobal(局部)
+
+=== 演示② button()（谁变了）vs buttons()（现在按着谁）===
+    面板1 :: mousePressEvent  type=2  position=(30.0,20.0) globalPosition=(52.0,42.0) button=0x1 buttons=0x1 modifiers=0x0 source=0
+    面板1 :: mousePressEvent  type=2  position=(30.0,20.0) globalPosition=(52.0,42.0) button=0x2 buttons=0x3 modifiers=0x0 source=0
+    面板1 :: mouseReleaseEvent button=0x1 buttons=0x2
+演示② 结论：**button() 是本次事件里发生变化的那个键**， **buttons() 是此刻仍然按住的所有键**。判断「拖拽中」请用 buttons() & Qt::LeftButton， 判断「右键点在这」请用 button() == Qt::RightButton。 （Qt5 的 mouseButtons()/keyboardModifiers() 在 Qt6 已改名 buttons()/modifiers()， 旧名在 QDropEvent 里仍留着但标了 QT_DEPRECATED_VERSION_X_6_0，qevent.h 723~725 行）
+  最后那发按下实测：button=0x2 buttons=0x3
+  [PASS] 演示② 左+右并按时 button()=右键(0x2)、buttons()=0x3（变化 vs 状态）
+
+=== 演示③ 双击的先后次序 ===
+    面板1 :: mousePressEvent  type=2  position=(30.0,20.0) globalPosition=(52.0,42.0) button=0x1 buttons=0x1 modifiers=0x0 source=0
+    面板1 :: mouseReleaseEvent button=0x1 buttons=0x0
+    面板1 :: mouseDoubleClickEvent button=0x1 flags=0x0（系统直接给的双击）
+    面板1 :: mousePressEvent  type=4  position=(30.0,20.0) globalPosition=(52.0,42.0) button=0x1 buttons=0x1 modifiers=0x0 source=0
+    面板1 :: mouseReleaseEvent button=0x1 buttons=0x0
+演示③ 结果：press 2 次、dbl 1 次、release 2 次 → 实测 2/1/2，不是 1/1/2。 **只要你在 mouseDoubleClickEvent 里调了基类实现，mousePressEvent 就会被再走一遍**； 这条默认实现的意义是「没重写双击的控件，双击时仍会像按下一样响应」。 所以不调基类的代价，是让双击不再等价于一次按下（多数控件正是靠这条拿到按压反馈）。 双击判定窗口由系统给出，Qt 侧的参考值是 QApplication::doubleClickInterval() = 400 ms（qapplication.h 100 行）。
+  [PASS] 演示③ 四发合成事件后 press/dbl/release = 2/1/2（基类 mouseDoubleClickEvent 会把事件再喂给 mousePressEvent）
+
+=== 演示④ 滚轮两种增量 ===
+    面板1 :: wheelEvent angle=(0,120) pixel=(0,0) hasPixelDelta=false phase=2 inverted=false buttons=0x0
+    面板1 :: wheelEvent angle=(0,30) pixel=(0,14) hasPixelDelta=true phase=2 inverted=false buttons=0x0
+演示④ 结论：**angleDelta 是「格 × 120」的通用值，pixelDelta 是像素值**。 写通用滚动代码请两条路都走：pixelDelta 非零就用它，否则用 angleDelta().y() / 120  * QApplication::wheelScrollLines()（qapplication.h 107 行）。 另外 Qt6 的 QWheelEvent 构造里 phase 与 inverted 是必填参数—— Qt5 那个带 Qt::Orientation 的构造搬过来编不过。
+  实测：第一发 angle=(0,120) pixel=(0,0) hasPixelDelta=false
+        第二发 angle=(0,30) pixel=(0,14) hasPixelDelta=true
+  [PASS] 演示④ 传统滚轮那一发：angle=(0,120) 且 hasPixelDelta()=false
+  [PASS] 演示④ 触摸板那一发：pixelDelta 有值时 hasPixelDelta()=true
+
+=== 演示⑤ 键盘事件字段 ===
+    面板1 :: keyPressEvent key=0x41 text="a" modifiers=0x0 autoRepeat=false count=1 | keyCombination: key=0x41 mods=0x0 toCombined=0x41 等于 Ctrl+A? 否
+    面板1 :: keyReleaseEvent key=0x41
+    面板1 :: keyPressEvent key=0x41 text="" modifiers=0x4000000 autoRepeat=false count=1 | keyCombination: key=0x41 mods=0x4000000 toCombined=0x4000041 等于 Ctrl+A? 是
+    面板1 :: keyReleaseEvent key=0x41
+    面板1 :: keyPressEvent key=0x20 text=" " modifiers=0x2000000 autoRepeat=false count=1 | keyCombination: key=0x20 mods=0x2000000 toCombined=0x2000020 等于 Ctrl+A? 否
+    面板1 :: keyReleaseEvent key=0x20
+演示⑤ 结论：**key() 是物理/逻辑键码（Qt::Key_*），text() 是经过输入法/shift 换算之后的字符**。处理「输入了什么」用 text()，处理「按了哪个键」用 key()； 两者都为空的按键（如纯修饰键）必须防住。 长任务/输入框一律先判 isAutoRepeat()（qevent.h 446 行），否则按住键会把你打爆。
+  QKeyEvent::matches(QKeySequence::Copy)（qevent.h 438 行，受 QT_CONFIG(shortcut) 管）= true
+  keyCombination() 拆开看：key=0x41 mods=0x4000000 toCombined=0x4000041（无修饰的 A = 0x41，所以 Ctrl+A ≠ A）
+  [PASS] 演示⑤ Ctrl+A 那一发：key() 仍是 Key_A(0x41)、modifiers() 是 ControlModifier、text() 空（修饰键不产出字符）、isAutoRepeat()=false
+  [PASS] 演示⑤ QKeyCombination（qnamespace.h 1926~1980）：能把 (Ctrl, A) 拆回 key()/keyboardModifiers()，toCombined() 可逆，且 Ctrl+A ≠ A
+  [PASS] 演示⑤ matches() 认出标准键 Copy
+
+=== 演示⑥ FocusPolicy 五档与 tab 链 ===
+  平台前提：window.isActiveWindow()=true | QApplication::activeWindow()=主窗 | tabFocusBehavior=0xff → Tab 门槛=0x1
+      （枚举见 qnamespace.h 126~131 行。上一版两只面板是**各自顶层的窗口**， 到演示⑥时早就不是活动窗口，所以那一版 hasFocus 五档全 false—— 那是「演示搭错了」，不是「五档没区别」。现在面板挂在 window 下、并显式 activateWindow()）
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   NoFocus      读回=0x0  Tab 链可达=否  点击给焦点=否  滚轮给焦点=否  hasFocus=true
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   TabFocus     读回=0x1  Tab 链可达=是  点击给焦点=否  滚轮给焦点=否  hasFocus=true
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   ClickFocus   读回=0x2  Tab 链可达=否  点击给焦点=是  滚轮给焦点=否  hasFocus=true
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   StrongFocus  读回=0xb  Tab 链可达=是  点击给焦点=是  滚轮给焦点=否  hasFocus=true
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   WheelFocus   读回=0xf  Tab 链可达=是  点击给焦点=是  滚轮给焦点=是  hasFocus=true
+  读法①：Tab 那一列是拿「枚举位 + 平台门槛 0x1」现算的，不是背下来的。本机门槛是 TabFocus(0x1)——offscreen 报的是 TabFocusAllControls，所以 TabFocus/StrongFocus/WheelFocus 三档可达。
+  读法①b：点击那一列只看 ClickFocus 位、滚轮那一列要 WheelFocus 全位—— 这两条与平台无关。读法②：hasFocus 这一列本机**五档全 true（实测）**，包括 NoFocus—— 因为 QWidget::setFocus 从头到尾没查过 focusPolicy：它只查 isEnabled()（qwidget.cpp 6546） 和 isActiveWindow()（6581）。这正是 Qt::NoFocus 文档里那句 「除了程序调用之外不接受焦点」的意思：**策略拦的是用户操作，拦不住你手写 setFocus()**。 想验证策略本身，别用 hasFocus 当尺子，要么真点一次鼠标（spontaneous），要么查那两位。
+  反证：tabFocusBehavior 改成 TabFocusTextControls(0x01)→ 门槛变 0xb → NoFocus=不可达 TabFocus=不可达 ClickFocus=不可达 StrongFocus=可达 WheelFocus=可达
+  → 同一份判定代码，两种平台提示给出两种「能不能被 Tab 走到」。 写无障碍/自动化测试时这一点必须显式设，别假设默认值。
+    面板1 :: focusOutEvent reason=7
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "<无>"
+    面板2 :: mousePressEvent  type=2  position=(40.0,40.0) globalPosition=(262.0,62.0) button=0x1 buttons=0x1 modifiers=0x0 source=0
+   合成点击 ClickFocus 的面板2：focusIn 增量 = 0 （本机实测 0）→ 不是策略写错了，是 giveFocusAccordingToFocusPolicy 只在 e->spontaneous() 的分支里被调用（qapplication.cpp 2719~2721）。 同样代码在真桌面上会 +1。
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "<无>" 新 = "面板1"
+   当前 focusWidget = "面板1" （qapplication.h 79 行）
+    面板1 :: focusOutEvent reason=1
+    面板2 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "面板2"
+   focusNextPrevChild(true) 返回 true → 焦点现在在 "面板2"
+    面板2 :: focusOutEvent reason=1
+    面板1 :: focusInEvent reason=1（Tab）
+  信号 QApplication::focusChanged：旧 = "面板2" 新 = "面板1"
+   投了一次 Tab：焦点现在在 "面板1" ；再投 Shift+Tab 应回退（BacktabFocusReason）。
+    面板1 :: focusOutEvent reason=2
+    面板2 :: focusInEvent reason=2（Other）
+  信号 QApplication::focusChanged：旧 = "面板1" 新 = "面板2"
+   Shift+Tab 之后： "面板2"
+   focusChanged 信号累计 16 次；面板1 focusIn 8 /focusOut 8 （本机日志开头那两条的 reason=3 = Qt::ActiveWindowFocusReason， 即「窗口激活时 Qt 自动把焦点给了面板1」，qnamespace.h 1369~1373 行）。
+  [PASS] FocusPolicy 的位：StrongFocus=0xb、WheelFocus=0xf（五档，不是四档）
+  [PASS] 门槛=StrongFocus(0xb) 时的可达集合只有 StrongFocus/WheelFocus（qapplication.cpp 1982 + 2004~2005 的全位判定）
+  [PASS] 合成的（非 spontaneous）鼠标按下不会按 ClickFocus 给焦点
+  [PASS] 同窗口 + StrongFocus 的控件之间，focusNextPrevChild(true) 能把焦点挪到下一个
+  [PASS] 策略拦的是用户操作：Qt::NoFocus 的控件被手写 setFocus() 依然能拿到焦点
+  [PASS] Tab/Backtab 键在合成（非 spontaneous）按键下照样走 Tab 链
+
+=== 演示⑦ 快捷键：QShortcut 与标准键 ===
+  自定义键的 QKeySequence 文本 = "Ctrl+Alt+J" 标准键 Copy 的文本 = "Ctrl+C" （标准键在不同平台/风格下解析成不同实际按键，别硬写 "Ctrl+C"）
+    面板1 :: QShortcut(Ctrl+Alt+J) activated
+  合成 Ctrl+Alt+J 之后 activated 计数 = 1 | 活动窗口 = "主窗"
+  合成 Ctrl+C（标准键 Copy 解析出来的组合）之后 copyFired = 1 → 快捷键要单测，就照这段：activateWindow() + 投对应的按键。 窗口没被激活时它确实是 0（WindowShortcut 要求「本窗口是活动窗口」， qapplication.h 81 行），那种 0 是前提没满足，不是代码错。
+  [PASS] 窗口激活后合成 Ctrl+Alt+J 触发自定义 QShortcut
+  [PASS] 标准键 QKeySequence::Copy 合成 Ctrl+C 触发
+
+=== 结论 ===
+面板1：press 2 release 2 move 1 dbl 1 wheel 2 key 3
+面板2（ClickFocus）：focusIn 2 focusOut 1
+一句话：**坐标用 QPointF 的 position()/scenePosition()/globalPosition()， 按钮用 button()/buttons() 分清「变化」与「状态」， 输入字符看 text()、按键看 key()，焦点行为看 FocusPolicy 与 tab 链—— 但记住策略只管「Qt 替你决定焦点」的三条路，合成事件与手写 setFocus 都不在它管辖内。**
+自检： 17 PASS / 0 FAIL / 0 SKIP（SKIP 只可能是「窗口没被激活」那几条前提）
+    面板2 :: focusOutEvent reason=3
+  信号 QApplication::focusChanged：旧 = "面板2" 新 = "<无>"

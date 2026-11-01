@@ -27,6 +27,11 @@
 //     8) 收尾：三道门 + 一张照着抄的连接清单。
 //
 //   ★ 运行前须知：
+//     · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//       Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 network_05_dns_and_ssl）。本机这一轮：【硬账】36/36 项核对通过、整节作废 0。
+//       这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//       换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//       （本机那一轮存档 runlogs/network_05_dns_and_ssl.log）。
 //     · 只在回环上建连接（QHostAddress::LocalHost + 端口 0），一个包都不出本机，
 //       断网也能跑完。
 //     · 不测真实 DNS 服务器的响应时间（那取决于你家的网络），也不测真实证书链
@@ -59,10 +64,19 @@
 //              ← ★ 全都没有 timeout 参数。这就是本讲反复讲的「自己加期限」。
 //
 // QtNetwork/qhostaddress.h
-//   第 32 行 enum SpecialAddress { Null, LocalHost, LocalHostIPv6, Broadcast, Any, AnyIPv4, AnyIPv6 }
-//   第 44 行 bool isNull() const           ← 解析失败的判据
-//   第 50 行 bool isLoopback() const
-//   第 60 行 Protocol protocol() const     ← IPv4Protocol / IPv6Protocol
+//   第 46~53 行 enum SpecialAddress { Null, Broadcast, LocalHost, LocalHostIPv6,
+//                                    Any, AnyIPv6, AnyIPv4 }
+//              ← ★ 这一条原来**错了两处**，而且都是那种「背下来」就会错的：
+//                (1) 行号写成 32（32 行其实是上一个类的 operator[]）；
+//                (2) 顺序写成 Null, LocalHost, LocalHostIPv6, Broadcast, Any, AnyIPv4, AnyIPv6
+//                    —— 真头文件里 Broadcast 排第二，而且 **AnyIPv6 在 AnyIPv4 前面**。
+//                    顺序不是小事：没有显式赋值，顺序就是值，本机是
+//                    Any=4 / AnyIPv6=5 / AnyIPv4=6（用 (int)QHostAddress::AnyIPv4 一打就知道）。
+//   第 123 行 bool isNull() const          ← 解析失败的判据
+//   第 129 行 bool isLoopback() const
+//   第 107 行 NetworkLayerProtocol protocol() const   ← IPv4Protocol / IPv6Protocol
+//              ← 返回类型叫 NetworkLayerProtocol，不叫 Protocol（原来这里写成 Protocol，
+//                于是照着它去 grep `Protocol protocol()` 会一头雾水）。
 //
 // QtNetwork/qsslsocket.h
 //   第 41~47 行 enum PeerVerifyMode { VerifyNone, QueryPeer, VerifyPeer, AutoVerifyPeer }
@@ -115,7 +129,7 @@
 
 #include <QCoreApplication>
 #include <QHostInfo>          // qhostinfo.h：25~29 错误枚举、53 lookupId、56~92 lookupHost、61 fromName
-#include <QHostAddress>       // qhostaddress.h：44 isNull、50 isLoopback、60 protocol
+#include <QHostAddress>       // qhostaddress.h：123 isNull、129 isLoopback、107 protocol（下面第 61 行起是整份清点）
 #include <QTcpServer>         // 【7】【8】本地回环服务端，端口 0 让系统挑
 #include <QTcpSocket>
 #include <QSslSocket>         // qsslsocket.h：127 supportsSsl、41~47 PeerVerifyMode、154 sslErrors

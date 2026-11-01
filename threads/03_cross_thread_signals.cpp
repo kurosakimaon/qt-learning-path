@@ -24,7 +24,7 @@
 //          · 真正决定「能不能排队搬运」的是**运行期**才有的那个编号：
 //            `isValid()`（2686~2689 行）只看 `d_ptr` 非空；`isRegistered()`（2691~2694 行）
 //            看的是 `d_ptr->typeId.loadRelaxed()` —— 登记过才非零。队列连接要的是后者。
-//            本机 `C:\msys64\ucrt64\bin\Qt6Core.dll` 里 grep 到两行原文（不是抄博客）：
+//            本机 `D:\Qt\6.12.0\mingw_64\bin\Qt6Core.dll` 里 grep 到两行原文（不是抄博客）：
 //              "QObject::connect: Cannot queue arguments of type '%s'"
 //              "(Make sure '%s' is registered using qRegisterMetaType().)"
 //        → 一句话记法：**编译期给接口，运行期给编号；队列搬运要的是编号。**
@@ -53,6 +53,11 @@
 //   #           文件末尾那句 #include "03_cross_thread_signals.moc" 就是 AUTOMOC 的钩子
 //
 // 运行前须知：
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_03_cross_thread_signals，跑到自动退出、退出码 0）。
+//     本讲**没有汇总自检行**，核对是逐条就地打 ［对］/［错］ 的：本机那一轮没有 ［错］，
+//     但退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对——
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/threads_03_cross_thread_signals.log）。
 //   · 只建 **QCoreApplication**：本讲刻意不建任何 widget。理由和第 2 讲一样——
 //     要把「线程裁决」讲纯，不能被 GUI 线程亲和那套规则叠上去干扰；GUI 那一条只在
 //     【2】的注释里讲（真做 UI 的时候，【2】那种写法就是崩溃现场）。
@@ -72,14 +77,38 @@
 //     Bare 组「发了 1 条、收到 0 条」；
 //     【7】那一组两条连接各发 3 条：接收者还活着的收到 3 条，
 //     接收者在同一槽里被 delete 的收到 0 条 —— 差值就是「事件还在路上，接收者先没了」。
-//   · 本文件的校验状态（照实说）：moc + `g++ -fsyntax-only -std=c++17 -Wall -Wextra`
-//     通过（0 error / 0 warning）；**未链接、未运行**（本机 Qt 运行时缺符号，起来就
-//     0xC0000139）。所以文中所有「预期」都是推理，等你在能编译的机器上复核。
-//     但下面这些**是实测**：本机头文件逐行核对（行号都是 6.12.0 的）；第三节那两条
+//   · 本文件的校验状态（照实说）：**已在本机真实编译、链接、运行**（Qt 6.12.0 +
+//     MinGW 13.1.0，Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_03_cross_thread_signals，
+//     退出码 0，存档 runlogs/threads_03_cross_thread_signals.log）。文中那些条数本机对上了：
+//     Blocking 槽 1 次、Pack 5 次、Bare **1 发 0 收**，【7】里活着的接收者收满 3 条、
+//     在同一槽里被 delete 的那个收 0 条。【9】里新加了一条**senderSignalIndex() 口径硬账**
+//     （绝对号 3 / 本地号 0 / idx<0 1 / 两种都不对 0），【10】还有一条**收尾硬账**（回挪是否
+//     成功），任一条不符就把进程退出码改成 1 —— 这两条账是这一版新加的，原因见下面那条勘误。
+//   · ★★ 一处真实的自我推翻（留着别删，它比任何正面讲解都值钱）★★
+//     本讲第一版在【10】收尾写的是：
+//         survivor->moveToThread(mainThread);   // 主线程里直接往回收
+//         delete survivor;
+//         worker.moveToThread(mainThread);
+//     注释把这写成「正路」。本机跑起来以后，控制台打出来的是两轮
+//         QObject::moveToThread: Current thread (0x…) is not the object's thread (0x…).
+//         Cannot move to target thread (0x…)
+//     也就是说**两次回挪都被 Qt 拒了**（6.12 这版 moveToThread 返回 bool，第一版没接返回值，
+//     所以拒绝被静悄悄吞掉了），而后面那句 delete 依旧是「在别人家析构」。
+//     规矩的出处在 qobject.cpp：1746~1757 行的准入条件是 `thisThreadData == currentData`
+//     —— 只有对象**当前归属的那条线程**才有权把它挪走；1743~1745 行留了唯一的例外
+//     （对象本来没有线程归属、且目标就是当前线程），本讲两个对象都有归属，走不到。
+//     现在【10】改成正路：把回挪挂在一个**没有 context 的 functor** 上接 QThread::finished。
+//     没 context 的 functor 连接是 Direct，槽就在发射方的栈上跑；而 finished() 正是
+//     「正在退出的那条线程」发的 —— 两个条件一凑，挪动就发生在 worker 还活着、对象归属
+//     还是它的那一刻。本机实测：回挪两条都返回 1，警告 0 条，收尾后两个对象的 thread()
+//     都是 main，硬账对，退出码 0。
+//     你要带走的是方法而不是结论：**凡是「写完看着对」的收尾，都要看返回值**；
+//     一个不接返回值的 bool API 就是一条会自己骗你的注释。
+//   · 下面这些同样**是实测**：本机头文件逐行核对（行号都是 6.12.0 的）；第三节那两条
 //     「未登记类型的编译期/运行期分工」，编译部分是我用同一套 g++ 单独跑出来的，
 //     警告文案是从本机 Qt6Core.dll 里 strings + grep 抠出来的原文。
 //   · 本讲所有 API 都对着本机真实头文件核对过
-//     （C:\msys64\ucrt64\include\qt6，Qt 6.12.0）：
+//     （D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）：
 //       QtCore/qnamespace.h      —— `enum ConnectionType` 1313~1320 行：
 //                                    AutoConnection(=0) 1314 / DirectConnection 1315 /
 //                                    QueuedConnection 1316 / BlockingQueuedConnection 1317 /
@@ -141,7 +170,7 @@
 //                                      2680~2685 行 fromType<T>()、
 //                                      2686~2689 行 isValid()（只看 d_ptr 非空）、
 //                                      2691~2694 行 isRegistered()（看 typeId 非零）。
-//       （运行期文案核对）        —— C:\msys64\ucrt64\bin\Qt6Core.dll：strings + grep 命中两行
+//       （运行期文案核对）        —— D:\Qt\6.12.0\mingw_64\bin\Qt6Core.dll：strings + grep 命中两行
 //                                    "QObject::connect: Cannot queue arguments of type '%s'" 与
 //                                    "(Make sure '%s' is registered using qRegisterMetaType().)"
 //                                    —— 它们**确实还在这版 Qt 里**。所以【4】的 Bare 那一组预期
@@ -233,6 +262,12 @@ static QAtomicInt gBlockingDelivered;    // 【5】BlockingQueued 的槽跑了�
 static QAtomicInt gBareDelivered;        // 【4】未登记类型：预期恒为 0
 static QAtomicInt gDoomedDelivered;      // 【7】接收者被提前 delete 的那一条
 static QAtomicInt gSurvivorDelivered;    // 【7】对照组：同样三条，接收者没被 delete
+// 【8】senderSignalIndex() 的两种口径各命中几次 —— 这一组计数的用途见 onProbe 里那段：
+//   「本地号还是绝对号」这件事不靠注释宣布，两种都解一遍、各自计数，合账时看谁非零。
+static QAtomicInt gProbeIdxAbsolute;     // 按「绝对号」解中 sigAuto 的次数
+static QAtomicInt gProbeIdxLocal;        // 按「本地号 + methodOffset」才解中的次数
+static QAtomicInt gProbeIdxInvalid;      // idx < 0（手动调槽，压根没有发送者）的次数
+static QAtomicInt gProbeIdxOther;        // 两种口径都对不上 —— 真出现就说明本讲的判据写错了
 
 // ============================================================================
 // 三、要跨线程搬运的自定义类型：登记 + 一个「故意不登记」的对照物
@@ -317,7 +352,7 @@ public Q_SLOTS:
     // 不需要靠运气 —— 这就是本讲所有观察的发射侧。
     void pumpDirect(int n)
     {
-        qInfo().noquote() << QStringLiteral("    ▶ worker 侧发 %1 条 sigDirect｜发射线程 = %2")
+        qInfo().noquote() << QStringLiteral("    > worker 侧发 %1 条 sigDirect｜发射线程 = %2")
                                  .arg(n).arg(handleText());
         for (int i = 1; i <= n; ++i) {
             Q_EMIT sigDirect(i);
@@ -328,7 +363,7 @@ public Q_SLOTS:
     }
     void pumpQueued(int n)
     {
-        qInfo().noquote() << QStringLiteral("    ▶ worker 侧发 %1 条 sigQueued｜连接是 Qt::QueuedConnection")
+        qInfo().noquote() << QStringLiteral("    > worker 侧发 %1 条 sigQueued｜连接是 Qt::QueuedConnection")
                                  .arg(n);
         for (int i = 1; i <= n; ++i) {
             Q_EMIT sigQueued(i);
@@ -342,13 +377,13 @@ public Q_SLOTS:
                                               ? QStringLiteral("槽还没跑，参数正躺在主线程的事件队列里")
                                               : QStringLiteral("槽抢在这之前跑了（主线程正好被唤醒）"));
         }
-        qInfo().noquote() << QStringLiteral("    ▶ 本轮「emit 先返回」命中 %1 次 / 共 %2 条")
+        qInfo().noquote() << QStringLiteral("    > 本轮「emit 先返回」命中 %1 次 / 共 %2 条")
                                  .arg(gEmitReturnedFirst.loadAcquire()).arg(n);
     }
     void pumpBlocking(int n)
     {
         const int before = gBlockingDelivered.loadAcquire();
-        qInfo().noquote() << QStringLiteral("    ▶ 发射前 gBlockingDelivered = %1｜发射线程 = %2")
+        qInfo().noquote() << QStringLiteral("    > 发射前 gBlockingDelivered = %1｜发射线程 = %2")
                                  .arg(before).arg(handleText());
         Q_EMIT sigBlocking(n);        // ← 这一行**卡住**，直到主线程把槽跑完才返回
         qInfo().noquote() << QStringLiteral("      emit sigBlocking(%1) 现在才返回："
@@ -357,7 +392,7 @@ public Q_SLOTS:
     }
     void pumpAuto(int n)
     {
-        qInfo().noquote() << QStringLiteral("    ▶ 同一条 Auto 连接，这次在 %1 发")
+        qInfo().noquote() << QStringLiteral("    > 同一条 Auto 连接，这次在 %1 发")
                                  .arg(handleText());
         Q_EMIT sigAuto(n);
     }
@@ -388,17 +423,17 @@ public Q_SLOTS:
     {
         for (int i = 1; i <= 3; ++i)
             Q_EMIT sigDoomed(i);
-        qInfo().noquote() << QStringLiteral("    ▶ 发完 3 条：此刻 doomed 送达 %1、survivor 送达 %2"
+        qInfo().noquote() << QStringLiteral("    > 发完 3 条：此刻 doomed 送达 %1、survivor 送达 %2"
                                             "（都还是 0 —— 两条都还排在 worker 线程的事件队列里）")
                                  .arg(gDoomedDelivered.loadAcquire())
                                  .arg(gSurvivorDelivered.loadAcquire());
         if (m_doomed != nullptr) {
-            qInfo() << "    ▶ 现在在事件被处理**之前**把 doomed 这个接收者 delete 掉"
+            qInfo() << "    > 现在在事件被处理**之前**把 doomed 这个接收者 delete 掉"
                        "（本线程 delete，符合第 2 讲；这里要的是「提前没」这一件事）";
             delete m_doomed;                 // ← Qt 摘掉它的全部连接 + 丢弃已排到它身上的事件
             m_doomed = nullptr;
         }
-        qInfo().noquote() << QStringLiteral("    ▶ delete 之后立刻读：doomed 送达 %1")
+        qInfo().noquote() << QStringLiteral("    > delete 之后立刻读：doomed 送达 %1")
                                  .arg(gDoomedDelivered.loadAcquire());
     }
 
@@ -528,13 +563,40 @@ public Q_SLOTS:
         if (mo != nullptr) {
             // 判越界再取值 —— metaobject 模块第 8 讲的规矩在这儿同样生效：查不到给 -1，
             // 而 method(int) **不做越界检查**。
-            resolution = QStringLiteral("method(%1)=[%2]  methodOffset=%3  methodCount=%4")
-                             .arg(idx)
-                             .arg(idx >= 0 && idx < mo->methodCount()
-                                      ? QString::fromLatin1(mo->method(idx).name())
-                                      : QStringLiteral("(越界，不取)"))
-                             .arg(mo->methodOffset())
-                             .arg(mo->methodCount());
+            const int mCount = mo->methodCount();
+            const int mOffset = mo->methodOffset();
+            // 两种口径各解一遍，谁真的指到 sigAuto 谁才算数：
+            //   · 绝对口径：idx 就是 method[] 的下标；
+            //   · 本地口径：idx 是本类自己那一段里的下标，绝对下标 = methodOffset + idx。
+            const QString absHit = (idx >= 0 && idx < mCount)
+                                       ? QString::fromLatin1(mo->method(idx).name())
+                                       : QStringLiteral("(越界，不取)");
+            const int localAsAbs = mOffset + idx;
+            const QString localHit = (localAsAbs >= 0 && localAsAbs < mCount)
+                                       ? QString::fromLatin1(mo->method(localAsAbs).name())
+                                       : QStringLiteral("(越界，不取)");
+            // 第三个视角：让元对象系统自己报这个信号的绝对号，拿来和 idx 直接比。
+            const int sigAbs = mo->indexOfSignal("sigAuto(int)");
+            const bool isSignalAtIdx = (idx >= 0 && idx < mCount)
+                    && mo->method(idx).methodType() == QMetaMethod::Signal;
+            if (idx < 0)
+                gProbeIdxInvalid.fetchAndAddOrdered(1);
+            else if (isSignalAtIdx && sigAbs == idx)
+                gProbeIdxAbsolute.fetchAndAddOrdered(1);
+            else if (sigAbs == localAsAbs && sigAbs != idx)
+                gProbeIdxLocal.fetchAndAddOrdered(1);
+            else
+                gProbeIdxOther.fetchAndAddOrdered(1);
+            resolution = QStringLiteral(
+                             "绝对口径 method(%1)=[%2]｜本地口径 method(%3)=[%4]"
+                             "｜methodOffset=%5  methodCount=%6"
+                             "｜indexOfSignal(\"sigAuto(int)\")=%7｜method(%1) 是信号吗=%8")
+                             .arg(idx).arg(absHit)
+                             .arg(localAsAbs).arg(localHit)
+                             .arg(mOffset).arg(mCount).arg(sigAbs)
+                             .arg(isSignalAtIdx ? QStringLiteral("是") : QStringLiteral("否"));
+        } else {
+            gProbeIdxInvalid.fetchAndAddOrdered(1);
         }
         qInfo().noquote() << QStringLiteral("      [槽 onProbe   ] 在 %1 执行  n=%2"
                                             "  sender()=%3  senderSignalIndex()=%4")
@@ -546,12 +608,19 @@ public Q_SLOTS:
                                                          ? QStringLiteral("是")
                                                          : QStringLiteral("否")))
                                  .arg(idx);
-        qInfo().noquote() << QStringLiteral("                          按绝对索引解：%1")
+        qInfo().noquote() << QStringLiteral("                          两种口径各解一遍：%1")
                                  .arg(resolution);
-        // ★ 这个索引到底是「本地号」还是「绝对号」，本机跑不了 Qt，我不替你猜。
-        //   你上手跑一次，拿 methodOffset 一比就知道：若 idx >= methodOffset 且 method(idx)
-        //   打出的正是 sigAuto，那是**绝对**口径；若 idx 是个个位数且 method(idx+methodOffset)
-        //   才对上，那是**本地**口径。两种都得判越界 —— 这一句才是本段真正要练的肌肉。
+        // ★ 这个索引到底是「本地号」还是「绝对号」——本机跑过了，答案是**绝对号**：
+        //   日志里那三行（n=101 / 102 / 802）都打 senderSignalIndex()=7、methodOffset=4、
+        //   methodCount=22，绝对口径解出 method(7)=[sigAuto]（确实是它），而
+        //   indexOfSignal("sigAuto(int)") 自己报的绝对号也是 7 —— 三方对上了。
+        //   ⚠ 真正要盯的是本地口径那一列：method(4+7)=method(11)=[acked]。它**没越界**、
+        //   名字**看着像个正常信号**、只是不是这次叫你的那一个。也就是说「先判越界再用」
+        //   这条规矩**拦不住**口径搞错 —— 它只拦得住 7 这种根本不存在的位置。
+        //   所以口径错了不崩、不警告，安安静静给你个错答案：这才是本段真正要练的肌肉。
+        //   比答案更值钱的是做法：两种口径都解、都计数、都打出来，合账时「绝对 3 / 本地 0 /
+        //   无效 1 / 另一种 0」是硬账（不符直接退出码 1）。注释会过期，判绿不会 ——
+        //   哪天「本地号」那位变成非零，就是 Qt 改了口径，该改的是上面这段注释。
     }
     void setExpectedSender(QObject *o) { m_expectedSender = o; }
     int  probeHits() const { return m_probe; }
@@ -846,10 +915,10 @@ int main(int argc, char *argv[])
         qInfo().noquote() << QStringLiteral("\n【8】是谁叫我：成员槽里才拿得到，"
                                             "手动调用时是空的");
         QMetaObject::invokeMethod(&worker, &Worker::pumpAuto, Qt::QueuedConnection, 802);
-        qInfo().noquote() << QStringLiteral("  ▶ 下面这行是**直接调槽**（不是通过信号）→"
+        qInfo().noquote() << QStringLiteral("  > 下面这行是**直接调槽**（不是通过信号）→"
                                             " 预期 sender() 打「空」");
         hub.onProbe(999);
-        qInfo().noquote() << QStringLiteral("  ▶ 反方向：主线程发 pokeWorker，槽在 worker 那边跑");
+        qInfo().noquote() << QStringLiteral("  > 反方向：主线程发 pokeWorker，槽在 worker 那边跑");
         Q_EMIT hub.pokeWorker(701);
         Q_EMIT hub.pokeWorker(702);
         qInfo().noquote() << QStringLiteral("      这两行返回时 handleFromHub 一次都没跑"
@@ -858,6 +927,7 @@ int main(int argc, char *argv[])
     });
 
     // ── 第 9 步：等所有在途事件落地，再把账合上 ───────────────────────────────
+    bool probeIdxLedgerOk = false;        // senderSignalIndex 口径的硬账，见【9】里那段
     QTimer::singleShot(kStep * 9, [&]() {
         qInfo().noquote() << QStringLiteral("\n【9】合账（两条线程都不忙了，这些读数才有意义）");
         qInfo().noquote() << QStringLiteral("  Direct   ：槽 %1 次（预期 %2）｜最后一次执行线程句柄=%3"
@@ -874,6 +944,24 @@ int main(int argc, char *argv[])
                                             "｜反方向 handleFromHub %2 次（预期 2）"
                                             "｜回执 onAcked %3 次（预期 2）")
                                  .arg(hub.probeHits()).arg(worker.hubHits()).arg(hub.ackedHits());
+        // ★ senderSignalIndex() 口径硬账：4 次 onProbe 里，3 次是真信号（绝对号命中）、
+        //   1 次是手动调槽（返回 -1）。「本地号」那位必须恒为 0，「另一种」那位也必须恒为 0，
+        //   否则就是 Qt 改了口径 —— 这时该改的是本讲的注释，不是这两行判据。
+        qInfo().noquote() << QStringLiteral("  索引口径 ：绝对号命中 %1 次（预期 3）｜本地号命中 %2 次（预期 0）"
+                                            "｜idx<0 无效 %3 次（预期 1，手动调槽）｜两种都不对 %4 次（预期 0）")
+                                 .arg(gProbeIdxAbsolute.loadAcquire())
+                                 .arg(gProbeIdxLocal.loadAcquire())
+                                 .arg(gProbeIdxInvalid.loadAcquire())
+                                 .arg(gProbeIdxOther.loadAcquire());
+        probeIdxLedgerOk = (gProbeIdxAbsolute.loadAcquire() == 3
+                            && gProbeIdxLocal.loadAcquire() == 0
+                            && gProbeIdxInvalid.loadAcquire() == 1
+                            && gProbeIdxOther.loadAcquire() == 0);
+        qInfo().noquote() << QStringLiteral("  ［%1］ senderSignalIndex 口径账：%2")
+                                 .arg(probeIdxLedgerOk ? QStringLiteral("对") : QStringLiteral("错"))
+                                 .arg(probeIdxLedgerOk
+                                          ? QStringLiteral("绝对号 3 / 本地号 0 / 无效 1 / 另一种 0")
+                                          : QStringLiteral("口径与本讲注释不符，回去改【8】那段注释"));
         qInfo().noquote() << QStringLiteral("  生命周期 ：survivor 送达 %1（预期 3）"
                                             "｜doomed 送达 %2（预期 0）← 差值就是「接收者先没」")
                                  .arg(gSurvivorDelivered.loadAcquire())
@@ -883,29 +971,67 @@ int main(int argc, char *argv[])
     });
 
     // ── 第 10 步：收摊（第 1、2 讲的规矩在这里全部要用上）──────────────────────
+    // 回挪的结果要在主线程打印，但写入发生在 worker 线程的 finished 里；
+    // wait() 返回构成 happens-before，所以这两个 bool 这样读是干净的（第 4 讲的正规样板）。
+    struct MoveBack { bool survivor = false; bool worker = false; } moveBack;
+    bool teardownOk = true;               // 收尾硬账不符就改它，最后参与返回码（别让账变成装饰）
+
     QTimer::singleShot(kStep * 10, [&]() {
-        qInfo().noquote() << QStringLiteral("\n【10】收尾：requestInterruption → quit → wait(带截止)");
+        qInfo().noquote() << QStringLiteral("\n【10】收尾：挂回挪钩子 → quit → wait(带截止)");
         workerThread.requestInterruption();          // 协作式；本讲的 worker 不看它，纯表诚意
+
+        // ★ survivor 和 worker 此刻**仍然归属 workerThread**。线程一退出，它俩就成了
+        //   「归属线程已经不存在」的孤儿；直接在主线程 delete survivor、或者让栈上
+        //   worker 在 main 返回时析构 = 第 2 讲骂过的「析构跑在别人家」。
+        //   那在主线程把它俩 moveToThread(mainThread) 挪回来不就行了？
+        //   —— **不行，而且不是我说的**：qobject.cpp 1746~1757 行，moveToThread 的准入条件是
+        //      `thisThreadData == currentData`，翻译过来就是「只有对象当前归属的那条线程，
+        //      才有权把它挪走」；唯一的例外写在 1743~1745 行（对象本来**没有**线程归属、
+        //      且目标恰好是当前线程）。worker 和 survivor 都有归属，走不到那个例外。
+        //   本讲第一版就是在下面这两处写了 `survivor->moveToThread(mainThread)`
+        //   和 `worker.moveToThread(mainThread)`，本机跑出来的结果是 Qt 打了两轮
+        //   「QObject::moveToThread: Current thread (...) is not the object's thread (...).
+        //    Cannot move to target thread (...)」，返回值 false —— 挪**没**挪成，
+        //   要看返回值和警告，不能看代码写了什么。这就是「注释讲得再漂亮也不算证据」。
+        //   正路：QThread::finished() 是在**正在退出的那条线程**里发射的，所以把挪动挂在
+        //   一个**没有 context 的 functor** 上（没 context 的 functor 连接走 Direct，
+        //   槽就在发射方的栈上跑），趁 worker 线程还活着、对象的归属还是它的时候挪回去。
+        QObject::connect(&workerThread, &QThread::finished, [&]() {
+            moveBack.survivor = survivor->moveToThread(mainThread);
+            moveBack.worker   = worker.moveToThread(mainThread);
+        });
         workerThread.quit();                         // 让那条线程的事件循环退出
         const bool stopped = workerThread.wait(QDeadlineTimer(3000));
         qInfo().noquote() << QStringLiteral("  wait 返回=%1（false 就是「还有人在等别人」，"
                                             "八成是【5】那种方向搞反了）").arg(stopped);
-        // ★ survivor 还归属 worker 线程。线程已经没了，对象还活着 —— 直接在这条线程 delete
-        //   就是第 2 讲那个「析构跑在不是自己家的线程上」。先挪回主线程，再收。
-        survivor->moveToThread(mainThread);
-        delete survivor;
-        // ★ worker 是**主线程栈上的对象**，同理必须先挪回来；不挪的话它退出 main 时的析构
-        //   就发生在一个「已经不是任何运行线程」的归属上 —— 第 2 讲的 deleteLater 那条
-        //   正路是给堆上对象用的（connect(&workerThread, &QThread::finished, worker,
-        //   &QObject::deleteLater)），栈对象只能自己把它挪回正.thread()。
-        worker.moveToThread(mainThread);
+        qInfo().noquote() << QStringLiteral("  回挪是在 worker 线程的 finished 里做的："
+                                            "survivor 挪成=%1 worker 挪成=%2"
+                                            "｜现在 survivor->thread()=%3 worker->thread()=%4")
+                                 .arg(moveBack.survivor).arg(moveBack.worker)
+                                 .arg(tagOf(survivor->thread())).arg(tagOf(worker.thread()));
+        // ★ 账要在这行之前合完：下面就把 survivor 删了，删完再读它的 thread() 是 use-after-free。
+        const bool bothHome = moveBack.survivor && moveBack.worker
+                              && survivor->thread() == mainThread
+                              && worker.thread() == mainThread;
+        qInfo().noquote() << QStringLiteral("  ［%1］ 收尾硬账：两个对象都回挪到主线程、"
+                                            "且归属确实 = 主线程 → 期望 1，实测 %2")
+                                 .arg(bothHome ? QStringLiteral("对") : QStringLiteral("错"))
+                                 .arg(bothHome ? 1 : 0);
+        teardownOk = bothHome;             // 不符 → 退出码变 1，ctest 就拦得住
+        delete survivor;   // 归属已经是主线程 == 当前线程 → 这一次 delete 才叫「在自己家析构」
+        // worker 是主线程栈上的对象，回挪成功后它在 main 退出时的析构也发生在自己家。
+        // （如果本讲把它留在 worker 线程上就地等它析构，那是第 2 讲 deleteLater 那条路：
+        //   connect(&workerThread, &QThread::finished, worker, &QObject::deleteLater) ——
+        //   那是给**堆上**对象用的，栈对象没法 deleteLater。）
         qInfo().noquote() << QStringLiteral("  总耗时 %1 ms（kStep=%2 × 10 步的余量，不是结论）")
                                  .arg(clock.elapsed()).arg(kStep);
         qInfo().noquote() << QStringLiteral("═══ 跑完了 ═══");
         QCoreApplication::quit();
     });
 
-    return app.exec();
+    const int rc = app.exec();
+    // 硬账不符就把它变成非 0：讲出来的规矩必须有地方能判绿，否则等于没讲。
+    return rc != 0 ? rc : ((teardownOk && probeIdxLedgerOk) ? 0 : 1);
 }
 
 #include "03_cross_thread_signals.moc"

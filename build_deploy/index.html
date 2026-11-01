@@ -29,7 +29,7 @@
     <ul style="color:#444; line-height:2; font-size:14px; padding-left:22px;">
       <li><code>qt_cmake_01_widgets</code> —— 最小骨架：四行必需 + 两条产物规则</li>
       <li><code>qt_cmake_02_structure</code> —— 一个库 + 一个界面：PUBLIC/PRIVATE、include 目录、手写 AUTOMOC</li>
-      <li><code>qt_cmake_03_resources</code> —— 资源的两条路线：<code>qt_add_resources</code> 与 <code>.qrc</code> + AUTORCC</li>
+      <li><code>qt_cmake_03_resources</code> —— 资源的两条路线：<code>qt_add_resources</code>（带 / 不带 <code>BASE</code>，路径不一样）与 <code>.qrc</code> + AUTORCC</li>
       <li><code>qt_cmake_04_tests</code> —— 库 + 应用 + QtTest + CTest，一条命令判卷</li>
       <li><code>qt_cmake_05_translations</code> —— <code>tr()</code> → <code>.ts</code> → <code>.qm</code> → <code>:/i18n/</code></li>
     </ul>
@@ -39,14 +39,25 @@
       <a href="../visuals/deployment_tree.html">图解 · 部署</a>。
     </p>
     <p style="margin-top: 10px;">
-      环境事实：Qt 6.12.0、MinGW-w64（MSYS2 ucrt64）、CMake ≥ 3.21 + Ninja、C++17。
-      本阶段所有 CMake 用法都对着本机 <code>C:\msys64\ucrt64\lib\cmake\Qt6*</code> 的真实实现核对过——
+      环境事实：Qt 6.12.0、MinGW-w64 GCC 13.1.0（Qt 官方安装器自带：D:\Qt\Tools\mingw1310_64）、CMake ≥ 3.21（本机 3.30.5）+ 生成器 MinGW Makefiles、C++17。
+      本阶段所有 CMake 用法都对着本机 <code>D:\Qt\6.12.0\mingw_64\lib\cmake\Qt6*</code> 的真实实现核对过——
       包括一条容易被抄错的：<code>qt_standard_project_setup()</code> 只打开 AUTOMOC 与 AUTOUIC，<strong>不打开 AUTORCC</strong>。
     </p>
+    <p style="margin-top: 10px; color:#15803d;">
+      实测口径：五份工程都<strong>在本机各自 configure / build / run 过一遍</strong>（Qt 6.12.0 + MinGW 13.1.0 + CMake 3.30.5 + MinGW Makefiles）。
+      五次构建的 <code>warning:</code> / <code>error:</code> 行数都是 <strong>0</strong>；四个 GUI 目标在 <code>-platform offscreen</code> 下退出码全 <strong>0</strong>；
+      第 4 份的 CTest <strong>1/1 Passed</strong>（<code>tst_calc.exe</code> 自报 <code>10 passed, 0 failed, 0 skipped</code>）。
+      每个工程都在文件头注明「怎么构建、跑起来看到什么」。
+    </p>
     <p style="margin-top: 10px; color:#be123c;">
-      诚实标注：<strong>本机当前无法编译链接 Qt 程序</strong>，五份工程<strong>未在本机实际 configure / build / run</strong>；
-      其中的 C++ 源码都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 的编译期核对（零 error、零 warning）。
-      每个工程都在文件头注明「怎么构建、跑起来看到什么」；首次构建时 <code>.ts</code> 是空的，需要你用 Qt Linguist 填译文。
+      ⚠ 第 5 份（翻译）<strong>原先是坏的，而且坏得很难看</strong>：<code>qt_add_translations</code> 首次 configure 生成的 <code>.ts</code> 是<strong>空的</strong>，
+      空 <code>.ts</code> 过 <code>lrelease</code> 得到一个 <strong>30 字节、0 条译文</strong>的 <code>.qm</code>，而 <code>QTranslator::load()</code> 对它<strong>照样返回 true</strong> ——
+      于是程序在界面三行全是中文的同时打印「翻译是否生效： true」。
+      它量的从来不是「翻译生效」，只是「这个文件是不是合法 .qm」。现在换成带基线对照的 11 项台账，不符就参与退出码；
+      仓库里提交的 <code>translations_app_en.ts</code> 已填好译文，直接 <code>cmake --build build</code> 就能看到英文；等你往 <code>main.cpp</code> 里加了新的 <code>tr()</code>，
+      才需要先跑 <code>cmake --build build --target update_translations</code> 把源串抽进 <code>.ts</code> —— 它会合并、<strong>不会冲掉你填好的译文</strong>（本机重跑对过前后两份文件），
+      但会<strong>用「同文启发式」把别的上下文的译文抄给新上下文</strong>，那就是台账的账8。全过程写在
+      <code>qt_cmake_05_translations/src/main.cpp</code> 的文件头。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
       <a href="qt_cmake_guide.html" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
@@ -66,7 +77,7 @@
     <span>📂</span> 五个工程
   </div>
   <p class="list-note">
-    <strong>5 个目录 = 5 个独立工程</strong>，按 <strong>01 → 05</strong> 顺序做，每个都先 <code>cmake -G Ninja -B build -S .</code> 再 <code>cmake --build build</code>。
+    <strong>5 个目录 = 5 个独立工程</strong>，按 <strong>01 → 05</strong> 顺序做，每个都先 <code>cmake -G "MinGW Makefiles" -B build -S .</code> 再 <code>cmake --build build</code>。
     这条主线是「先建起来 → 再拆成层 → 再把它需要的文件带进去 → 再让它能自证 → 最后让它能说别的语言」：
     <strong>01</strong> 最小骨架 → <strong>02</strong> 库与界面 → <strong>03</strong> 资源 → <strong>04</strong> 测试 →
     <strong>05</strong> 翻译，之后接<a href="qt_cmake_guide.html">讲义第 ⑦ 节</a>的部署。
@@ -97,8 +108,8 @@
     <a href="qt_cmake_03_resources/CMakeLists.txt" class="card">
       <div class="card-step">工程 03</div>
       <div class="card-icon">📦</div>
-      <div class="card-title">03 · 资源：两条路线</div>
-      <div class="card-desc">qt_add_resources 直接造 ":/style.qss"；同一份文件再用 legacy.qrc + AUTORCC 挂到 ":/legacy/style.qss"。运行时打印两条路径的字节数、比较内容、并证明资源只读（WriteOnly 打开必失败）。顺带演示「qss 从资源读进来喂给 setStyleSheet」这条日常做法。</div>
+      <div class="card-title">03 · 资源：两条路线，三种路径</div>
+      <div class="card-desc">同一个 style.qss 用三种方式进资源树：<code>qt_add_resources</code> 不带 <code>BASE</code> → <code>:/assets/style.qss</code>；带 <code>BASE assets</code> → <code>:/style.qss</code>；传统 <code>legacy.qrc</code> + AUTORCC → <code>:/legacy/style.qss</code>。运行时先列目录、再逐字节比较三份、并证明资源只读（WriteOnly 打开必失败）。★本工程的看点正是那个坑：<strong>路径由 FILES 的相对路径决定，不是文件名</strong>，不带 BASE 就没有 <code>:/style.qss</code>。顺带演示「qss 从资源读进来喂给 setStyleSheet」这条日常做法。</div>
       <div class="card-meta"><span class="tag framework">构建集成</span><span class="tag elementary">进阶入门</span></div>
     </a>
 
@@ -135,7 +146,7 @@
       <li><strong>用 <code>qt-cmake</code> 或 <code>-DCMAKE_PREFIX_PATH</code></strong>：这是「Qt6 找不到」的唯一正解。别把 Qt 的 bin 加到 PATH 就以为解决了。</li>
       <li><strong>看见 vtable 未定义，先想 moc</strong>：检查 AUTOMOC 是否对该目标生效；类写在 .cpp 里，就 include 生成的 <code>.moc</code>。</li>
       <li><strong>部署是最后一步，但要从一开始就想着它</strong>：产物集中在 <code>build/bin</code>、安装规则写清、资源走 qrc、依赖用导入目标，这些习惯都会让 <code>windeployqt</code> 那一步简单很多。</li>
-      <li><strong>记住「未在本机 build」</strong>：五份工程都只过了语法门。换到能链接的环境上，按各自文件头的命令跑一遍，再对照打印结果。</li>
+      <li><strong>「能 build」不等于「能验证」</strong>：五份工程本机都 build 通、跑通了（退出码全 0，第 4 份 CTest 1/1）。但第 5 份用 <code>load()</code> 的返回值当「翻译生效」的证据，<strong>build 得再干净也还是在打印假话</strong>。判据要选那个真能区分对错的量——这里叫 <code>isEmpty()</code>，或者干脆拿译文和源文比一次。</li>
     </ul>
   </div>
 

@@ -39,12 +39,14 @@
 //   · 打印出来的微秒数**只在本机成立**。本讲的所有硬账（== 的那些）都不依赖
 //     具体数字，只依赖「结果是否正确」；性能数字一律是 Obs，不做断言 ——
 //     因为性能断言最容易被机器型号打脸。
-//   · 未实测声明：本机当前无法链接 Qt 运行时，本示例**未链接、未运行**，
-//     仅通过 moc + g++ -fsyntax-only（-std=c++17 -Wall -Wextra）做编译期核对。
-//     文中所有「通常」「大概」都是经验，不是本机实测结果。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 quality_06_performance_profiling）。本机这一轮：硬账 30 项：对上 30，不符 0。
+//     这只证明「编得过、跑得起来、上面这行为绿」——换 Qt 版本 / 换平台 / 换 CPU 核数
+//     之后，正文里带具体数字的「预期」请以你自己那次运行输出为准
+//     （重跑：bash _tools/run_all.sh）。
 // ============================================================================
 
-#include <QCoreApplication>
+#include <QGuiApplication>           // ★必须是 GUI 级 app：阶段⑥ 要 QPainter/QFont（见 main 里的说明）
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -68,7 +70,7 @@
 #include <thread>
 
 // ============================================================================
-// 一、核对签名（本机 C:\msys64\ucrt64\include\qt6）
+// 一、核对签名（本机 D:\Qt\6.12.0\mingw_64\include）
 // ============================================================================
 // 计时：qelapsedtimer.h
 //   第 36 行 void start() noexcept;
@@ -581,6 +583,7 @@ static void phase7_logging()
 
     QLoggingCategory benchCategory("qtlp.bench");
     const int n = 10000;
+    const int rounds = 3;                 // ★这个 3 会改变下面那条硬账的期望值，见 7C 注释
 
     // —— 关闭状态 ——
     benchCategory.setEnabled(QtDebugMsg, false);
@@ -592,7 +595,7 @@ static void phase7_logging()
     {
         const QVector<double> s = sampleMs(n, [&benchCategory](int i) {
             qCDebug(benchCategory) << "tick" << i;
-        }, 3);
+        }, rounds);
         offMs = s.at(s.size() / 2);
     }
     const int offCount = g_msgCount;
@@ -604,14 +607,18 @@ static void phase7_logging()
     {
         const QVector<double> s = sampleMs(n, [&benchCategory](int i) {
             qCDebug(benchCategory) << "tick" << i;
-        }, 3);
+        }, rounds);
         onMs = s.at(s.size() / 2);
     }
     const int onCount = g_msgCount;
     qInstallMessageHandler(previous);              // ★ 立刻装回去，别把后面的输出也吞了
 
     checkNum(QStringLiteral("【7B】关闭时进管道的消息数"), offCount, 0);
-    checkNum(QStringLiteral("【7C】打开时进管道的消息数"), onCount, n);
+    // ★期望不是 n！sampleMs 会**先预热一次**（fn(0)）再跑 rounds 轮，每轮 n 次，
+    //   所以处理器数到的是 1 + rounds*n。本机实测 30001，写 n 的话这条永远红——
+    //   「数错了自己脚手架的圈数」是取证代码里最常见的一类 bug。
+    checkNum(QStringLiteral("【7C】打开时进管道的消息数（预热 1 次 + %1 轮 × %2）")
+                 .arg(rounds).arg(n), onCount, 1 + rounds * n);
     verdict(Obs, QStringLiteral("【7D】%1 次 qCDebug 的耗时").arg(n), true,
             QStringLiteral("关: %1 ms ｜ 开: %2 ms（差 %3 倍）")
                 .arg(QString::number(offMs, 'f', 2),
@@ -646,7 +653,12 @@ static void reconcile()
 
 int main(int argc, char *argv[])
 {
-    QCoreApplication app(argc, argv);
+    // ★为什么不是 QCoreApplication：阶段⑥ 要 QPainter 画 QFont 文字。本机实测这样会崩：
+    //   "QGuiApplication::font(): no QGuiApplication instance and no application font set."
+    //   "QFontDatabase: Must construct a QGuiApplication before accessing QFontDatabase"
+    //   然后进程 fail-fast（ctest 里是 Exit code 0xc0000602），后面的核对一项都跑不到。
+    //   QGuiApplication 不带窗口系统装饰、不需要 QApplication 的 Widgets，无头 offscreen 一样跑。
+    QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("quality_06_performance_profiling"));
 
     qInfo() << "================================================================";

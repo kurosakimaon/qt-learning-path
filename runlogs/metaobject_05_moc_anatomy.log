@@ -1,0 +1,54 @@
+=== 1. 两个「版本号」不是一回事 ===
+  Q_MOC_OUTPUT_REVISION = 69 （qtmetamacros.h 17 行；本机 moc 自报 'version 69 (Qt 6.12.0)'，两边必须相等）
+=== 2. staticMetaObject 是个静态常量，metaObject() 只是在它和动态表之间二选一 ===
+  &Lever::staticMetaObject      = 0x7ff799ef7cc0
+  lever.metaObject()            = 0x7ff799ef7cc0
+  两者相等？ 是  ← 因为 moc 生成的函数体就一句三元表达式：
+      return QObject::d_ptr->metaObject ? QObject::d_ptr->dynamicMetaObject() : &staticMetaObject;
+  className() = Lever  superClass() = QObject  再往上 = (nullptr，到顶了) （superClass() 到顶返回 nullptr，链之前必须判空）
+=== 3. 字符串池与方法表：把 moc 排的序原样打出来 ===
+  methodOffset() = 4 （= 所有父类累计的方法条数；Lever 直接继承 QObject，所以就是 QObject 那张表的条数。 qt_metacall 里「先把 _id 交给父类、再减掉自己的条数」那套索引平移靠的就是它）
+  methodCount() = 17  propertyCount() = 2  enumeratorCount() = 1
+    [4] 局部索引 0  pressedOut（信号）  参数2个  返回QMetaType::Int=否  access=Public
+    [5] 局部索引 1  levelChanged（信号）  参数1个  返回QMetaType::Int=否  access=Public
+    [6] 局部索引 2  flipped（信号）  参数0个  返回QMetaType::Int=否  access=Public
+    [7] 局部索引 3  reset（槽）  参数0个  返回QMetaType::Int=否  access=Public
+    [8] 局部索引 4  onLevelChanged（槽）  参数1个  返回QMetaType::Int=否  access=Public
+    [9] 局部索引 5  presses（槽）  参数0个  返回QMetaType::Int=是  access=Public
+    [10] 局部索引 6  slotHits（槽）  参数0个  返回QMetaType::Int=是  access=Public
+    [11] 局部索引 7  lastLevel（槽）  参数0个  返回QMetaType::Int=是  access=Public
+    [12] 局部索引 8  level（槽）  参数0个  返回QMetaType::Int=是  access=Public
+    [13] 局部索引 9  setLevel（槽）  参数1个  返回QMetaType::Int=否  access=Public
+    [14] 局部索引 10  state（槽）  参数0个  返回QMetaType::Int=否  access=Public
+    [15] 局部索引 11  setState（槽）  参数1个  返回QMetaType::Int=否  access=Public
+    [16] 局部索引 12  press（普通方法）  参数1个  返回QMetaType::Int=是  access=Public
+=== 4. 名字 → 索引 → switch：invokeMethod 就是照着这张表查 ===
+  invokeMethod("press", Q_ARG(int,3)) 成功？ true  返回 = 3
+  invokeMethod("reset") 成功？ true  presses() 现在 = 0
+QMetaObject::invokeMethod: No such method Lever::noSuchMethod()
+  invokeMethod("noSuchMethod") 成功？ false  ← 上一行会打出 Qt 自己的 qWarning（No such method + Candidates）
+  indexOfMethod("press(int)") = 16
+  换 QMetaMethod::invoke 再派一次：ok = true  ret2 = 4  presses() = 4
+=== 5. 发射体：Q_EMIT 展开成空，真正干活的是 moc 写的那十几行 ===
+    [lambda] total = 100  id = 7
+  命中次数 = 1 （证明 activate 确实遍历了接收者列表）
+    发射体第三个实参（局部索引）= 0  ← pressedOut(int,int)
+    发射体第三个实参（局部索引）= 1  ← levelChanged(int)
+    发射体第三个实参（局部索引）= 2  ← flipped()
+=== 6. qt_metacast 就是 strcmp 串表；qobject_cast 靠它（第 8 讲细说） ===
+  qt_metacast("Lever")   → 命中
+  qt_metacast("QObject") → 命中（父类链继续找）
+  qt_metacast("QWidget") → 空
+=== 7. 属性表 / 枚举表：一句话预告第 6、8 讲 ===
+  indexOfProperty("level") = 1  propertyOffset() = 1
+  mp.name() = level  isWritable = true  hasNotifySignal = true  isUser = true  notifySignal().name() = "levelChanged"
+  userProperty() = "level" （第一个 USER=true 的属性；没有就退化成第 0 个属性）
+  枚举 State：keyCount = 3  isFlag = false  isScoped = true  valueToKey(1) = "On"
+=== 8. SIGNAL()/SLOT() 宏的「真身」：一位数字前缀 + 藏起来的文件行号 ===
+  QByteArray(SIGNAL(pressedOut(int,int))) = 2pressedOut(int,int)
+  QByteArray(SLOT(onLevelChanged(int)))   = 1onLevelChanged(int)
+  QT_NO_DEBUG 分支（qobjectdefs.h 59~60 行）只剩签名，没有位置串： 2flipped()
+=== 9. 事件循环里再发一次：查表派发完全一样 ===
+  lever.lastLevel()（没连槽，所以不变） = -1
+  连上槽之后再 setLevel(9)：slotHits = 1  lastLevel = 9
+=== 第 5 讲演示结束，自动退出 ===

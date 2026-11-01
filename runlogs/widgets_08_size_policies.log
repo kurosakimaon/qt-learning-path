@@ -1,0 +1,72 @@
+① PolicyFlag：GrowFlag = 1 ExpandFlag = 2 ShrinkFlag = 4 IgnoreFlag = 8
+① Policy 位组合：Fixed = 0  Minimum = 1  Maximum = 4  Preferred = 5  MinimumExpanding = 3  Expanding = 7  Ignored = 13
+① 默认构造 QSizePolicy() 的横竖档分别 = 0 0 → 都是 0 = **Fixed**！所以「新构造一个 policy 对象只改一边」是陷阱，必须先 sizePolicy() 读回来再改（本讲 setHfw 就是这么写的）
+① QPushButton 出厂 policy h/v = 1 0 （1=Minimum / 0=Fixed；含义见上面的位标志表；以打印为准）
+A 组六兄弟报的 hint 完全相同（120x36 / min 30x16），只有 policy 不同。 pExp 的 expandingDirections 有横向吗 = true
+B 组：三颗都是 Expanding（想长），但被 min/max 夹住 ——  bFix->minimumSize() = QSize(90, 28) maximumSize() = QSize(90, 28) （265/266 行：证明 setFixedSize 只动了这两堵墙，**没动** sizeHint）
+C 组：cC 拿到和 cB 一样的因子 3，**却不会长成 3 倍**——「因子」只在「该项愿意吃空间（ExpandFlag）」时才发挥作用；Minimum/Maximum/Fixed 这些档不参与分配（第 7 讲的坑在这里闭环）
+D 组：dGone2 的 retainSizeWhenHidden() 读回 = true ；dGone1 = false
+E 组：hfw->hasHeightForWidth() = true （529 行的虚函数被我们覆写）；sizePolicy 里的 hfw 位 = true ；heightForWidth(400) 手算 = 100
+This plugin does not support propagateSizeHints()
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+第一轮：窗口 QSize(760, 520)
+
+——— 第一轮 760x520 ———
+A 组（六兄弟报的 hint 全一样，只有水平 policy 不同）：
+   它们报的 sizeHint/底线 = "120x36（底线 30x16）" （policy 分别 0/1/4/5/7/13）
+   Fixed    : 120 x 36
+   Minimum  : 120 x 36
+   Maximum  : 120 x 36
+   Preferred: 120 x 36
+   Expanding: 230 x 36
+   Ignored  : 0 x 36
+B 组（都想长，被硬墙夹住）：
+   min(200,60) : 568 x 60  / max width 70 : 70 x 60  / fixed 90x28 : 90 x 28
+C 组（因子 1 / 3 / 3，其中 cC 没有 ExpandFlag）：
+   cA : 104  cB : 312  cC : 312
+D 组（隐藏占位对照）：d1 visible = true 几何  QRect(10,156 243x34)  | d2 visible = true 几何  QRect(259,156 242x34)  | 尾巴几何  QRect(507,156 243x34)
+E 组（hfw）： 740 x 185 ；此刻 heightForWidth(宽) 应 = 185
+★ 第一轮看点：Ignored 与 Expanding 谁更「贪」；Maximum 会不会比 hint 还窄；hfw 的高度是不是 ≈ 宽度/4。
+第二轮：resize(1100,520) —— 多出来的宽度会流进哪些格子？
+窗口现在 QSize(1100, 520)
+
+——— 第二轮 1100x520 ———
+A 组（六兄弟报的 hint 全一样，只有水平 policy 不同）：
+   它们报的 sizeHint/底线 = "120x36（底线 30x16）" （policy 分别 0/1/4/5/7/13）
+   Fixed    : 120 x 36
+   Minimum  : 120 x 36
+   Maximum  : 120 x 36
+   Preferred: 120 x 36
+   Expanding: 570 x 36
+   Ignored  : 0 x 36
+B 组（都想长，被硬墙夹住）：
+   min(200,60) : 908 x 60  / max width 70 : 70 x 60  / fixed 90x28 : 90 x 28
+C 组（因子 1 / 3 / 3，其中 cC 没有 ExpandFlag）：
+   cA : 153  cB : 457  cC : 458
+D 组（隐藏占位对照）：d1 visible = true 几何  QRect(10,156 356x34)  | d2 visible = true 几何  QRect(372,156 356x34)  | 尾巴几何  QRect(734,156 356x34)
+E 组（hfw）： 1080 x 270 ；此刻 heightForWidth(宽) 应 = 270
+★ 对照第一轮：只有带 ExpandFlag 的档（Expanding / MinimumExpanding）和 Ignored 在变宽；Fixed/Maximum 一动不动；cA:cB 的宽度差 ≈ 1:3 的**增量**分配（不是最终宽度 1:3，因为每格先扣掉自己的 sizeHint，剩下的才按比例分——这条最容易被误解）
+D 组：把 D1/D2 都 hide() ——（下一行 1600ms 读，hide 也要过一轮布局）
+This plugin does not support propagateSizeHints()
+
+——— 隐藏之后（第三轮）———
+   D1（普通）：isVisible = false  它的格子被**回收**了（尾巴 dTail 的 x 会往左移）
+   D2（retainSizeWhenHidden=true）：isVisible = false  但尾巴的位置不受它影响 → 布局仍为它**留着位子**
+   dTail 几何 = QRect(553,156 537x34) ；A 组 Fixed 仍 = 120 x 36
+★ 这条属性的用武之地：工具栏上「点了才出现」的按钮，没有它一隐藏整排按钮就跳一下（用户最烦的抖动）。它是 QSizePolicy 的属性，不是 QWidget 的属性（qsizepolicy.h 96/97 行）。
+This plugin does not support propagateSizeHints()
+第四轮：resize(300,300) → 窗口能不能真变成 300x300，答案由**各控件 minimumSizeHint 之和**决定（不是 sizeHint）
+
+——— 第四轮实测 ———
+   window.size() = QSize(482, 300) （如果宽 >300，说明 Qt 把窗口**顶住**在最小尺寸上了：谈判结果是 min 之和）
+   此时 pFix(Fixed) 仍 = 120 x 25 ，bFix(setFixedSize) 仍 = 90 x 28  → 硬墙与 Fixed 在极端压缩下**绝不退让**，被压的是可缩的那些（Preferred/Expanding）
+
+=== 结论 ===
+① Policy 是四个位标志的组合：Grow(能超过 hint) / Shrink(能低于 hint) / Expand(愿意吃余量) / Ignore(无视 hint)。
+② sizeHint 是「偏好」，minimumSizeHint 是「底线」，setMinimum/Maximum/FixedSize 是「硬墙」——硬墙优先。
+③ stretch 因子只在有 ExpandFlag 的项之间分配**扣掉 hint 之后的余量**；给 Minimum 项大因子是无效的。
+④ 空 alignment(0) = 填满格子；alignment 只在格子比控件大时才看得出。
+⑤ retainSizeWhenHidden 让隐藏控件继续占位；heightForWidth 让高度由宽度推导。
+⑥ 默认构造的 QSizePolicy 是 Fixed/Fixed，改单边前一定先 sizePolicy() 读回来。
+⑦ 想读 protected 的 sizeHint：子类化（本讲 Probe）；改完 hint 记得 updateGeometry()（qwidget.h 542 行）。

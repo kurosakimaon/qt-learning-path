@@ -73,8 +73,8 @@ window.STEPS = [
         <text class="svg-good-text" x="415" y="164">这里可以稍重一点</text>
         <text class="svg-small" x="415" y="188">但也不该弹对话框、做长 I/O</text>
 
-        <rect class="svg-field" x="25" y="220" width="710" height="180" rx="10"/>
-        <text class="svg-small" x="45" y="248">五个公开虚函数，分两组（qabstractitemdelegate.h）：</text>
+        <rect class="svg-field" x="25" y="220" width="710" height="196" rx="10"/>
+        <text class="svg-small" x="45" y="248">本页画的六个（qabstractitemdelegate.h 公开虚函数共 10 个），分两组：</text>
 
         <rect class="svg-box" x="45" y="264" width="330" height="50" rx="8"/>
         <text class="svg-mono" x="63" y="295">paint(painter, option, index)</text>
@@ -82,15 +82,16 @@ window.STEPS = [
         <rect class="svg-box" x="45" y="322" width="330" height="50" rx="8"/>
         <text class="svg-mono" x="63" y="353">sizeHint(option, index)</text>
 
-        <rect class="svg-box-warn" x="390" y="264" width="330" height="50" rx="8"/>
+        <rect class="svg-box-warn" x="390" y="264" width="345" height="50" rx="8"/>
         <text class="svg-mono" x="408" y="295">createEditor(parent, option, index)</text>
 
-        <rect class="svg-box-warn" x="390" y="322" width="330" height="50" rx="8"/>
+        <rect class="svg-box-warn" x="390" y="322" width="345" height="50" rx="8"/>
         <text class="svg-mono" x="408" y="353">setEditorData / setModelData / updateEditorGeometry</text>
 
-        <text class="svg-small" x="45" y="394">左边两个管「画」，右边三个管「编辑」—— 混着写，就是大多数委托 bug 的来源。</text>
+        <text class="svg-small" x="45" y="390">左边两个管「画」，右边三个管「编辑」—— 混着写，就是大多数委托 bug 的来源。</text>
+        <text class="svg-small" x="45" y="408">没画上但同样要背的四个：destroyEditor / editorEvent / helpEvent / paintingRoles。</text>
       </svg>`,
-    caption: '两个频率差了两个数量级：<code>paint</code> / <code>sizeHint</code> <strong>一秒可能几百次</strong>，<code>createEditor</code> 系列<strong>一次编辑才一次</strong>。所以重活绝不能放进 <code>paint</code>。五个公开虚函数据此分组：左边两个管画，右边三个管编辑——混着写就是大多数委托 bug 的来源。',
+    caption: '两个频率差了两个数量级：<code>paint</code> / <code>sizeHint</code> <strong>一秒可能几百次</strong>，<code>createEditor</code> 系列<strong>一次编辑才一次</strong>。所以重活绝不能放进 <code>paint</code>。本页画的这六个据此分组：左边两个管画，右边三个管编辑——混着写就是大多数委托 bug 的来源。<strong>注意「六个」不是「全部」</strong>：<code>qabstractitemdelegate.h</code> 第 41~78 行的公开虚函数一共 10 个（第 38 行那个是析构，不算），还剩 <code>destroyEditor</code>（53 行）、<code>editorEvent</code>（66 行）、<code>helpEvent</code>（73 行）、<code>paintingRoles</code>（78 行）没画进来。',
     code: `// 画：一秒几百次，只能做轻活
 void StatusDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                            const QModelIndex &idx) const;
@@ -130,7 +131,7 @@ QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
         <text class="svg-mono" x="295" y="245">p-&gt;drawText(opt.rect, Qt::AlignLeft, text);</text>
         <text class="svg-small" x="295" y="273">漏掉选中态、禁用态、焦点框 → 看起来「很土」</text>
 
-        <rect class="svg-box-bad" x="25" y="305" width="710" height="95" rx="10"/>
+        <rect class="svg-box-bad" x="25" y="305" width="710" height="102" rx="10"/>
         <text class="svg-small" x="45" y="331">三个常见的 paint 错误：</text>
         <text class="svg-small" x="45" y="357">① 在 paint 里 new QFont/QColor/QPixmap → 每帧都分配，滚动就顿。</text>
         <text class="svg-small" x="45" y="379">② 硬编码颜色 → 深色主题下白底黑字看不见。用 opt.palette 或 QPalette。</text>
@@ -266,7 +267,10 @@ QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
         <text class="svg-small" x="168" y="158">opt.rect</text>
 
         <rect class="svg-box-accent" x="150" y="120" width="150" height="45" rx="4" fill="none" stroke-dasharray="5 4"/>
-        <text class="svg-small" x="360" y="145">编辑器 setGeometry(opt.rect)</text>
+        <!-- 【勘误】这行原来在 x="360" y="145"：标签一路排到约 x=515，压进右边
+             说明面板（它从 x=390 起），和面板里 y=148 那行重叠。它讲的是左边
+             那个虚线框，就挪到虚线框正下方。判据：_tools/check_svg_overflow.sh 报「左 31 出界」。 -->
+        <text class="svg-small" x="150" y="185">编辑器 setGeometry(opt.rect)</text>
 
         <rect class="svg-field" x="390" y="45" width="340" height="200" rx="10"/>
         <text class="svg-small" x="410" y="72">这个函数会被多次调用：</text>
@@ -293,7 +297,7 @@ QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &opt,
     Q_UNUSED(idx);
     editor->setGeometry(opt.rect);        // 就摆在格子原位
 }`,
-    highlight: [6]
+    highlight: [5]
   },
   {
     title: 'setModelData：编辑器 → 模型（方向二，别搞反）',
@@ -409,7 +413,7 @@ void TodoDelegate::setEditorData(QWidget *editor,
         emit closeEditor(edit, QAbstractItemDelegate::EditNextItem);
     });
 }`,
-    highlight: [9, 10]
+    highlight: [7, 8, 9]
   }
 ];
 </script>

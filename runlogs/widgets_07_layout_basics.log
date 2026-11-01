@@ -1,0 +1,55 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+① root->count() = 3 （布局里的**项数**，项 = QLayoutItem，不是控件） bar->count() = 5
+① root->itemAtPosition(1,0)->layout() 就是 bar 吗 = true ；bar->itemAt(2)->spacerItem() 是间隔项（addSpacing 塞进来的）吗 = true
+② root->sizeConstraint() 默认档位枚举值 = 0 (0 = SetDefaultConstraint，qlayout.h 40~46 行的第一个值)
+This plugin does not support propagateSizeHints()
+This plugin does not support propagateSizeHints()
+③ window 已 show()；root->activate() 返回 = false （qlayout.h 85 行：true 表示「算过了、还需要再算」——Qt 自己会在事件循环里补算，你几乎不需要手动调它）
+This plugin does not support propagateSizeHints()
+
+—— 第一轮：window 860x460（列因子 3:1）——
+   editName（左侧表单的字段列）: "editName(x=47,y=12,577x22)"
+   btnOk（右侧竖排第一颗按钮）: "btnOk(x=644,y=12,204x20)"
+   bar（横排：A 因子 2、B 因子 1、固定 24、addStretch(1)、C 因子 0 且贴右）：
+   A: "btnA(x=12,y=428,267x20)"
+   B: "btnB(x=279,y=428,170x20)"
+   间隔项: "间隔项(x=449,y=428,24x20)"
+   伸缩项: "间隔项(x=473,y=428,133x20)"
+   C: "btnC(x=606,y=428,242x20)"
+   ★ 看点：A 宽 ≈ B 宽的 2 倍（stretch 2:1 生效）；C 的宽度**等于它的 sizeHint**（因子 0，不抢空间），但它的 x 靠到了格子右边（alignment 生效）。→ **stretch 改宽度，alignment 只改「在格子里的站位」**。
+② SetFixedSize 之后 dialogish->size() = QSize(286, 34) ；布局的 totalSizeHint() = QSize(286, 34) （qlayout.h 113 行）→ 宿主被布局**拽到内容尺寸**，这就是「对话框随内容自动收缩」的实现方式，不用手写 adjustSize()
+② 换回 SetNoConstraint 之后 dialogish->size() = QSize(286, 34) （不再被拽，保持我们给的尺寸）
+
+—— 第二轮：resize(1200, 460)，看谁变宽 ——
+   （resize 之后立刻读还是旧值——布局在事件循环里重算，所以下一行到 1000ms 才读）
+  A: "btnA(x=12,y=428,455x20)"  B: "btnB(x=467,y=428,228x20)"  C: "btnC(x=946,y=428,242x20)"
+  editName（表单字段列，AllNonFixedFieldsGrow）: "editName(x=47,y=12,832x22)"
+  伸缩项: "间隔项(x=719,y=428,227x20)" → 窗口变宽 340px，多出来的空间按**因子**分掉（A:B:伸缩项 = 2:1:1），C 依旧只有 sizeHint 那么宽，只是站位贴右——**alignment 从不改变尺寸**（因子为 0 时）
+
+—— 第三轮：缩到 560 宽（窄到极限）——
+  A: "btnA(x=12,y=348,170x20)"  B: "btnB(x=182,y=348,170x20)"  C: "btnC(x=376,y=348,242x20)"
+  editName: "editName(x=47,y=12,433x22)"  editMail: "editMail(x=47,y=34,433x22)"
+  ★ 看点：宽度已经降到**最小值**以下时，stretch 与 alignment 都不管用了——这时候说话的是 minimumSizeHint / sizePolicy（第 8 讲），以及 QFormLayout 的 RowWrapPolicy（41 行：WrapLongRows 会把字段挪到标签下面）。新手「界面挤成一团」的真凶永远是这里，不是 stretch。
+  bar 的 contentsMargins = 0 0 0 0 spacing = -1 （-1/负值表示「没设过，用样式默认」，这是 setSpacing 的哨兵值约定）
+QWidget::setLayout: Attempting to set QLayout "" on QWidget "doubleLayoutBox", which already has a layout
+⑤ 连着 setLayout / 已占用槽位之后：box.layout() 是 l2 吗 = true ，是 l1 吗 = false → l1 **既没被接管也没被删除**：这就是泄漏的那一条。Qt 的 qWarning 内容大意是「widget 已经有布局了」（字符串在实现里，本机头文件核不到原文，请以你跑出来的那条为准）。
+⑤ 同一个布局重复 setLayout 也不会崩，但 Qt 会再打一条警告 → 日志里看到就该改代码
+
+—— ⑥ 摘除与销毁 ——
+   摘之前：bar->count() = 5 ，btnB->parentWidget() 存在吗 = true
+   takeAt(1) 之后：count = 4 ；it->widget() == btnB 吗 = true ；btnB 还在 bar 的父窗口里可见吗 = true → **takeAt 只把「项」摘掉，控件本身还在屏幕上、还是那个 parent 的子控件**！这是本讲第一大所有权坑：摘完不管，界面上就留着一个「布局外飘着的」控件。
+   setParent(nullptr)+hide() 之后 btnB->isVisible() = false （正确收尾：控件要么给新 parent，要么 deleteLater，要么 hide）
+   现在 bar->count() = 4  只剩 A/间隔/伸缩/C
+   拆 host 之前：hl->count() = 2 ，host 的 children 里按钮在吗 = 2
+   delete host 之后：x1/x2 已成为悬空指针，我们**不再访问**它们（这段演示的是「删容器 = 删一切」，最省事也最不容易漏）；如果只想撤布局、留控件：先 host->setLayout(nullptr)? —— 不行，Qt 不给「卸掉布局」的公开接口，只能把控件逐个 removeWidget 再重新安排
+This plugin does not support propagateSizeHints()
+
+=== 结论 ===
+① addWidget→QWidgetItem、addLayout→子布局本身（QLayout 继承 QLayoutItem）、addSpacing/addStretch→QSpacerItem；三种 add* 塞进去的东西**不是一个类型**。
+② addStretch() 默认因子 0（不会抢空间）；setColumnStretch/setStretch 按**下标**改因子，setStretchFactor 按**对象**改且返回 bool。
+③ stretch 决定「多出来的空间怎么分」→ 改宽度；alignment 决定「格子里贴哪边」→ 只改站位。空 alignment(=0) 的语义是「填满格子」，不是「左上对齐」。
+④ 挤成一团的根因不在布局参数，在 minimumSizeHint/sizePolicy（第 8 讲）。
+⑤ 一个 widget 只能有一个布局：setLayout 撞两次 Qt 会警告且不接管（泄漏）。
+⑥ takeAt 摘的是**项**，控件仍在屏幕上、仍需你安置；QLayoutItem 不是 QObject，要自己 delete；删容器 widget 一行搞定一切。
+布局项数：root = 3  bar = 4  side = 5

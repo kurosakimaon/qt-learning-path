@@ -28,7 +28,7 @@
 //     6) displayText 的正用（qstyleditemdelegate.h 第 53 行）：模型 DisplayRole 返回**裸 int**，
 //        「拼百分号」这种事后格式化挪到委托里——第 2 讲证据④欠的债在这儿还。
 //   注意版本坑：Qt 6.12 本机 QStyleOptionViewItem 的显示文本成员叫 **text**（第 443 行），
-//   新版文档里的 QStyleOptionDisplayItem/displayText 成员在 6.12 里查无此名，照抄必编不过。
+//   新版文档里的 QStyleOptionDisplayItem/displayText 成员在 6.12 里查无此名，照抄必编不过。  name-ok:QStyleOptionDisplayItem 新版文档里的类，本行正在说 6.12 查无此名
 //
 // 对应构建目标名：model_view_04_delegate
 //   find_package(Qt6 REQUIRED COMPONENTS Widgets)
@@ -45,9 +45,10 @@
 //   · 数据全部在内存里现造（8 行 × 3 列），不读文件、不联网。
 //   · paint/sizeHint 的**次数**依赖样式与可见区；本讲承诺的是关系：
 //     「改过的值没走 commitData 就不会进模型」「跳过计数 == 被删行时挂着的编辑器数」。
-//   · 未实测声明：**本文件未在本机实测编译运行**；每个类、函数重载、枚举值都对着
-//     C:\msys64\ucrt64\include\qt6 下头文件逐字核对，只过了 moc + g++ -fsyntax-only，
-//     未链接、未运行；文中所有「预期」后面是推理，不是实测。
+//   · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//     Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 model_view_04_delegate，跑到自动退出、退出码 0）。
+//     但本讲**没有汇总自检行**，退出码 0 只证明「没崩、走完了」，不证明正文每个数字都对：
+//     带具体数字的「预期」请以你自己那次运行输出为准（本机那一轮存档 runlogs/model_view_04_delegate.log）。
 //   · 图解页面：../visuals/delegate_lifecycle.html（这一讲的主线图）。
 // ============================================================================
 
@@ -85,7 +86,7 @@
 #include <vector>
 
 // ============================================================================
-// 一、签名核对清单（本机 C:\msys64\ucrt64\include\qt6，Qt 6.12.0）
+// 一、签名核对清单（本机 D:\Qt\6.12.0\mingw_64\include，Qt 6.12.0）
 // ============================================================================
 // QtWidgets/qabstractitemdelegate.h（委托的「契约」本体）
 //   第 29~35 行  enum EndEditHint { NoHint, EditNextItem, EditPreviousItem,
@@ -752,7 +753,7 @@ int main(int argc, char *argv[])
                 << delegate.deferredSkipped() << "（比证据④后多 1 = 防抖被 QPointer/hidden 守卫拦下）";
         qInfo() << "  行3 名字模型侧仍是 =" << model.data(model.index(3, ColName), Qt::DisplayRole).toString()
                 << "（编辑器的改动随编辑器销毁一起没了——这就是 Esc 取消编辑的机制）";
-        qInfo() << "  ⚠ 流传的 QAbstractItemDelegate::CommitData{RevertBefore,Keep} 枚举在本机 Qt 6.12 公开头文件里**不存在**"
+        qInfo() << "  【注意】 流传的 QAbstractItemDelegate::CommitData{RevertBefore,Keep} 枚举在本机 Qt 6.12 公开头文件里**不存在**"
                    "（grep 0 命中）；真机制就是上面这两条信号路径 + EndEditHint 五个真值。";
     });
 
@@ -831,7 +832,7 @@ int main(int argc, char *argv[])
  *      你只画增量（本讲：进度条 + 百分比字）。
  * 四、版本坑清单（本讲实测过的头文件核对）
  *   · QStyleOptionViewItem 显示文本成员在 Qt 6.12 叫 **text**（443 行）；新文档的
- *     QStyleOptionDisplayItem/displayText 成员 6.12 查无此名。
+ *     QStyleOptionDisplayItem/displayText 成员 6.12 查无此名。  name-ok:QStyleOptionDisplayItem 同上
  *   · QAbstractItemView 编辑触发枚举第 8 位真名 **EditKeyPressed**，没有 EditedClicked。
  *   · 「CommitData{RevertBefore,Keep}」不存在（grep 0 命中）。
  *   · itemDelegate(index) 已废弃（6.0），用 itemDelegateForIndex（208 行）。

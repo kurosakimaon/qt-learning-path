@@ -1,0 +1,94 @@
+================================================================
+threads 第 2 讲 · 线程亲和性（Qt = 6.12.0 ）
+================================================================
+"【0】主线程： thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458"
+"      isMainThread=true idealThreadCount()=16｜本讲只建 QCoreApplication，一个 widget 都不碰"
+"【1】谁创建对象，对象就归谁（此刻还没 moveToThread）"
+"      worker(probe)： 类型=AffinityProbe isWidgetType=false parent=(无 parent) 归属线程=0x1d0df8b6ed0(main)｜归属==当前线程? 是"
+"      宿主 QThread 对象： 类型=QThread isWidgetType=false parent=(无 parent) 归属线程=0x1d0df8b6ed0(main)｜归属==当前线程? 是"
+"      主线程 new 的 QTimer： 类型=QTimer isWidgetType=false parent=(无 parent) 归属线程=0x1d0df8b6ed0(main)｜归属==当前线程? 是"
+"      → 三个对象的归属线程都==主线程? 是｜**注意宿主 QThread 对象也归主线程**：它的 run() 在新线程跑，但对象户口在主线程（第 1 讲第三节那个对照）"
+      ［对］ probe 创建后归主线程 → 期望 1，实测 1
+      ［对］ 宿主 QThread 对象也归主线程 → 期望 1，实测 1
+      ［对］ 主线程 new 的 QTimer 归主线程 → 期望 1，实测 1
+"【2】moveToThread：改户口，然后起宿主"
+"      moveToThread(host) 返回 true｜挪后 probe->thread()==host ? 是｜host->loopLevel()=0（**还没 start，预期 0**）"
+"      probe 有 parent 吗 = 没有（**有 parent 就挪不动**，见第一节）"
+      ［对］ moveToThread(host) 返回 true → 期望 1，实测 1
+      ［对］ 挪完 probe->thread() == host → 期望 1，实测 1
+      ［对］ probe 确实没有 parent → 期望 1，实测 1
+      ［对］ 还没 start 时 host->loopLevel() = 0 → 期望 0，实测 0
+"      host->start() 已调；此刻 host->isCurrentThread()=false（**主线程当然不是它**）"
+"【2】主线程裸调 probe->directCallFromMain()： 直接调用（**跨线程裸调**）：当前线程=       thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458 我的归属=0x1d0e13d7010 一致? 是"
+"【2】startOwnTimer() 槽开跑：       thread对象=0x1d0e13d7010(host) HANDLE=0x558c"
+"      执行这个槽的线程上，worker 自己是： 类型=AffinityProbe isWidgetType=false parent=(无 parent) 归属线程=0x1d0e13d7010(host)｜归属==当前线程? 是"
+"      槽里 new 的 QTimer： 类型=QTimer isWidgetType=false parent=0x1d0e13d7f50 归属线程=0x1d0e13d7010(host)｜归属==当前线程? 是"
+"      定时器 parent==worker ? 是｜parent 同线程 → 合法（对照：把 parent 设成**别的线程**上的对象是另一类错配，别做）"
+"      start(20) 后：isActive=true｜worker->thread()->loopLevel=1（>0 才有人给它送 timeout 事件）"
+"  [主线程] 记事：正例定时器已在 worker 线程里 start（间隔 20 ms，预算 12 次）"
+"      在 worker 线程 new 了 2 个 DtorProbe，它们现在的归属线程=0x1d0e13d7010（==worker 的归属，所以将来也得由这条线程收尸）"
+"      tick #1 在 worker 侧看的现场：         thread对象=0x1d0e13d7010(host) HANDLE=0x558c"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #1：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #2：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #3：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #4：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #5：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"      tick #6 在 worker 侧看的现场：         thread对象=0x1d0e13d7010(host) HANDLE=0x558c"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #6：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"【3】同一个定时器，两条路的差别就在「谁 new 的」"
+"      bad-timer（主线程 new）： 类型=QTimer isWidgetType=false parent=(无 parent) 归属线程=0x1d0df8b6ed0(main)｜归属==当前线程? 是"
+"      对比：worker 槽里 new 的那个： 类型=AffinityProbe isWidgetType=false parent=(无 parent) 归属线程=0x1d0e13d7010(host)｜归属==当前线程? 否"
+"      worker 侧目前 ownTicks 只通过信号搬运，主线程**不读**它的成员；本讲主线程只认 Collector 的 6 次到达"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #7：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #8：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #9：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"【4】反面组：moveToThread(host) 后，仍在主线程调 start()"
+"      moveToThread(host) 返回 true｜badTimer->thread()==host ? 是｜badTimer->parent()=(无)（**没有 parent**，所以挪得动）"
+      ［对］ badTimer->moveToThread(host) 返回 true → 期望 1，实测 1
+      ［对］ 挪完 badTimer->thread() == host → 期望 1，实测 1
+      ［对］ badTimer 没有 parent → 期望 1，实测 1
+"      现在从**主线程**调用 badTimer->start(25) —— 预期一条 Qt 警告："
+QObject::startTimer: Timers cannot be started from another thread
+"      start() 之后的 bad-timer： 类型=QTimer isWidgetType=false parent=(无 parent) 归属线程=0x1d0e13d7010(host)｜归属==当前线程? 否"
+"      isActive=false｜host->loopLevel()=1｜主线程 loopLevel=1｜已 tick=0 → 这一组**只用来说明「别这么写」**"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #10：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #11：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"【4B】继承 QThread 的那条路：对象上的槽到底会不会跑？"
+"      创建完：sub->thread()=0x1d0df8b6ed0(main)，主线程=0x1d0df8b6ed0 —— 相同｜这个对象的槽是 public slots（写成 private slots 时上面那行 connect 在本机 g++ 直接编译不过，指针式 connect 进不了私有成员）"
+"      run() 现场：currentThread=0x1d0df8bdbd0(sub)｜thread()=0x1d0df8b6ed0(main)｜相同吗 = 否（户口和「谁在执行」本来就是两件事）"
+"      emit 已返回 —— 槽此刻**还没**跑，它排进的是主线程的队列"
+"      槽现场：currentThread=0x1d0df8b6ed0(main)｜本对象 thread()=0x1d0df8b6ed0(main)｜槽是新线程自己在跑吗 = 否"
+"      tick #12 在 worker 侧看的现场：         thread对象=0x1d0e13d7010(host) HANDLE=0x558c"
+"      tick 预算用满 12 次 → 在**自己线程**里 stop()：isActive=false｜然后请宿主 quit"
+"  [主线程] worker 报完成 12 次 tick → host->quit()"
+"  [主线程  thread对象=0x1d0df8b6ed0(main) HANDLE=0x6458] 收到 → tick #12：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"【4B】收尾取证（start() 之后主循环已经转了好几轮）"
+"      槽被执行 1 次；执行线程==主线程? 是；执行线程==sub 自己? 否"
+      ［对］ 【4B】「不会自动执行」是错的：槽确实跑了 1 次 → 期望 1，实测 1
+      ［对］ 但它跑在**主线程**（不是新线程） → 期望 1，实测 1
+"      → 正确说法：重写 run() 之后，这个对象上的槽**不会在新线程里执行**；要它在新线程执行就得 moveToThread 一个 worker。"
+"【5】对象归子线程时，主线程怎么「删」它：deleteLater()"
+"      要收尸的对象： 类型=QTimer isWidgetType=false parent=0x1d0e13d7f50 归属线程=0x1d0e13d7010(host)｜归属==当前线程? 否"
+"      主线程调 victim->deleteLater() —— **不是 delete**：它只往**对象所属线程**的事件队列投一个 DeferredDelete 事件"
+"      调用之后**立刻**看：children 还剩 3 个（说明此刻**还没析构**，析构要等 host 的事件循环取到那个事件）"
+"      反面：在主线程写 `delete victim;` —— 析构函数就在主线程跑，而它按「我归 host」的假设去摘 parent、发 destroyed、放开资源；**这是本讲唯一一处「代码里绝不能出现」的写法**，所以本文件一次都没写。"
+"【6】收尾"
+"      bad-timer 已在主线程删掉（它归主线程，所以能这么删）；tick 计数=0"
+"      host->quit() 已由 finishedWork 触发；probe 归属=0x1d0e13d7010（==host → 它只能由 host 那条线程收尸）"
+"      host->wait(QDeadlineTimer(500)) = true｜host->loopLevel()=0 isRunning=false"
+      ［对］ host->wait(QDeadlineTimer(500)) 在超时前返回 → 期望 1，实测 1
+      ［对］ wait 之后 host 不再运行 → 期望 0，实测 0
+"【7】总汇总（可核对的证据）"
+"      主线程收到 tick 信号 12 次，其中「worker 侧 currentThread==worker->thread()」判定为真的 12 次，为假的 0 次 → **全部为真即事件跑在正确的线程上**"
+"      最后一行取证：tick #12：worker 侧 currentThread=0x1d0e13d7010｜worker->thread()=0x1d0e13d7010｜相等? 是｜QThread 对象=0x1d0e13d7010"
+"      反面组（从别的线程 start）tick=0（**不作为结论**，见【4】注释）"
+"      probe 在 worker 线程里 new 的子对象数=2｜host 线程对象=0x1d0e13d7010｜主线程=0x1d0df8b6ed0"
+"      墙钟耗时：905 ms"
+"      一句话：**对象的归属线程 = 创建它的那条线程；改归属只有 moveToThread，而且它管不了「现在谁在执行代码」** —— 所以「在别的线程调它的方法」永远是错的。"
+      ［对］ 12 次 tick 全部到达主线程 → 期望 12，实测 12
+      ［对］ 没有一次 tick 被判成跑错线程 → 期望 0，实测 0
+      ［对］ worker 线程里造了 2 个子对象 → 期望 2，实测 2
+"      （host 已结束；probe 的 deleteLater 会在其线程收尾时被处理）"
+"      【4B】那个 QThread 子类：run() 早就返回了，wait(300ms)=true → 线程死了才 delete（QThread 对象归主线程，所以主线程能删它）"
+
+【硬账】17/17 项核对通过 → 退出码 0

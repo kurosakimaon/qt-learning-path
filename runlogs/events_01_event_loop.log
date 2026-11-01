@@ -1,0 +1,54 @@
+证据① postEvent 两次之后（还没进 exec()）：A 收到 0 B 收到 0
+      ［对］ ① exec 之前 A 一个都没收到 → 期望 0，实测 0
+      ［对］ ① exec 之前 B 也一个都没收到 → 期望 0，实测 0
+    [B] 第 1 号事件到达，type=1001，isAccepted=true，当前深度=1
+证据② sendEvent 返回： handled = true | B 已收到 1 个（同步，就在这一行里发生的） | A 仍是 0 个（异步入队，还没轮到）
+      ［对］ ② sendEvent 返回 true（事件被处理了） → 期望 1，实测 1
+      ［对］ ② sendEvent 当场送到 B（B=1） → 期望 1，实测 1
+      ［对］ ② 此时 A 仍为 0（post 还在排队） → 期望 0，实测 0
+    [A] 第 2 号事件到达，type=1001，isAccepted=true，当前深度=1
+证据③ sendPostedEvents(&a) 之后：A 收到 1 （证明事件此前一直待在队列里，是**这次调用**把它们派发的）
+      ［对］ ③ 手动抽队列后 A 收到 1 个 → 期望 1，实测 1
+证据③ 投递 1 条、removePostedEvents 撤掉 1 条（Qt6 返回 void，条数自己统计：再抽队列后实际到达 0 条）；A 的计数 = 1 （撤掉的那条永远不会到）
+      ［对］ ③ 被撤掉的那条确实没到（到达 0 条） → 期望 0，实测 0
+    [B] 第 3 号事件到达，type=1002，isAccepted=true，当前深度=1
+证据④ 起点：心跳已累计 6 次（说明 exec() 正在派发定时器事件）
+证据④ 自旋 400ms 之后：心跳 = 6 增量 = 0 → 0 或极小，就证明了「事件循环被一个槽独占时，所有登记都响应不了」
+      ［对］ ④ 进槽之前循环确实在转（心跳 ≥ 1） → 期望 1，实测 1
+      ［对］ ④ 自旋 400ms 期间心跳增量为 0 → 期望 0，实测 0
+证据⑤ 进入嵌套 QEventLoop 前：心跳 = 9
+证据⑤ 嵌套循环里心跳增量 = 6 → 界面没卡（循环还在转）；代价是：这期间**任何**事件都可能进来，包括再次触发你这段代码本身（重入）。退出码 rc = 0
+      ［对］ ⑤ nested.exec() 被 quit() 正常结束，rc = 0 → 期望 0，实测 0
+      ［对］ ⑤ 嵌套循环里心跳还在跳（增量 ≥ 1） → 期望 1，实测 1
+      ［对］ ⑤ exec() 返回后 isRunning() = false → 期望 0，实测 0
+    [R] 第 4 号事件到达，type=1001，isAccepted=true，当前深度=1
+    [R] 第 5 号事件到达，type=1001，isAccepted=true，当前深度=2
+    [R] 第 6 号事件到达，type=1001，isAccepted=true，当前深度=3
+证据⑥ R 收到事件数 = 3 最大重入深度 = 3 → 深度 >1 就意味着：同一个槽/处理函数在栈里叠了两层，你在里面改的成员变量、开的新对象、释放的指针，全都可能被上层再摸一次。
+      ［对］ ⑥ 1 次 send + 2 条队列全部到达（3 个事件） → 期望 3，实测 3
+      ［对］ ⑥ 最大重入深度 = 3（send 一层 + 队列抽了两层） → 期望 3，实测 3
+    [K] 第 7 号事件到达，type=6，isAccepted=true，当前深度=1
+证据⑦ 键盘事件：初始 0 | ExcludeUserInputEvents 之后 1 | AllEvents 之后 1 → 实测中段【也涨了】：ExcludeUserInputEvents 挡不住 postEvent 投的按键。
+      ［对］ ⑦ 初始收到 0 个 → 期望 0，实测 0
+      ［对］ ⑦ ExcludeUserInputEvents 之后仍收到了这条 postEvent 的按键（=1，不是 0） → 期望 1，实测 1
+      ［对］ ⑦ AllEvents 之后再抽一次，没有第二条（总数仍 =1） → 期望 1，实测 1
+  ★★ 这一条本讲第一版猜错了（以为中段不涨），实测 +1。原因对着源码看：
+     processEvents(flags) 一进来就无条件调一次 sendPostedEvents()
+     （Windows 分发器 qeventdispatcher_win.cpp 第 484 行「To prevent livelocks,
+     send posted events once per iteration」），而 QCoreApplicationPrivate::
+     sendPostedEvents 根本不看 ExcludeUserInputEvents 这个 flag。
+     flag 只在处理**原生队列输入**时生效：PeekMessage 拿到的键盘/鼠标消息会被
+     挪进 queuedUserInputEvents 压后处理（同文件 497、504~508 行）。
+     我们这条 QKeyEvent 是 postEvent 进 Qt 自己的 postEventList 的，走的是
+     sendPostedEvents 那条路，所以它绕过了 flag、照常送达。
+     → 一句话记住：**ExcludeUserInputEvents 过滤的是「操作系统送进来的输入」，
+        不是「你用 postEvent 手工投递的合成事件」**；后者归 postEventList 管，永远照发。
+     本机没有真键盘输入可造，所以这里能证到的正是「合成按键不受该 flag 约束」；
+     想演示 flag 真的过滤，得让系统往窗口投原生按键（offscreen 环境做不到）。
+证据⑧ inner.exit(7) → inner.exec() 返回 7 ；而外层 app.exec() 完全没受影响（程序还活着）， 直到有人调 QCoreApplication::quit()/exit()。rc 用来表示「这个循环里发生了什么」， 进程退出码要用 exit(int) 才对。
+      ［对］ ⑧ inner.exit(7) 只让内层返回 7 → 期望 7，实测 7
+      ［对］ ⑧ 内层退出后本线程还在最外层循环里（loopLevel = 1） → 期望 1，实测 1
+结论：本次运行事件循环共派发心跳 49 次（interval=50ms，约 3.4 秒 → 理论上限 ~68，实际少于此是 因为自旋那段把循环占住了）。
+
+【硬账】19/19 项核对通过 → 退出码 0
+exec() 返回 0 （若用 QCoreApplication::exit(n) 就是 n）

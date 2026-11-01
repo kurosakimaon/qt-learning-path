@@ -67,9 +67,18 @@
       然后由那个生成物去调编译器。所以「CMake 报错」和「编译报错」是两个阶段，别混着查。
     </p>
     <p class="fact">
-      诚实标注：本库当前环境无法链接 Qt 运行时，这五份工程<strong>未在本机实际 configure/build</strong>；
-      其中的 C++ 源码都过了 <code>moc</code> + <code>g++ -fsyntax-only -std=c++17 -Wall -Wextra</code> 检查（零 error、零 warning），
-      CMake 里用到的函数与参数都对着本机 <code>C:\msys64\ucrt64\lib\cmake\Qt6*</code> 的真实实现核对过。
+      实测口径：这五份工程都<strong>在本机各自 configure / build / run 过</strong>（Qt 6.12.0 + MinGW 13.1.0 + CMake 3.30.5 + MinGW Makefiles）——
+      五次构建的 <code>warning:</code> / <code>error:</code> 都是 <strong>0</strong>，四个 GUI 目标无头跑退出码全 <strong>0</strong>，
+      第 4 份的 CTest <strong>1/1 Passed</strong>。CMake 里用到的函数与参数仍然都对着本机
+      <code>D:\Qt\6.12.0\mingw_64\lib\cmake\Qt6*</code> 的真实实现逐行核对过。
+    </p>
+    <p class="fact">
+      ⚠ 但「build 通了」不等于「打印的是真话」：第 5 份（翻译）当初就是在 build、link、run 全绿的状态下，
+      对着三行<strong>没翻译</strong>的中文打印了一句「翻译是否生效： <code>true</code>」。
+      根因是它拿 <code>QTranslator::load()</code> 的返回值当生效判据，而 <code>qt_add_translations</code>
+      首次生成的 <code>.ts</code> 是<strong>空的</strong>——空 <code>.ts</code> 出来的是一个 30 字节、0 条译文的 <code>.qm</code>，
+      这种文件 <code>load()</code> 照样返回 <code>true</code>。细节和本机量到的每一条数字，都在
+      <code>qt_cmake_05_translations/src/main.cpp</code> 的文件头。
     </p>
   </div>
 
@@ -148,14 +157,36 @@ target_link_libraries(greeting_app PRIVATE greeting Qt6::Widgets)</pre>
 qt_add_resources(resource_app "app_assets"
     PREFIX "/"
     FILES assets/style.qss assets/logo.svg
+)                          <span class="c"># → ":/assets/style.qss"、":/assets/logo.svg"　★注意不是 ":/style.qss"</span>
+
+<span class="c"># 路线 B+：同一个宏，加 BASE，才把路径压平</span>
+qt_add_resources(resource_app "app_assets_flat"
+    PREFIX "/" BASE assets
+    FILES assets/style.qss assets/logo.svg
 )                          <span class="c"># → ":/style.qss"、":/logo.svg"</span>
 
 <span class="c"># 路线 A（传统）：.qrc 当源文件，靠 AUTORCC 跑 rcc</span>
 set(CMAKE_AUTORCC ON)      <span class="c"># ← qt_standard_project_setup() 不会替你打开它</span>
 target_sources(resource_app PRIVATE assets/legacy.qrc)   <span class="c"># → ":/legacy/style.qss"</span></pre>
+    <div class="warn">
+      <strong>最容易踩的一条（本机实测）</strong>：<code>qt_add_resources</code> 生成的资源路径是
+      <strong>PREFIX + 文件在源码树里的相对路径</strong>，不是「PREFIX + 文件名」。
+      所以 <code>FILES assets/style.qss</code> 不带 <code>BASE</code> 时进的是 <code>:/assets/style.qss</code>；
+      想压平要显式写 <code>BASE assets</code>，或给单个文件设 <code>QT_RESOURCE_ALIAS</code> 源属性
+      （<code>qt_add_resources</code> <strong>没有</strong> <code>ALIAS</code> 关键字——
+      <code>Qt6CoreMacros.cmake</code> 408 行的单值参数只有
+      <code>PREFIX;LANG;BASE;OUTPUT_TARGETS;DESTINATION</code>）。
+      依据：<code>Qt6CoreMacros.cmake</code> 里只有给了 <code>BASE</code> 才会用
+      <code>file(RELATIVE_PATH)</code> 把相对 BASE 的路径写进 <code>QT_RESOURCE_ALIAS</code>；
+      中间产物可以直接看 <code>build/.qt/rcc/app_assets.qrc</code>，里面就是
+      <code>&lt;file alias="assets/style.qss"&gt;</code>。
+      按「一定是 <code>:/文件名</code>」去写运行时代码，症状是 <code>QFile</code> 报
+      <strong>No such file or directory</strong>，而且构建期一声不响。
+    </div>
     <p>
-      两条路的产物都进同一棵资源树，运行时读法完全一样：<code>QFile(":/…")</code>。
-      区别在构建期：<code>qt_add_resources</code> 由 Qt 的 CMake 层管理（增量、别名、压缩都能配），
+      三条路的产物都进同一棵资源树，运行时读法完全一样：<code>QFile(":/…")</code>。
+      同一份 <code>style.qss</code> 因此在 exe 里存了<strong>三份</strong>——alias 改的是路径，不会去重。
+      区别只在构建期：<code>qt_add_resources</code> 由 Qt 的 CMake 层管理（增量、别名、压缩都能配），
       <code>.qrc</code> 则由 <code>rcc</code> 处理。Qt6 的 CMake 层默认让 AUTORCC 用 zstd 压缩，
       本机 Qt 没编 zstd 或你设了 <code>QT_NO_AUTORCC_ZSTD</code> 时会追加 <code>--no-zstd</code>。
     </p>
@@ -263,7 +294,7 @@ windeployqt --release --dir deploy build/hello_widgets.exe
       </tr>
       <tr>
         <td><a href="qt_cmake_03_resources/CMakeLists.txt">qt_cmake_03_resources</a></td>
-        <td>qrc 两条路线、只读资源</td>
+        <td>qrc 两条路线的三种写法、<strong>BASE 决定资源路径</strong>、只读资源</td>
         <td><code>qt_add_resources</code> / <code>set(CMAKE_AUTORCC ON)</code></td>
         <td><code>resource_app</code></td>
       </tr>
@@ -280,9 +311,9 @@ windeployqt --release --dir deploy build/hello_widgets.exe
         <td><code>translations_app</code></td>
       </tr>
     </table>
-    <p>每个目录都可以独立执行：</p>
+    <p>每个目录都可以独立执行（没装 Ninja 就把 <code>-G</code> 换成 <code>"MinGW Makefiles"</code>，或者干脆省掉 <code>-G</code> 让 CMake 自己挑）：</p>
 <pre>cd build_deploy/qt_cmake_04_tests
-cmake -G Ninja -B build -S .
+cmake -G "MinGW Makefiles" -B build -S .          <span class="c"># 或 cmake -G "MinGW Makefiles" -B build -S .</span>
 cmake --build build
 ctest --test-dir build --output-on-failure</pre>
   </div>
@@ -291,7 +322,7 @@ ctest --test-dir build --output-on-failure</pre>
     <h2>⑨ 报错对照表</h2>
     <table>
       <tr><th>报错</th><th>阶段</th><th>真正的原因</th></tr>
-      <tr><td><code>Could not find a package configuration file provided by "Qt6"</code></td><td>configure</td><td>CMake 不知道 Qt 装在哪：加 <code>-DCMAKE_PREFIX_PATH=C:/Qt/6.12.0/mingw_64</code>，或直接用 <code>qt-cmake</code>/<code>Qt Creator</code> 打开工程</td></tr>
+      <tr><td><code>Could not find a package configuration file provided by "Qt6"</code></td><td>configure</td><td>CMake 不知道 Qt 装在哪：加 <code>-DCMAKE_PREFIX_PATH=D:/Qt/6.12.0/mingw_64</code>，或直接用 <code>qt-cmake</code>/<code>Qt Creator</code> 打开工程</td></tr>
       <tr><td><code>undefined reference to vtable for Xxx</code> / <code>staticMetaObject</code></td><td>链接</td><td>有 <code>Q_OBJECT</code> 但没跑 moc：检查 AUTOMOC 是否真的对该目标生效；写在 .cpp 里的类要在末尾 <code>#include "xxx.moc"</code></td></tr>
       <tr><td><code>No such signal ...</code>（运行期警告）</td><td>运行</td><td>信号名拼错，或参数类型不匹配——字符串版 connect 只能运行期发现，尽量用函数指针版</td></tr>
       <tr><td><code>this application failed to start because no Qt platform plugin could be initialized</code></td><td>运行</td><td>缺 <code>platforms/qwindows.dll</code>（Windows）：用 <code>windeployqt</code>；调试时设 <code>QT_DEBUG_PLUGINS=1</code> 看它找了哪些路径</td></tr>

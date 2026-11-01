@@ -6,10 +6,33 @@
 #   bash _tools/check_syntax.sh threads/01_thread_basics.cpp   # 检查单个文件
 set -u
 
-MSYS=${MSYS:-/c/msys64/ucrt64}
-QI="$MSYS/include/qt6"
-MOC="$MSYS/share/qt6/bin/moc.exe"
-GXX="$MSYS/bin/g++.exe"
+# ── Qt 头文件 / moc / g++ 在哪：三种摆法自动挑，别把路径写死在一台机器上 ──────
+#   ① Qt 官方在线安装器（本机就是这套）：QTDIR=D:/Qt/6.12.0/mingw_64
+#        头文件 $QTDIR/include/{QtCore,QtWidgets,…}，moc 在 $QTDIR/bin/moc.exe
+#   ② MSYS2 的 mingw-w64-ucrt-x86_64-qt6-base：/c/msys64/ucrt64
+#        头文件 $MSYS/include/qt6/…，moc 在 $MSYS/share/qt6/bin/moc.exe
+#   ③ 自己指：QTDIR=/path/to/mingw_64 bash _tools/check_syntax.sh
+#        （或 MSYS=/path/to/prefix 走 ② 那套目录结构）
+#   ★ 原来这里只有 ② 一条路，写死 /c/msys64/ucrt64；本机 MSYS2 里**根本没装 Qt**
+#     （没有 include/qt6，也没有 share/qt6/bin/moc.exe），所以这道门在本机一上来就
+#     「找不到编译器或 Qt6 头文件」 exit 2 —— 现在是自动探测，两条路都能走。
+MSYS="${MSYS:-/c/msys64/ucrt64}"
+QTDIR="${QTDIR:-/d/Qt/6.12.0/mingw_64}"
+
+if [ -d "$QTDIR/include/QtCore" ]; then          # ①（或 ③）
+    QI="$QTDIR/include"
+    MOC="$QTDIR/bin/moc.exe"
+elif [ -d "$MSYS/include/qt6/QtCore" ]; then      # ②
+    QI="$MSYS/include/qt6"
+    MOC="$MSYS/share/qt6/bin/moc.exe"
+else
+    QI=""
+    MOC=""
+fi
+# 编译器：优先用 PATH 上的 g++（本机构建用的就是 Qt 自带的 D:/Qt/Tools/mingw1310_64），
+# 退而求其次才用 MSYS2 那个；两者版本不同，但这里只做 -fsyntax-only，不影响结论。
+GXX="${GXX:-$(command -v g++ || true)}"
+[ -x "$GXX" ] || GXX="$MSYS/bin/g++.exe"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT" || exit 2
@@ -53,9 +76,15 @@ else
   done
 fi
 
-if [ ! -x "$GXX" ] || [ ! -d "$QI" ]; then
-  echo "找不到编译器或 Qt6 头文件（MSYS=$MSYS）"; exit 2
+if [ ! -x "$GXX" ] || [ ! -d "$QI" ] || [ ! -x "$MOC" ]; then
+  echo "自动探测失败：既没找到 Qt6 头文件+moc，也没找到 g++。"
+  echo "  试过的两条路：QTDIR=$QTDIR（要 include/QtCore 和 bin/moc.exe）"
+  echo "               MSYS=$MSYS（要 include/qt6/QtCore 和 share/qt6/bin/moc.exe）"
+  echo "  你的 Qt 装在别处的话：QTDIR=/你的/mingw_64 路径 bash _tools/check_syntax.sh"
+  command -v g++ >/dev/null || echo "  另外：PATH 上没有 g++（本机构建用的是 D:/Qt/Tools/mingw1310_64/bin）"
+  exit 2
 fi
+echo "语法门用的是：QI=$QI｜MOC=$MOC｜GXX=$GXX"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

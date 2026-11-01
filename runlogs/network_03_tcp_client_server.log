@@ -1,0 +1,391 @@
+================================================================
+network 第 3 讲 · QTcpSocket / QTcpServer（Qt = 6.12.0，本机回环闭环）
+  八段演示全部由 QTimer::singleShot 与信号驱动，无人值守，自己退出。
+================================================================
+
+【1】事件驱动的本质 + stateChanged 顺序 + 端口只能现拿
+  两台服务器就位（listen 的默认地址是 Any，第 29 行；这里全部显式 LocalHost）：
+    行端口   listen(LocalHost, 0) → serverPort()=5111｜serverAddress()=127.0.0.1｜isLoopback=1｜isListening=1
+    前缀端口 listen(LocalHost, 0) → serverPort()=5112｜isLoopback=1｜分帧=长度前缀(4 字节大端)
+    行端口自己的分帧=行分隔(\n)（两台服务器是**同一个类**，只有构造参数不同）
+  → 源码里没有任何端口常数，也没有任何主机名；下面所有连接只打这两个数。
+      a(主力) stateChanged → HostLookup（枚举值 1）
+      a(主力) stateChanged → Connecting（枚举值 2）
+    a(主力) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+      a(主力) stateChanged → Connected（枚举值 3）
+    a(主力) 连接守卫被connected 先到终止（还剩 1999 ms 没用完）→ stop()
+    a(主力) connected｜peer=127.0.0.1:5111｜本端端口=5113｜isOpen=1｜isSequential=1
+  （1-b）发两条：HELLO + PING，然后当场读服务端的计数器
+    write() 返回 34 字节；**返回后的同一行代码**里读服务端 readyRead 计数 = 0
+    → 这就是「不是轮询、也不是当场送达」：字节交给 Qt 的发送缓冲，
+      对端能不能收到、什么时候收到 readyRead，都归事件循环管。
+    PING 已发出（心跳累计 1 条）；服务端回不回，下一轮事件循环才见分晓
+    setSocketOption(KeepAliveOption,1) 读回来 = 1｜LowDelay = 0
+    → SO_KEEPALIVE 是内核的「链路还通吗」，不是「对端程序还活着吗」；
+      所以协议里那一条 PING/PONG 不能省（第 7 段把它的超时演示跑给你看）。
+    行端口服务器 新连接 #1：peer=127.0.0.1:5113｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+    行端口服务器 解析出第 1 条消息：kind=HELLO body=老师傅，回环上见｜此刻缓冲里还剩 13 字节未成帧
+    行端口服务器 解析出第 2 条消息：kind=PING body=hb-1｜此刻缓冲里还剩 0 字节未成帧
+    a(主力) 收到第 1 条：kind=ECHO｜body=老师傅，回环上见
+    a(主力) 收到第 2 条：kind=PONG｜body=hb-1
+
+【2】端口只能现拿；连不上只能等 errorOccurred（connectToHost 返回 void）
+  借端口：listen(LocalHost,0)=1 → serverPort()=5114 → close() 还回去 → 现在 5114 上没人监听
+  全新 socket（一次没连过）：error()=-1（枚举里第 0 项就是 ConnectionRefused，**没有 NoError**）
+    同一只 socket：errorString()="Unknown error"｜isValid()=0（第 140 行）｜state=Unconnected
+    → 所以「判有没有错」靠的是 state()/isValid()/errorString()，
+      不是 error()。error() 只回答「最后一次错成什么样」。
+      上面这两个读数本机实测：error()=-1（就是 qabstractsocket.h 第 78 行 那个 UnknownSocketError=-1，不是「出错了」而是「还没错过」）、errorString()="Unknown error"、isValid()=0、state=Unconnected；
+      而「SocketError 里没有 NoError 这一档」是第 53~79 行的字面事实。
+      probe(试错) stateChanged → HostLookup（枚举值 1）
+      probe(试错) stateChanged → Connecting（枚举值 2）
+    probe(试错) connectToHost(LocalHost:5114) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+
+【3】粘包与半包：readyRead 次数不可核对，消息条数才可核对
+  【2】那只 probe 还在 Connecting 里挂着——本机实测它一个错都没报，
+  守卫也没到点就被【6】的复用 abort() 带走（详见合账里「errorOccurred 条数=0」那条）。
+  「连不上只能等 errorOccurred」是这一讲的主张，但在回环上连一个刚还回去的端口，
+  Windows 未必马上给你 RST：它可能就是不动。**等不到，本身就是要记的账**。
+  【6】还要复用这只 socket，所以那里会先 abort() 再连。
+  （3-a）半包：1 条消息拆 3 次 write，返回 12 / 12 / 13 字节（换行只在最后一次带上）
+    此刻服务端手里：前两次 write 之后**一条都拼不出来**（没有 \n），
+    所以它的 takeMessage 会 return false，缓冲原样留着——半包不是错误，是常态。
+  （3-b）粘包：2 条消息合并成 1 次 write，返回 48 字节（两条共用一次投递）
+    行端口服务器 解析出第 3 条消息：kind=SPLIT body=我把一帧拆成三次写｜此刻缓冲里还剩 48 字节未成帧
+    行端口服务器 解析出第 4 条消息：kind=ECHO body=连发两条甲｜此刻缓冲里还剩 24 字节未成帧
+    行端口服务器 解析出第 5 条消息：kind=ECHO body=连发两条乙｜此刻缓冲里还剩 0 字节未成帧
+    a(主力) 收到第 3 条：kind=ECHO｜body=我把一帧拆成三次写
+    a(主力) 收到第 4 条：kind=ECHO｜body=连发两条甲
+    a(主力) 收到第 5 条：kind=ECHO｜body=连发两条乙
+      -> 有界等待「【3】服务端解析出 3 条」达成（10 ms，每 10 ms 复查一次，全程不阻塞）
+  （3-c）对账：这 4 次 write 期间，服务端 readyRead 触发 1 次，解析出消息 3 条
+        收到的字节增量=85｜此刻全服务器缓冲区残留（半包）=0 字节
+    → 把结论钉死：**4 次 write、1 次 readyRead、3 条消息**，
+      三者之间没有任何固定关系。所以合账只压「消息条数」，
+      谁把断言写在 readyRead 次数上，谁的用例就会在 CI 上随机挂。
+
+【4】分帧是应用层造的：行分隔 vs 长度前缀，两副面孔一本账
+      wire(前缀) stateChanged → HostLookup（枚举值 1）
+      wire(前缀) stateChanged → Connecting（枚举值 2）
+    wire(前缀) connectToHost(LocalHost:5112) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    前缀端口服务器 新连接 #1：peer=127.0.0.1:5116｜本端=127.0.0.1:5112｜监听=127.0.0.1:5112｜isLoopback=1
+      wire(前缀) stateChanged → Connected（枚举值 3）
+    wire(前缀) 连接守卫被connected 先到终止（还剩 1999 ms 没用完）→ stop()
+    wire(前缀) connected｜peer=127.0.0.1:5112｜本端端口=5116｜isOpen=1｜isSequential=1
+  （4-a）长度前缀的半包：write 3 字节（前缀残缺）+ write 33 字节 → 应算 1 条
+  （4-b）长度前缀的粘包：1 次 write 54 字节 → 应算 2 条
+    前缀端口服务器 解析出第 1 条消息：kind=ECHO body=前缀也被切了一半｜此刻缓冲里还剩 54 字节未成帧
+    前缀端口服务器 解析出第 2 条消息：kind=ECHO body=合并投递甲｜此刻缓冲里还剩 27 字节未成帧
+    前缀端口服务器 解析出第 3 条消息：kind=ECHO body=合并投递乙｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 1 条：kind=ECHO｜body=前缀也被切了一半
+    wire(前缀) 收到第 2 条：kind=ECHO｜body=合并投递甲
+    wire(前缀) 收到第 3 条：kind=ECHO｜body=合并投递乙
+      -> 有界等待「【4】前缀端口解析出 3 条」达成（9 ms，每 10 ms 复查一次，全程不阻塞）
+  （4-c）前缀端口：3 次 write → 消息 3 条（计划 3）
+    两台服务器的消息数都对得上，而它们**读到的字节一模一样**：
+    边界不是 TCP 给的，是你自己造出来的（换行或长度）。
+  （4-d）QDataStream：格式里有长度，传输层没有边界
+      QDataStream 写出 38 字节；头 4 字节就是长度前缀（第 483~496 行 writeQSizeType）
+      整帧喂进去：kind=ECHO body=中文 + 空格都塞进来 status=Ok?1
+      只喂一半（19 字节）：status=1（预期 1=ReadPastEnd）｜已读出的 k2="ECHO"
+      → 结论：QDataStream 绑在 socket 上（第 126 行那个 ctor）时，字节来一半它就会
+        在「读到一半」的地方停下并且**已经消费掉的字节回不去**（它没有事务）。
+        正解只有一条：自己攒缓冲 → 确认整帧边界 → 把**那一帧**喂给
+        QDataStream(const QByteArray &)（第 128 行）。上面两个分支就是这个顺序。
+  （4-e）canReadLine 的真相（只当对照物，不进账）：
+    行端口上 readyRead 共触发 2 次，其中「那一刻 canReadLine()==true」2 次，
+    而解析出的消息条数是 5 条——三个数**互相不等是常态**。
+    QAbstractSocket 没有 override canReadLine（本机 grep QtNetwork/*.h：
+    只有 qlocalsocket.h 第 74 行、qsslsocket.h 第 84 行 override 了它）；
+    它给的是 readLineData（第 197 行）。所以网上那段
+      while (sock->canReadLine()) lines << sock->readLine();
+    在 QTcpSocket 上不是不可以用，而是**不能当依据**：真值取决于
+    QIODevice 内部缓冲，跨版本会变。本讲的行分帧用 indexOf('\n')，
+    可控、可打印、可测——canReadLine 只留作对照物。
+
+【5】写完 ≠ 送达：三道账（请求写入 / bytesWritten / 服务端收到）
+  第 1 次 write(16KiB+边界) 返回 16396 字节 → 这是「进缓冲的字节数」，不是对端收到的数
+    write #1 之后 bytesToWrite()=16396 字节（第 143 行）
+    write #2 之后 bytesToWrite()=32792 字节（第 143 行）
+    write #3 之后 bytesToWrite()=49188 字节（第 143 行）
+    write #4 之后 bytesToWrite()=65584 字节（第 143 行）
+    write #5 之后 bytesToWrite()=81980 字节（第 143 行）
+    write #6 之后 bytesToWrite()=98376 字节（第 143 行）
+    write #7 之后 bytesToWrite()=114772 字节（第 143 行）
+    write #8 之后 bytesToWrite()=131168 字节（第 143 行）
+  8 次 write 交完，立刻读：bytesWritten 触发 0 次（本段增量），累计送出 90 字节
+  本端客户端收到的 readyRead 次数（本段增量）= 0（ACK 回来的次数，同样不可预测）
+  → flush()（第 170 行）是「现在就把缓冲推给内核」，返回 bool 不代表对端收到；
+    waitForBytesWritten(默认 30000ms，第 175 行) 是把**这条线程**钉在这儿：
+    在 GUI 线程用它 = 界面卡死 30 秒，且事件循环停摆时 socket 根本没法推进，
+    所以它是「没有事件循环的控制台脚本」专用的。本讲中途一次 waitFor* 都不用，
+    只在收摊最后一行用了一次带 300ms 短超时的 waitForDisconnected（见 teardown）。
+    前缀端口服务器 解析出第 4 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 4 条：kind=ACK｜body=收到 16384 字节
+    前缀端口服务器 解析出第 5 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    前缀端口服务器 解析出第 6 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 5 条：kind=ACK｜body=收到 16384 字节
+    wire(前缀) 收到第 6 条：kind=ACK｜body=收到 16384 字节
+    前缀端口服务器 解析出第 7 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    前缀端口服务器 解析出第 8 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 7 条：kind=ACK｜body=收到 16384 字节
+    wire(前缀) 收到第 8 条：kind=ACK｜body=收到 16384 字节
+    前缀端口服务器 解析出第 9 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    前缀端口服务器 解析出第 10 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 9 条：kind=ACK｜body=收到 16384 字节
+    wire(前缀) 收到第 10 条：kind=ACK｜body=收到 16384 字节
+    前缀端口服务器 解析出第 11 条消息：kind=BULK body=<16384 字节>｜此刻缓冲里还剩 0 字节未成帧
+    wire(前缀) 收到第 11 条：kind=ACK｜body=收到 16384 字节
+      -> 有界等待「【5】128KiB 全部落到对端」达成（10 ms，每 10 ms 复查一次，全程不阻塞）
+  （5-b）三道账：客户端请求写入=131258｜bytesWritten 各次之和=131258｜服务端收到=131258
+    bytesWritten 触发次数=8（本段）｜单次最大一块=16396 字节｜本端 bytesToWrite 峰值=131168
+    → 三个数相等才叫「送达」。bytesWritten 完全可以分好几次凑出总和，
+      所以「一次 write 对应一次 bytesWritten」是错觉（第 121 行的信号是流水账）。
+      大流量的正解：每轮把 bytesAvailable() 取走、自己攒帧，
+      需要背压时用 setReadBufferSize()（第 151/152 行）让 Qt 别再从内核取；
+      而不是 readAll() 之后等「整个文件」——socket 上没有这个概念。
+
+【6】报错不排队：同一只 socket 上多个错误互相覆盖
+  probe 这只 socket 到目前为止的错误序列 = []，error() 当前读数 = Unknown(-1)(-1)
+    probe(试错) 复用前 state=Connecting，先 abort() 掐掉上一次没结束的尝试（否则 connectToHost 只会回 19 号错误，且什么都不做）
+      probe(试错) stateChanged → Unconnected（枚举值 0）
+      probe(试错) stateChanged → HostLookup（枚举值 1）
+      probe(试错) stateChanged → Connecting（枚举值 2）
+    probe(试错) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    行端口服务器 新连接 #2：peer=127.0.0.1:5117｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+      probe(试错) stateChanged → Connected（枚举值 3）
+    probe(试错) 连接守卫被connected 先到终止（还剩 1499 ms 没用完）→ stop()
+    probe(试错) connected｜peer=127.0.0.1:5111｜本端端口=5117｜isOpen=1｜isSequential=1
+  probe 重连成功并发了第 2 次心跳；现在 error() 读数 = Unknown(-1)(-1)
+    → 请注意：连接已经成功，error() 里**还可能**躺着上一次那个错误码。
+      把 error() 当「当前状态」读的代码，在这里就会误报（预期，请以本次打印复核）
+    行端口服务器 解析出第 6 条消息：kind=PING body=hb-2｜此刻缓冲里还剩 0 字节未成帧
+    probe(试错) 收到第 1 条：kind=PONG｜body=hb-2
+      -> 有界等待「【6】hb-2 的 PONG 先到手」达成（10 ms，每 10 ms 复查一次，全程不阻塞）
+  （6-a）PONG 已到（probe 累计收到 1 条），现在让服务端 abort 这条连接
+    行端口服务器 对最后一条连接（peer 127.0.0.1:5117）调用 abort()（第 154 行，立即撕）
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+    probe(试错) errorOccurred(RemoteHostClosed(1)) 第 1 次｜errorString="The remote host closed the connection"｜isValid=0｜state=Connected
+      probe(试错) stateChanged → Closing（枚举值 6）
+      probe(试错) stateChanged → Unconnected（枚举值 0）
+    probe(试错) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=RemoteHostClosed(1)
+      -> 有界等待「【6】probe 感知到对端没了」达成（10 ms，每 10 ms 复查一次，全程不阻塞）
+  （6-b）probe 的错误序列 = [RemoteHostClosed(1)]（共 1 次 errorOccurred）
+    最终 state=Unconnected｜disconnected 次数=1｜error() 只剩一个值 = RemoteHostClosed(1)
+    → 头文件就是原因：一个 error() getter（第 165 行）配
+      一个 protected setSocketError()（第 202 行）＝一个坑位；
+      后来的把先来的盖掉。要做「错误历史」只能自己记，
+      上面那条 QStringList 就是这么来的（第 186~190 行的信号才是事件流）。
+    → 同一只 socket 用完**没被扔掉**：它接着被复用，
+      这就是「报错只留最后一次」能被演示出来的原因。
+
+【7】超时是自己造的：Qt 没给 socket 统一的 connectTimeout
+  本机实测 grep：在 QtNetwork 的**公开**头文件里搜 connectTimeout /
+  socketTimeout / defaultSocketTimeout —— **零命中**。QAbstractSocket 公开的
+  超时相关面只有第 173~176 行那四个 waitFor*(int msecs = 30000)（阻塞语义），
+  以及私有实现 qabstractsocketengine_p.h 第 37 行那个 DefaultTimeout{30}
+  （内部头，代码里不能依赖）。所以：**要超时，就自己挂 QTimer**。
+  现场量 waitForNewConnection(0)：listen=1（端口 5118）→ 返回 0｜timedOut=1｜墙钟 0 ms
+    → 0 是**一次都不等**（等价于 poll），不是无限等；想要不超时得写 -1（Src qtcpserver.cpp 第 492 行、qdeadlinetimer.cpp 第 170~176 行）。
+      staller(超时) stateChanged → HostLookup（枚举值 1）
+      staller(超时) stateChanged → Connecting（枚举值 2）
+    staller(超时) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    行端口服务器 新连接 #3：peer=127.0.0.1:5119｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+      staller(超时) stateChanged → Connected（枚举值 3）
+    staller(超时) 连接守卫被connected 先到终止（还剩 2000 ms 没用完）→ stop()
+    staller(超时) connected｜peer=127.0.0.1:5111｜本端端口=5119｜isOpen=1｜isSequential=1
+  服务端进入 stall（setStall(true) 之后读回来 stall()=1）：WAIT 这一类消息一个字都不回
+    （不是网络坏了，是**应用层不回话**——回环上你造不出真的连接超时，
+      所以这一讲把超时演示放在应答层：这一层才是协议真正会卡住的地方）
+    staller(超时) 应答守卫上弦：120 ms 内等 对 WAIT 的回音（Qt 的 socket 没有这个功能，只能自己造）
+  WAIT 已发出（write 返回 36 字节）；应答守卫 120ms 到点就动手
+    行端口服务器 解析出第 7 条消息：kind=WAIT body=别回我，我要看超时｜此刻缓冲里还剩 0 字节未成帧
+    行端口服务器 【服务端 stall】这条 WAIT 故意一个字都不回 → 让客户端自己掐超时
+    staller(超时) 【应答超时】120 ms 内没等到 对 WAIT 的回音：state=Connected｜bytesAvailable=0｜半包残留=0 字节
+      staller(超时) stateChanged → Closing（枚举值 6）
+      staller(超时) stateChanged → Unconnected（枚举值 0）
+    staller(超时) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+    行端口服务器 某条连接 errorOccurred(RemoteHostClosed=1)｜errorString="The remote host closed the connection"
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+      -> 有界等待「【7】应答超时计到 1」达成（115 ms，每 10 ms 复查一次，全程不阻塞）
+  （7-b）超时到点后的现场：state=Unconnected｜bytesAvailable=0｜disconnected 次数=1
+    三个动作的分工（本讲各用了一次，都能对上号）：
+      disconnectFromHost()（第 138 行）：温和。发送缓冲里的东西还会出去，
+                            之后还会收到对端最后一批数据和 disconnected（第 8 段现场）；
+      abort()（第 154 行）：立即撕。**丢弃发送缓冲**，对端只能从断流里推断（第 6 段用过）；
+      waitForDisconnected(ms)（第 176 行）：阻塞等收口，默认 30000，
+                            只有不带事件循环的脚本才配用它；本讲只在收摊最后一行用短超时版。
+      -> 有界等待「【7】staller 那条连接报完 disconnected」达成（0 ms，每 10 ms 复查一次，全程不阻塞）
+  （7-c）温和收口已完成（disconnected 次数=1，state=Unconnected）→ 复用同一只 socket 重连
+    这就是「socket 对象可以复用，一次连接不可以复用」：
+      对象是 QObject，信号槽、守卫、计数都还在；
+      连接是那次 TCP 会话，断了就得重新走 connectToHost。
+      staller(超时) stateChanged → HostLookup（枚举值 1）
+      staller(超时) stateChanged → Connecting（枚举值 2）
+    staller(超时) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    行端口服务器 新连接 #4：peer=127.0.0.1:5120｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+      staller(超时) stateChanged → Connected（枚举值 3）
+    staller(超时) 连接守卫被connected 先到终止（还剩 1199 ms 没用完）→ stop()
+    staller(超时) connected｜peer=127.0.0.1:5111｜本端端口=5120｜isOpen=1｜isSequential=1
+    staller(超时) 应答守卫上弦：800 ms 内等 对 PING 的 PONG（Qt 的 socket 没有这个功能，只能自己造）
+    同一个守卫再上弦 800ms，这回发 PING：预期回音先到、守卫被 stop()
+    行端口服务器 解析出第 8 条消息：kind=PING body=hb-3｜此刻缓冲里还剩 0 字节未成帧
+    staller(超时) 回音赶在应答守卫之前到了（还剩 799 ms）→ stop()
+    staller(超时) 收到第 1 条：kind=PONG｜body=hb-3
+      -> 有界等待「【7】PONG 赶在守卫之前」达成（10 ms，每 10 ms 复查一次，全程不阻塞）
+    心跳三本账：客户端发 3｜服务端回 3｜客户端收到 3（计划 3）
+    连接守卫：被 stop 掉 5 次（计划 8），真到点 0 次（计划 0）
+    应答守卫：真到点 1 次（【7】故意造的那一次）
+    → 记一条纪律：**成功路上和出错路上都要 stop 守卫**。
+      只在成功时 stop，出错的那次尝试就会在你看不见的地方
+      突然 abort() 一条后来复用的连接；只在超时时 abort，
+      就会把「已经断了」也报成超时。两个守卫各管一件事，
+      计数才能各归各的账。
+
+【8】优雅关闭：写完就走的三种死法，和「脚下别抽地板」
+      closer(温和收) stateChanged → HostLookup（枚举值 1）
+      closer(温和收) stateChanged → Connecting（枚举值 2）
+    closer(温和收) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    行端口服务器 新连接 #5：peer=127.0.0.1:5121｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+      closer(温和收) stateChanged → Connected（枚举值 3）
+    closer(温和收) 连接守卫被connected 先到终止（还剩 2000 ms 没用完）→ stop()
+    closer(温和收) connected｜peer=127.0.0.1:5111｜本端端口=5121｜isOpen=1｜isSequential=1
+  （8-a）closer：write 返回 45 字节后**立刻** disconnectFromHost()（第 138 行）
+      closer(温和收) stateChanged → Closing（枚举值 6）
+    调用之后立刻读：state=Closing（预期 Closing=6，也就是「还在发，没断完」）
+    → 这一句是这一讲最容易写错的地方：
+      disconnectFromHost **不是**「关掉就走」，它是「我说完了，
+      缓冲里的东西发完再挥手」，所以它之后**还会**收到对端的数据和 disconnected。
+      bye(自删) stateChanged → HostLookup（枚举值 1）
+      bye(自删) stateChanged → Connecting（枚举值 2）
+    bye(自删) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+    行端口服务器 新连接 #6：peer=127.0.0.1:5122｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+      bye(自删) stateChanged → Connected（枚举值 3）
+    bye(自删) 连接守卫被connected 先到终止（还剩 2000 ms 没用完）→ stop()
+    bye(自删) connected｜peer=127.0.0.1:5111｜本端端口=5122｜isOpen=1｜isSequential=1
+  （8-b）bye：服务端在 readyRead 里对它 deleteLater()，同一轮还继续读它的 state（见上面日志）
+      rude(半包+撕) stateChanged → HostLookup（枚举值 1）
+      rude(半包+撕) stateChanged → Connecting（枚举值 2）
+    rude(半包+撕) connectToHost(LocalHost:5111) 已返回——它返回的是 **void**，所以此刻 state=Connecting 只是「刚开始」
+      closer(温和收) stateChanged → Unconnected（枚举值 0）
+    closer(温和收) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+    行端口服务器 新连接 #7：peer=127.0.0.1:5123｜本端=127.0.0.1:5111｜监听=127.0.0.1:5111｜isLoopback=1
+    行端口服务器 解析出第 9 条消息：kind=LAST body=关闭前的最后一句，请收到｜此刻缓冲里还剩 0 字节未成帧
+    行端口服务器 某条连接 errorOccurred(RemoteHostClosed=1)｜errorString="The remote host closed the connection"
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+      rude(半包+撕) stateChanged → Connected（枚举值 3）
+    rude(半包+撕) 连接守卫被connected 先到终止（还剩 1499 ms 没用完）→ stop()
+    rude(半包+撕) connected｜peer=127.0.0.1:5111｜本端端口=5123｜isOpen=1｜isSequential=1
+      rude(半包+撕) stateChanged → Unconnected（枚举值 0）
+    rude(半包+撕) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+  （8-c）对照组 rude：write 返回 2056 字节、bytesToWrite=2056，随后立刻 abort()
+    abort 之后本端 state=Unconnected｜此刻行端口消息数=9（和 abort 前一样）
+    此刻服务器全部连接上「没拼成一帧」的残留字节=0（半包的家底）
+    这条连接服务端到底收到几个字节？**故意不作断言**：
+    字节可能还压在 Qt 的用户缓冲里（那就一个都没出去），
+    也可能已经交给内核（那就全到了，但永远成不了一帧）；
+    这个比例仍然**故意不作断言**（要它得抓包或对端计数，本讲不造这个证据）；
+    但本机实测的旁边两行是硬的：上面那行「残留字节=0」和「消息数=9 且 abort 前后没变」——半包确实一个字符都没解析出来，这才是会咬人的那部分。
+    能带走的是纪律：要「一定送达」就先等 bytesWritten 把
+    bytesToWrite() 降到 0，再 disconnectFromHost()；abort() 留给「我不要了」。
+      -> 有界等待「【8】BYE 那条 socket 的 deferred delete 已生效」达成（0 ms，每 10 ms 复查一次，全程不阻塞）
+    行端口服务器 解析出第 10 条消息：kind=BYE body=我先走了，别当场 delete 我｜此刻缓冲里还剩 0 字节未成帧
+    行端口服务器 在 readyRead 的调用栈里对这条 socket deleteLater()（不 delete！）
+      deleteLater 之后同一轮里再读它：state=Connected｜bytesToWrite=47｜isOpen=1
+    行端口服务器 某条连接 errorOccurred(RemoteHostClosed=1)｜errorString="The remote host closed the connection"
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+    bye(自删) errorOccurred(RemoteHostClosed(1)) 第 1 次｜errorString="The remote host closed the connection"｜isValid=0｜state=Connected
+      bye(自删) stateChanged → Closing（枚举值 6）
+      bye(自删) stateChanged → Unconnected（枚举值 0）
+    bye(自删) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=RemoteHostClosed(1)
+
+【合账】可核对的计数（期望来自计划，实测来自运行）
+      -> 有界等待「全部该落的都落了」达成（0 ms，每 10 ms 复查一次，全程不阻塞）
+  —— 分帧账（这一讲的正题）——
+      ［对］ 行端口解析出的消息条数 → 期望 10，实测 10
+      ［对］ 行端口计划发出的条数 → 期望 10，实测 10
+      ［对］ 前缀端口解析出的消息条数 → 期望 11，实测 11
+      ［对］ 前缀端口计划发出的条数 → 期望 11，实测 11
+      ［对］ 坏帧（版本不认/字段缺失） → 期望 0，实测 0
+      （【8-c】那条不带换行的半包就在这些数字里：它一个字也没加上去）
+      此刻行端口未成帧残留=0 字节｜服务端共回出帧=9
+  —— 字节账（单连接才对得上）——
+      ［对］ wire 请求写入 = bytesWritten 之和 → 期望 131258，实测 131258
+      ［对］ wire 请求写入 = 服务端收到 → 期望 131258，实测 131258
+      （明细：请求 131258｜送出 131258｜对端收到 131258｜本端 bytesToWrite 峰值 131168｜bytesWritten 共 9 次）
+  —— 心跳账与超时账 ——
+      ［对］ 客户端发 PING → 期望 3，实测 3
+      ［对］ 服务端回 PONG → 期望 3，实测 3
+      ［对］ 客户端收到 PONG → 期望 3，实测 3
+      ［对］ 应答守卫真到点（【7】故意造的） → 期望 1，实测 1
+      ［对］ 连接守卫真到点（一次都不该有） → 期望 0，实测 0
+      ［对］ 连接守卫被正确 stop（8 次真连接：a/probe(【6】)/wire/staller×2/closer/bye/rude） → 期望 8，实测 8
+      ［对］ 【2】那次连死端口，在【6】之前攒到的 errorOccurred 条数（本机=0，不是讲法里的 ConnectionRefused） → 期望 0，实测 0
+  —— 连接与生命周期账 ——
+      ［对］ 行端口建立的连接数（a/probe/staller×2/closer/bye/rude） → 期望 7，实测 7
+      ［对］ 前缀端口建立的连接数（wire） → 期望 1，实测 1
+      ［对］ 服务端自行 deleteLater 的次数（BYE） → 期望 1，实测 1
+      ［对］ BYE 之后 QPointer 已变空（deferred delete 真的生效） → 期望 1，实测 1
+      ［对］ 「先解析到消息、后收到 disconnected」的收口次数（staller + closer + bye，共 3） → 期望 3，实测 3
+      ［对］ 被服务端 abort() 的连接数（【6】那一次） → 期望 1，实测 1
+      ［对］ probe 上至少报过一次错（实测来源是【6】的 RemoteHostClosed，不是【2】的 ConnectionRefused） → 期望 1，实测 1
+      probe 状态序列 = [HostLookup(1) → Connecting(2) → Unconnected(0) → HostLookup(1) → Connecting(2) → Connected(3) → Closing(6) → Unconnected(0)]
+      closer 状态序列 = [HostLookup(1) → Connecting(2) → Connected(3) → Closing(6) → Unconnected(0)]
+      a 状态序列 = [HostLookup(1) → Connecting(2) → Connected(3)]
+      行端口事件流水：接受 7｜断开 4｜服务端侧 errorOccurred 3｜自删 1｜被 abort 1
+    → 这一行里除了「接受/自删/被 abort」，**断开次数是拿不准的**：
+      断开要不要发 disconnected，取决于关闭时是谁先动的手
+      （abort 的那条就可能只报错不断开），所以它只当流水，不进合账。
+    → 注意上面这些序列里**没有** HostLookup：
+      因为我们走的是第 137 行那个 QHostAddress 重载；
+      换成第 136 行（主机名）就会多一档 HostLookupState=1，
+      那一档里 DNS 慢/坏都能把你的「连接超时」搅浑。
+      ［对］ waitForNewConnection(0) 没等到连接（返回 false） → 期望 0，实测 0
+      ［对］ waitForNewConnection(0) 把 timedOut 置真（= 已经过期，不是无限等） → 期望 1，实测 1
+      waitForNewConnection(0) 当场返回用时 0 ms
+  【合账结果】23 项核对，23 项一致
+  → 一句带走：**把断言压在「消息条数」和「字节总数」上，
+     不要压在「readyRead 次数」上。**前者是协议，后者是运气。
+
+【收摊】disconnect → waitForDisconnected(300) → close → deleteLater → quit
+      a(主力) stateChanged → Closing（枚举值 6）
+      a(主力) stateChanged → Unconnected（枚举值 0）
+    a(主力) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    a(主力) waitForDisconnected(300) → 0｜state=Unconnected
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    probe(试错) waitForDisconnected(300) → 0｜state=Unconnected
+      wire(前缀) stateChanged → Closing（枚举值 6）
+      wire(前缀) stateChanged → Unconnected（枚举值 0）
+    wire(前缀) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    wire(前缀) waitForDisconnected(300) → 0｜state=Unconnected
+      staller(超时) stateChanged → Closing（枚举值 6）
+      staller(超时) stateChanged → Unconnected（枚举值 0）
+    staller(超时) disconnected｜state=Unconnected｜bytesAvailable=0｜error()=Unknown(-1)(-1)
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    staller(超时) waitForDisconnected(300) → 0｜state=Unconnected
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    closer(温和收) waitForDisconnected(300) → 0｜state=Unconnected
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    bye(自删) waitForDisconnected(300) → 0｜state=Unconnected
+QAbstractSocket::waitForDisconnected() is not allowed in UnconnectedState
+    rude(半包+撕) waitForDisconnected(300) → 0｜state=Unconnected
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+    行端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+    前缀端口服务器 disconnected（第 #2 类收口）：断开时缓冲残留 0 字节｜state=Unconnected
+  收摊这一族阻塞的实测：调用 7 次、返回 false 7 次、墙钟合计 0 ms（上限本应是 2100 ms）
+      ［对］ 收摊的 waitForDisconnected 每次都当场返回 false（早已 Unconnected，Qt 直接拒绝） → 期望 7，实测 7
+      ［对］ 收摊阻塞次数 == 客户端 socket 只数（一只不落） → 期望 7，实测 7
+    服务器已 close（第 30 行：不再接新连接）；socket 一律 deleteLater
+    兜底的其实是父子关系：objects 的 parent 是 app，退出时照样析构；
+    deleteLater 只是「别在信号槽的调用栈上动手」，不是内存管理的救星。
+
+【完】第 3 讲的规矩一句话：
+  端口现拿、地址只写回环；字节流里没有消息，边界是你造的；
+  write 只到缓冲，超时只能自己掐；报错只留最后一次，收尸一律 deleteLater。
+  合账：25 项 / 一致 25 项 / 差 0 项｜总闸到点=否 → exit(0)
+
+事件循环已退出（返回码 0），事件循环共转了 1680 轮，全程零阻塞等待
+  实测口径：本文件已在 Qt 6.12.0 + MinGW 13.1.0（Windows，offscreen）下
+  真实编译、链接、运行到自动退出——上面那行合账就是本机这一轮的输出。

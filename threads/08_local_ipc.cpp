@@ -35,6 +35,11 @@
 //        removeServer 到底在清什么、以及本地 IPC 五种手段的对照表。
 //
 //   ★ 运行前须知（这一讲讲网络，先说清楚边界）：
+//     · 实测口径：本文件已在本机真实编译、链接、运行（Qt 6.12.0 + MinGW 13.1.0，
+//       Windows，QT_QPA_PLATFORM=offscreen；ctest 目标 threads_08_local_ipc）。本机这一轮：【硬账】52/52 项核对通过、整节作废 0、总闸没跳。
+//       这只证明「编得过、跑得完、上面这行为绿」——退出码 0 不等于正文每个数字都对：
+//       换 Qt 版本 / 换平台 / 换机器后，带具体数字的「预期」请以你自己那次运行输出为准
+//       （本机那一轮存档 runlogs/threads_08_local_ipc.log）。
 //     · 只连本机、只用临时目录。名字里带本进程 pid，`qtlp_ipc_08_<pid>`，
 //       两套并排跑（比如 CI 上并行）也不会互撞。一个字节都不出这台机器。
 //     · 不在 GUI 线程上用 waitForConnected / waitForReadyRead 死等。
@@ -78,8 +83,11 @@
 //   第 68 行 QString fullServerName() const;
 //   第 70 行 void abort();                           ← 不优雅：立刻断，写缓冲丢掉
 //   第 73 行 qint64 bytesToWrite() const; override   ← ★ 背压的唯一观察窗
-//   第 78 行 LocalSocketError error() const;
-//   第 80 行 bool flush();                           ← 「催一下」，不是保证
+//   第 77 行 LocalSocketError error() const;
+//   第 78 行 bool flush();                           ← 「催一下」，不是保证
+//              ★ 勘误：旧稿把这两个号整体往后挪了一行（78 error / 80 flush）。本机 6.12.0：
+//                77 = error()、78 = flush()、**80 = readBufferSize() const**——
+//                按旧稿去 80 行找 flush 会撞进 readBufferSize，两个是完全不同的东西。
 //   第 92 行 LocalSocketState state() const;
 //   第 93~96 行 waitForBytesWritten / waitForConnected / waitForDisconnected /
 //              waitForReadyRead                                ← 全是阻塞的，带毫秒
@@ -94,8 +102,12 @@
 //   第 42 行 bool getLockInfo(qint64 *pid, QString *hostname, QString *appname) const
 //              ← ★ 能读出「谁拿着锁」，这是 QLockFile 比一个裸文件强的地方
 //   第 43 行 bool removeStaleLockFile();
-//   第 46~51 行 enum LockError { NoError, LockFailedError, PermissionError,
-//              UnknownError } 与 LockError error() const
+//   第 45~50 行 enum LockError { NoError = 0, LockFailedError = 1, PermissionError = 2,
+//              UnknownError = 3 }；第 51 行 LockError error() const
+//              ★ 勘误：旧稿写 46~51（把 enum 的第一项当成 enum 的起始行，又把 error() 算进范围）。
+//                本机 6.12.0：45 = `enum LockError {`，46 才是 NoError = 0，50 = `};`，51 = error()。
+//                顺带纠一条：这一项**每个都写了显式值**，旧稿那串「NoError, LockFailedError,
+//                PermissionError, UnknownError」看着像隐式接续——照隐式去记别的 LockError 值会记错。
 //              ← ★ 这个枚举**没有** Q_ENUM，所以 QMetaEnum::fromType 用不了，
 //                本讲只能手写一个 switch 把名字打出来。头文件里看得见，不用猜。
 //   第 71~74 行 int staleLockTime() const                 ← 默认 30 秒
@@ -587,21 +599,37 @@ static void phase1_startServer(IpcServer &server, const QString &name)
     checkBool(QStringLiteral("【1C】fullServerName() 里带着我们的名字"),
               server.fullName().contains(name), true);
 
-    // ★ 同名第二台：这就是「单实例」的地基。桌面软件第二次被双击时，
-    //   先试着 listen 自己的名字，失败说明已经有一个在跑 —— 于是改去 connect，
-    //   把命令行参数丢给那个跑着的进程，然后自己退出。
+    // ★ 同名第二台：这一条在【1】里被当成「单实例」的地基来教 —— 但真正跑起来才发现，
+    //   这件事**只在 Unix 成立，Windows 上恰恰相反**。逐平台核对，别把一边的经验带到另一边：
+    //     · Unix：名字是 $TMPDIR 下的一个 socket 文件，已有进程 bind+listen 它，
+    //       第二个 bind 撞 AddressInUseError → listen 失败。这才是「第二台起不来」的那个平台。
+    //     · Windows：QLocalServer::listen 走 CreateNamedPipe，而且 maxInstances 传的是
+    //       PIPE_UNLIMITED_INSTANCES（qlocalserver_win.cpp 148~159 行）—— 同名再建一个
+    //       管道**实例**是允许的、会成功。也就是说 Windows 上「listen 同名失败」
+    //       根本不能当单实例判据；要单实例得靠【7】的 QLockFile（文件 + pid，跨平台语义一致）。
     QLocalServer second;
     const bool secondOk = second.listen(name);
-    checkBool(QStringLiteral("【1D】同名第二台 listen 必须失败（单实例互斥的地基）"),
-              secondOk, false);
+#ifdef Q_OS_WIN
+    const bool wantSecondListen = true;    // Windows 实测：第二台 listen 成功
+    const QString gateNote = QStringLiteral("Windows 命名管道允许多实例（PIPE_UNLIMITED_INSTANCES）=> 第二台成功");
+#else
+    const bool wantSecondListen = false;   // Unix：socket 文件被占 ⇒ 第二台失败
+    const QString gateNote = QStringLiteral("Unix socket 文件被占 => 第二台失败");
+#endif
+    checkBool(QStringLiteral("【1D】同名第二台 listen 的结果（单互斥只在 Unix 成立，Windows 不成立：%1）").arg(gateNote),
+              secondOk, wantSecondListen);
     verdict(Obs, QStringLiteral("【1】第二台的 serverError() / errorString()"),
             true, QStringLiteral("%1 / %2")
                       .arg(enumName(second.serverError()), second.errorString()));
 
     qInfo().noquote() << QStringLiteral(
-        "  → 注意：失败原因在两个平台上不一样（Windows 是管道名被占，"
-        "\n     Unix 是 socket 文件已经存在且有人应答），但「第二台起不来」这件事本身是确定的，"
-        "\n     所以它够格记硬账。【8】还会回来看这个名字的另一面：进程死了以后它还在不在。");
+        "  → 关键更正（本讲第一版的硬账就在这儿翻了车）：\n"
+        "\n     「第二台 listen 一定失败」这句话**不是跨平台确定的**，它只在 Unix 成立；"
+        "\n     Windows 用 PIPE_UNLIMITED_INSTANCES，同名第二台照样 listen 成功 —— 因为命名管道"
+        "\n     本来就允许多个服务端实例并存，客户端连上的是任意一个空闲实例。"
+        "\n     所以拿 listen() 做单实例互斥，在 Windows 上是**失效**的：你会开出第二个服务端，"
+        "\n     而两个服务端会分摊后续进来的客户端，行为完全不对。"
+        "\n     真正跨平台可靠的单实例是【7】的 QLockFile（或回环上占死一个 TCP 端口）。");
 }
 
 // ============================================================================

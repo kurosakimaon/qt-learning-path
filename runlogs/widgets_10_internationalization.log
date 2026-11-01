@@ -1,0 +1,108 @@
+QFontDatabase: Cannot find font directory D:/Qt/6.12.0/mingw_64/lib/fonts.
+Note that Qt no longer ships fonts. Deploy some (from https://dejavu-fonts.github.io/ for example) or switch to fontconfig.
+This plugin does not support propagateSizeHints()
+══ 第 10 讲 · 国际化 ══  Qt 版本编译期宏见顶部（本机 6.12.0）
+① 上下文（context）从哪来 —— 打印两个类的 className()：
+   AlphaProbe::staticMetaObject.className() = AlphaProbe
+   BetaProbe ::staticMetaObject.className() = BetaProbe
+   a.tr("Open")                          = "Open"
+   b.tr("Open")  ← 源文相同、上下文不同 = "Open"
+   translate("AlphaProbe","Open")      = "Open"
+   translate("BetaProbe","Open")       = "Open"
+   translate("FileMenu","Open")        = "Open"
+   translate("MainWindow","Open")      = "Open"
+   a.tr("Open") = "Open"  / a.tr("Open", 一段中文注释) = "Open"  → 两者相等：第二参是 comment，不是 context
+   中文源文也一样进表：a.tr("打开") = "打开"   b.tr("打开") = "打开"
+   窗口标题（translate("MainWindow", …) 的结果）： "第 10 讲 · 国际化演示"
+   标签文本（.arg 填的是 %1，**不是** %n）： "已找到 3 个文件"
+② 复数（plural）：n 决定选哪个槽位，%n 由 tr 自己填
+   tr("1 file", "%n files", n= 0 ) -> "1 file"
+   tr("1 file", "%n files", n= 1 ) -> "1 file"
+   tr("1 file", "%n files", n= 2 ) -> "1 file"
+   tr("1 file", "%n files", n= 5 ) -> "1 file"
+   tr("%n file(s) found", "", n= 0 ) -> "0 file(s) found"
+   tr("%n file(s) found", "", n= 1 ) -> "1 file(s) found"
+   tr("%n file(s) found", "", n= 2 ) -> "2 file(s) found"
+   tr("%n file(s) found", "", n= 5 ) -> "5 file(s) found"
+QString::arg: Argument missing: "%n files", 3
+   反面教材：QString::fromUtf8("%n files").arg(3) = "%n files"  ← %n 原样躺在那儿，arg 无能为力
+   （诚实提醒：这一段演示的是**没有命中 .qm 时的退化路径**——此刻还没 installTranslator，而且这些自定义上下文本来也不在任何系统 catalog 里。把它当「%n 的形态由谁决定」的证据，别当最终译文承诺；命中译文的长相在 ③ 段。）
+③ QTranslator：装载路径与 catalog 命名规则
+   QLibraryInfo::path(TranslationsPath) = "D:/Qt/6.12.0/mingw_64/translations" ｜目录存在 = true ｜.qm 个数 = 314
+   重载①：load("qtbase", 目录, "_.", ".qm") 返回 = false  ← 裸文件名里没有语言标记，切无可切（不是「目录不存在」那条原因）
+   重载②：load(QLocale::system(), "qtbase", "_", 目录, ".qm") 返回 = true ｜uiLanguages = QList("zh-Hans-CN", "zh-CN", "zh-Hans", "zh", "en-Latn-US", "en-US", "en-Latn", "en")
+   isEmpty() = false   language() = "zh_CN"   filePath() = "D:/Qt/6.12.0/mingw_64/translations/qtbase_zh_CN.qm"
+   translate("QDialogButtonBox","OK")：装前 = OK ｜ 装后 = 确定
+   translate("QProgressDialog","Cancel")：装前 = Cancel ｜ 装后 = 取消
+   translate("QMessageBox","OK")：装前 = OK ｜ 装后 = OK
+   load(locale, "myapp", "_", 目录, ".qm") 返回 = false  ← 翻译目录里从来没有 myapp_zh_CN.qm（那是应用自己的 catalog，要 lrelease 生成），所以这里是 false；装了也白装，本讲**不**为它 installTranslator
+   load(uchar*, len) 从内存装载 147222 字节，返回 = true ｜filePath() = ""  ← 内存版没有文件，所以 filePath 是空串（不是 bug）
+   不 install 也能问它本人：fromMemory.translate("QDialogButtonBox","OK") = "确定"
+   对没装上去的 appCat 再 removeTranslator 一次，返回值 = false  ← 从没 install 过，摘不掉，返回 false；这条也是证据（上面那个 catalog 已经在 install 之后当场摘掉了：它是栈对象，装着销毁会留悬空指针）
+   切语言的正规顺序：removeTranslator(旧的) → delete → 新 QTranslator → load → installTranslator(新的)；装完 Qt 会广播 QEvent::LanguageChange，各控件在 changeEvent 里把 tr() 结果重新 set 一遍（本讲不演示 changeEvent：QWidget::changeEvent 的签名我没在本机头文件里逐字核到，不凭记忆写）。
+④ QLocale：同一个数字的不同长相（这部分**不需要 .qm**，全是真结果）
+   locale "zh_CN"  1234567 -> "1,234,567"   1234.5 -> "1,234.5"
+   locale "zh_CN"  1234567 -> "1,234,567"   1234.5 -> "1,234.5"
+   locale "en_US"  1234567 -> "1,234,567"   1234.5 -> "1,234.5"
+   locale "de_DE"  1234567 -> "1.234.567"   1234.5 -> "1.234,5"
+   locale "C"  1234567 -> "1234567"   1234.5 -> "1234.5"
+   结论：数字是「人看的」还是「程序看的」，写法完全不同。要稳定可解析请用 QLocale::c()（或直接 QString::number），别拿系统 locale 去生成要写进文件/配置的数字。
+⑤ 同一个 QDate(2026, 3, 1)，四种面孔：
+   d.toString(Qt::ISODate)  = "2026-03-01"  ← 与 locale 无关，**该用它**来存储和写日志
+   d.toString(Qt::TextDate) = "Sun Mar 1 2026"
+   d.toString("yyyy年MM月dd日") = "2026年03月01日"
+    "zh_CN"  Long = "2026年3月1日"  | Short = "2026/3/1"  | Narrow = "2026/3/1"  | 模板 = "yyyy'年'M'月'd'日'"  | 三月 = "三月"  | 星期日名 = "星期日"
+    "zh_CN"  Long = "2026年3月1日星期日"  | Short = "2026/3/1"  | Narrow = "2026/3/1"  | 模板 = "yyyy年M月d日dddd"  | 三月 = "三月"  | 星期日名 = "星期日"
+    "en_US"  Long = "Sunday, March 1, 2026"  | Short = "3/1/26"  | Narrow = "3/1/26"  | 模板 = "dddd, MMMM d, yyyy"  | 三月 = "March"  | 星期日名 = "Sunday"
+    "de_DE"  Long = "Sonntag, 1. M?rz 2026"  | Short = "01.03.26"  | Narrow = "01.03.26"  | 模板 = "dddd, d. MMMM yyyy"  | 三月 = "M?rz"  | 星期日名 = "Sonntag"
+    "C"  Long = "Sunday, 1 March 2026"  | Short = "1 03 2026"  | Narrow = "1 03 2026"  | 模板 = "dddd, d MMMM yyyy"  | 三月 = "March"  | 星期日名 = "Sunday"
+   同一串 "01/03/2026" 用 toDate(..., ShortFormat) 解（qlocale.h 1046 行）：
+      "zh_CN"  -> QDate(Invalid)   无效 ""
+      "zh_CN"  -> QDate(Invalid)   无效 ""
+      "en_US"  -> QDate(Invalid)   无效 ""
+      "de_DE"  -> QDate(Invalid)   无效 ""
+      "C"  -> QDate(Invalid)   无效 ""
+   这就是「把日期硬编码成字符串」的病根：字符串没有时区、没有 locale、没有「3 月 1 日还是 1 月 3 日」的答案。存 QDate/QDateTime（或 ISO 文本），只在给人看的那一刻才格式化。
+⑥ 布局方向（layout direction）：RTL 是整套镜像，不是文字反排
+   现在 = "LeftToRight"   isLeftToRight = true
+   setLayoutDirection(Qt::RightToLeft) 之后 = "RightToLeft"   isRightToLeft = true
+   同一个标签，重新 setText 后仍在布局里（贴边方向跟着应用级方向走）： "注意这一行文字贴在哪一边"
+   窗口标题不变（标题是**内容**，方向是**排版**）： "第 10 讲 · 国际化演示"
+   复原后 = "LeftToRight"
+   另有命令行选项 -reverse（第 1 阶段第 1 讲列过）等价于设成 RTL；widget 级也能各自设方向，但 QWidget::setLayoutDirection 的签名我没在本机逐字核到，本讲只演示**应用级**这一条。
+⑦ 三条坑，跑给你看：
+   错（拼出来的，lupdate 抽不到、语序被写死）： "Found 3 files"
+   对（整句进 tr，%n 由 tr 填）                ： "3 file(s) found"
+   static 缓存的 tr 结果（切语言后它就烂在库里）： "Open"
+   构造函数里的 tr：上下文 = 写调用点那**一行所在的类**名；本讲两个 Probe 的 openLabel() 源文相同、上下文不同，就是这个道理的最小样本。
+   裸字符串那条再念一遍：只有被 tr()/QT_TR_NOOP 包住的**字面量**才会被 lupdate 抽进 .ts。像 `QString s = 「打开文件」;` 这样光写个中文串，工具抽不到，将来怎么翻？（QT_TR_NOOP 宏体就是 x 本身，见 QtCore/qttranslation.h 20 行——它只给工具看。）
+
+⑧ 自带 catalog：tr → lupdate → 填译 → lrelease → load → translate 全链闭环
+   catalog 目录 = C:/Users/Kuros/Documents/Qoder/2026-10-31/c6d4ea7f/qt-learning-path/build/i18n｜.qm 在吗 = 1
+      [对] 账1 .qm 文件存在（它是构建期由同仓库的 .ts 经 lrelease 生成的产物，不在就是构建缺了这一步） → 期望 "yes"，实测 "yes"
+      [对] 账2 load 返回 → 期望 "true"，实测 "true"
+   isEmpty = 0｜language = zh_CN｜filePath = C:/Users/Kuros/Documents/Qoder/2026-10-31/c6d4ea7f/qt-learning-path/build/i18n/gauge_zh_CN.qm
+      [对] 账3 install 之前查表 → 期望 "Pressure gauge"，实测 "Pressure gauge"
+      [对] 账4 单条：Pressure gauge → 期望 "压力表"，实测 "压力表"
+      [对] 账5 带译者注释的 Open（注释不参与查表键） → 期望 "打开"，实测 "打开"
+      [对] 账6 同一条目、给个八竿子打不着的注释 → 还是那句译文 → 期望 "打开"，实测 "打开"
+      [对] 账7 复数 n=1（%n 由 translate 填） → 期望 "1 个阀门开着"，实测 "1 个阀门开着"
+      [对] 账8 复数 n=7（同一条目，换 n 就换句子） → 期望 "7 个阀门开着"，实测 "7 个阀门开着"
+      [对] 账9 查不中（catalog 里没这句） → 期望 "NotInCatalog"，实测 "NotInCatalog"
+      [对] 账10 上下文错了（源文一样、类名不一样 → 也查不中） → 期望 "Pressure gauge"，实测 "Pressure gauge"
+      [对] 账11 remove 之后回到原文（install/remove 就是那个开关） → 期望 "Pressure gauge"，实测 "Pressure gauge"
+This plugin does not support propagateSizeHints()
+      [对] 账12 装 catalog 之前，界面上是源文（此刻 catalog 已从查表链上摘掉） → 期望 "Pressure gauge"，实测 "Pressure gauge"
+      [对] 账13 复数那句也是源文 → 期望 "3 valve(s) open"，实测 "3 valve(s) open"
+      [对] 账14 带消歧注释那句也是源文 → 期望 "Open"，实测 "Open"
+      [对] 账15 install + 走一圈事件循环 → 界面文字换成译文 → 期望 "压力表"，实测 "压力表"
+      [对] 账16 复数条目按 kValves=3 填 %n → 期望 "3 个阀门开着"，实测 "3 个阀门开着"
+      [对] 账17 消歧那句也换了（catalog 里它就是普通的一条 Open） → 期望 "打开"，实测 "打开"
+      [对] 账18 changeEvent 确实被调了几次（不是我们自己调的） → 期望 "yes"，实测 "yes"
+   changeHits：0 → 1（一次 install、一次 remove，各触发一轮 LanguageChange）
+This plugin does not support propagateSizeHints()
+      [对] 账19 remove + 走一圈 → 界面又回到源文（开关就是 install/remove） → 期望 "Pressure gauge"，实测 "Pressure gauge"
+   对照第 ⑦ 步那条「把 tr 结果存进 static」的坑：那份缓存不会因为 LanguageChange 而更新，而 GaugePanel 每次都在 retranslate() 里现取 —— 这就是两种写法的实际差别。
+   【⑧ 台账】核对 19 项，不符 0 项 → 不符就参与进程退出码
+全部 8 步打印完毕，自动退出（全程无阻塞调用）
+事件循环退出，exec() 返回 0
