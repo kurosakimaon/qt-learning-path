@@ -17,6 +17,12 @@
 
 ---
 
+## 🌐 在线浏览
+
+**[https://kurosakimaon.github.io/qt-learning-path/](https://kurosakimaon.github.io/qt-learning-path/)**
+
+从在线入口可以直达[学习路线图](https://kurosakimaon.github.io/qt-learning-path/%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF%E5%9B%BE.html)、各阶段导读和[分步动画专区](https://kurosakimaon.github.io/qt-learning-path/visuals/index.html)。要编译 Qt 工程仍得本机装套件，线上看的是路线图、导读与动画。
+
 ## 📖 这是什么
 
 这是一条**按顺序走**的 Qt 学习路线，不是零散代码片段的堆砌：
