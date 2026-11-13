@@ -214,6 +214,8 @@ cmake -G "MinGW Makefiles" -B build -S . && cmake --build build
 
 [`visuals/index.html`](visuals/index.html) 是 16 张动画的总入口。每页左边一张 SVG、右边讲解与代码，底下是步骤条：支持自动播放、点击跳步、键盘 `←` `→` `Home` `End`。
 
+- 主题：每页右下角可选**跟随系统 / 浅色 / 深色**，选择存在浏览器本地，刷新和换页都记得；首次打开跟随系统。
+
 ![事件循环图解：左侧 SVG 画布，右侧逐步讲解与对应代码，底部是步骤条](_assets/preview/animation.png)
 
 图负责讲清「东西在哪儿、按什么顺序动」，代码负责对回讲义里的具体文件——两者一起看，比单读任何一边都稳。

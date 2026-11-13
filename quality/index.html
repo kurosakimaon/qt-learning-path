@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>第拾阶段 · 工程质量与资深实践 - Qt 从入门到资深</title>
 <link rel="stylesheet" href="../_assets/module.css">
+<link rel="stylesheet" href="../_assets/theme.css">
+
+<script src="../_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
@@ -37,7 +41,7 @@
       <code>Qt6::Test</code> 与 <code>Qt6::Concurrent</code>。顶层把每个示例都注册成了 CTest 用例，并强制
       <code>QT_QPA_PLATFORM=offscreen</code> 运行，所以不需要显示器、不需要鼠标。
     </p>
-    <p style="margin-top: 10px; color:#0e749b;">
+    <p style="margin-top: 10px; color:var(--lh-ink-cb5b);">
       实测口径：本模块 7 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
       Windows，<code>QT_QPA_PLATFORM=offscreen</code>），包含在顶层 <code>ctest</code> 的 73/73 里；
       两个 QtTest 用例也在 CTest 里跑过了——
@@ -53,19 +57,19 @@
       （重跑：<code>bash _tools/run_all.sh '^quality'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, var(--lh-bg-g6b), var(--lh-bg-g5b)); color: var(--lh-ink-n9b); text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px var(--lh-shd-g5-a35b);">
         📖 学习指南
       </a>
-      <a href="../visuals/quality_gate.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="../visuals/quality_gate.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         🎬 图解 · 四道质量门
       </a>
-      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         🎬 图解 · 对象树
       </a>
-      <a href="../visuals/model_view.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="../visuals/model_view.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         🎬 图解 · 模型/视图
       </a>
-      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+      <span style="color: var(--lh-ink-g7b); font-size: 13px;">老师傅带你学，先看指南再动手</span>
     </div>
   </div>
 

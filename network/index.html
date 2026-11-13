@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>第玖阶段 · 网络 - Qt 从入门到资深</title>
 <link rel="stylesheet" href="../_assets/module.css">
+<link rel="stylesheet" href="../_assets/theme.css">
+
+<script src="../_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
@@ -40,7 +44,7 @@
       目标名 <code>network_01_network_access_manager</code> … <code>network_05_dns_and_ssl</code>，已登记在顶层
       <code>CMakeLists.txt</code> 的「第玖阶段 · 网络（network/）」一节，本组额外链 <code>Qt6::Network</code>。
     </p>
-    <p style="margin-top: 10px; color:#0e749b;">
+    <p style="margin-top: 10px; color:var(--lh-ink-cb5b);">
       实测口径：本模块 5 个目标<strong>已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
       Windows，<code>QT_QPA_PLATFORM=offscreen</code>），全部包含在顶层 <code>ctest</code> 的 73/73 里；
       每个 .cpp 也过 <code>moc</code> + <code>g++ -std=c++17 -Wall -Wextra</code>（零 error、零 warning）。
@@ -52,13 +56,13 @@
       所以凡「对方会怎么答」都写成条件句；本模块的硬账全部走 <code>127.0.0.1</code> 自建回环服务。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, var(--lh-bg-g6b), var(--lh-bg-g5b)); color: var(--lh-ink-n9b); text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px var(--lh-shd-g5-a35b);">
         📖 学习指南
       </a>
-      <a href="../visuals/network_async.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="../visuals/network_async.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         🎬 图解 · 异步请求
       </a>
-      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+      <span style="color: var(--lh-ink-g7b); font-size: 13px;">老师傅带你学，先看指南再动手</span>
     </div>
   </div>
 

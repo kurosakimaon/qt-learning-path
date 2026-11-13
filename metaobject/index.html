@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>第肆阶段 · 元对象系统（Meta-Object） - Qt 从入门到资深</title>
 <link rel="stylesheet" href="../_assets/module.css">
+<link rel="stylesheet" href="../_assets/theme.css">
+
+<script src="../_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
@@ -32,7 +36,7 @@
       每一章都是<strong>完整可编译的示例 + 详细注释</strong>，且都设计成<strong>无人值守能自动跑完</strong>
       （<code>QTimer::singleShot</code> 排脚本 + <code>qInfo()</code> 吐结论 + <code>quit()</code>）。
     </p>
-    <p style="margin-top: 10px; color:#0e749b;">
+    <p style="margin-top: 10px; color:var(--lh-ink-cb5b);">
       实测口径：本模块 8 个示例<strong>都已在本机真实编译、链接、运行</strong>（Qt 6.12.0 + MinGW 13.1.0，
       Release 与 Debug 两套构建配置都过，退出码全为 0），全部包含在顶层 <code>ctest</code> 的 75/75 绿里；
       文中每一个类、函数、重载都对着本机 <code>D:\Qt\6.12.0\mingw_64\include</code> 里的真实头文件核对过，
@@ -41,19 +45,19 @@
       完整输出存档在 <code>runlogs/metaobject_0N_*.log</code>（UTF-8；重跑：<code>bash _tools/run_all.sh '^metaobject'</code>）。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, var(--lh-bg-g6b), var(--lh-bg-g5b)); color: var(--lh-ink-n9b); text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px var(--lh-shd-g5-a35b); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 6px 20px rgba(21, 128, 61, 0.45)';" onmouseout="this.style.transform='translateY(0)';this.style.boxShadow='0 4px 15px rgba(21, 128, 61, 0.35)';">
         📖 学习指南
       </a>
-      <a href="../visuals/moc_signal_slot.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+      <a href="../visuals/moc_signal_slot.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
         🎬 图解 · moc 与信号槽
       </a>
-      <a href="../visuals/connection_types.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+      <a href="../visuals/connection_types.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
         🎬 图解 · 连接类型
       </a>
-      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
+      <a href="../visuals/qobject_tree.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px; transition: all 0.3s ease;" onmouseover="this.style.background='#41cd52';this.style.color='#fff';" onmouseout="this.style.background='#fff';this.style.color='#15803d';">
         🎬 图解 · QObject 对象树
       </a>
-      <span style="color: #a7c4b1; font-size: 13px;">老师傅带你学，先看指南再动手</span>
+      <span style="color: var(--lh-ink-g7b); font-size: 13px;">老师傅带你学，先看指南再动手</span>
     </div>
   </div>
 

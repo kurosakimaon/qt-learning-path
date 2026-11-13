@@ -3,46 +3,50 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>第拾壹阶段讲义 · Qt6 的 CMake 到底怎么写 - Qt 从入门到资深</title>
 <link rel="stylesheet" href="../_assets/module.css">
+<link rel="stylesheet" href="../_assets/theme.css">
 <style>
   .container { max-width: 1040px; }
   .doc-section {
-    background: rgba(255,255,255,0.96);
+    background: var(--lh-bg-n9-a96b);
     border-radius: 16px;
     padding: 26px 30px;
     margin-bottom: 20px;
-    box-shadow: 0 8px 30px rgba(0,0,0,0.28);
+    box-shadow: 0 8px 30px var(--lh-shd-n1-a28b);
   }
   .doc-section h2 {
-    color: #15803d;
+    color: var(--lh-ink-g5b);
     margin: 0 0 14px;
     font-size: 21px;
     display: flex; align-items: center; gap: 10px;
   }
-  .doc-section h3 { color: #166534; font-size: 16px; margin: 22px 0 8px; }
-  .doc-section p, .doc-section li { color: #444; font-size: 14px; line-height: 1.9; }
+  .doc-section h3 { color: var(--lh-ink-g4b); font-size: 16px; margin: 22px 0 8px; }
+  .doc-section p, .doc-section li { color: var(--lh-ink-n3c); font-size: 14px; line-height: 1.9; }
   .doc-section ul, .doc-section ol { padding-left: 22px; margin: 8px 0; }
   .doc-section code {
-    background: #f1f5f9; color: #0f172a; padding: 1px 6px;
+    background: var(--lh-bg-n9k); color: var(--lh-ink-b2b); padding: 1px 6px;
     border-radius: 5px; font-family: Consolas, 'Courier New', monospace; font-size: 12.5px;
   }
   pre {
-    background: #0f172a; color: #e2e8f0; padding: 16px 18px; border-radius: 12px;
+    background: var(--lh-bg-b2b); color: var(--lh-ink-n8c); padding: 16px 18px; border-radius: 12px;
     overflow-x: auto; font-family: Consolas, 'Courier New', monospace; font-size: 12.5px;
     line-height: 1.75; margin: 12px 0;
   }
-  pre .c { color: #94a3b8; }
+  pre .c { color: var(--lh-ink-b6b); }
   table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
-  th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; vertical-align: top; }
-  th { background: #f0fdf4; color: #166534; }
+  th, td { border: 1px solid var(--lh-line-n8b); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--lh-bg-n9c); color: var(--lh-ink-g4b); }
   td code { font-size: 12px; }
   .warn {
-    background: #fff7ed; border-left: 4px solid #f59e0b; color: #7c2d12;
+    background: var(--lh-bg-n9i); border-left: 4px solid var(--lh-line-o7b); color: var(--lh-ink-or3b);
     padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0; font-size: 13.5px; line-height: 1.9;
   }
-  .fact { color: #be123c; font-weight: 700; }
+  .fact { color: var(--lh-ink-rb4b); font-weight: 700; }
 </style>
+
+<script src="../_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">

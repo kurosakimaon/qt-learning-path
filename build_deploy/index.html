@@ -3,8 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>第拾壹阶段 · 构建与部署 - Qt 从入门到资深</title>
 <link rel="stylesheet" href="../_assets/module.css">
+<link rel="stylesheet" href="../_assets/theme.css">
+
+<script src="../_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
@@ -26,7 +30,7 @@
       本阶段有 <strong>5 个独立工程</strong>，每个目录都有自己的 <code>CMakeLists.txt</code> 和 <code>project()</code>，
       <strong>必须进到各自目录里单独 configure</strong>（顶层只检查它们存在，不会 add_subdirectory 进来）：
     </p>
-    <ul style="color:#444; line-height:2; font-size:14px; padding-left:22px;">
+    <ul style="color:var(--lh-ink-n3c); line-height:2; font-size:14px; padding-left:22px;">
       <li><code>qt_cmake_01_widgets</code> —— 最小骨架：四行必需 + 两条产物规则</li>
       <li><code>qt_cmake_02_structure</code> —— 一个库 + 一个界面：PUBLIC/PRIVATE、include 目录、手写 AUTOMOC</li>
       <li><code>qt_cmake_03_resources</code> —— 资源的两条路线：<code>qt_add_resources</code>（带 / 不带 <code>BASE</code>，路径不一样）与 <code>.qrc</code> + AUTORCC</li>
@@ -43,13 +47,13 @@
       本阶段所有 CMake 用法都对着本机 <code>D:\Qt\6.12.0\mingw_64\lib\cmake\Qt6*</code> 的真实实现核对过——
       包括一条容易被抄错的：<code>qt_standard_project_setup()</code> 只打开 AUTOMOC 与 AUTOUIC，<strong>不打开 AUTORCC</strong>。
     </p>
-    <p style="margin-top: 10px; color:#15803d;">
+    <p style="margin-top: 10px; color:var(--lh-ink-g5b);">
       实测口径：五份工程都<strong>在本机各自 configure / build / run 过一遍</strong>（Qt 6.12.0 + MinGW 13.1.0 + CMake 3.30.5 + MinGW Makefiles）。
       五次构建的 <code>warning:</code> / <code>error:</code> 行数都是 <strong>0</strong>；四个 GUI 目标在 <code>-platform offscreen</code> 下退出码全 <strong>0</strong>；
       第 4 份的 CTest <strong>1/1 Passed</strong>（<code>tst_calc.exe</code> 自报 <code>10 passed, 0 failed, 0 skipped</code>）。
       每个工程都在文件头注明「怎么构建、跑起来看到什么」。
     </p>
-    <p style="margin-top: 10px; color:#be123c;">
+    <p style="margin-top: 10px; color:var(--lh-ink-rb4b);">
       ⚠ 第 5 份（翻译）<strong>原先是坏的，而且坏得很难看</strong>：<code>qt_add_translations</code> 首次 configure 生成的 <code>.ts</code> 是<strong>空的</strong>，
       空 <code>.ts</code> 过 <code>lrelease</code> 得到一个 <strong>30 字节、0 条译文</strong>的 <code>.qm</code>，而 <code>QTranslator::load()</code> 对它<strong>照样返回 true</strong> ——
       于是程序在界面三行全是中文的同时打印「翻译是否生效： true」。
@@ -60,16 +64,16 @@
       <code>qt_cmake_05_translations/src/main.cpp</code> 的文件头。
     </p>
     <div style="margin-top: 22px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
-      <a href="qt_cmake_guide.html" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, #16a34a, #15803d); color: white; text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px rgba(21, 128, 61, 0.35);">
+      <a href="qt_cmake_guide.html" style="display: inline-block; padding: 12px 28px; background: linear-gradient(135deg, var(--lh-bg-g6b), var(--lh-bg-g5b)); color: var(--lh-ink-n9b); text-decoration: none; border-radius: 30px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 15px var(--lh-shd-g5-a35b);">
         📘 CMake 讲义
       </a>
-      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="tutorial.md" target="_blank" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         📖 学习指南
       </a>
-      <a href="../visuals/deployment_tree.html" style="display: inline-block; padding: 11px 24px; background: #fff; color: #15803d; text-decoration: none; border: 2px solid #41cd52; border-radius: 30px; font-weight: 600; font-size: 14px;">
+      <a href="../visuals/deployment_tree.html" style="display: inline-block; padding: 11px 24px; background: var(--lh-bg-n9b); color: var(--lh-ink-g5b); text-decoration: none; border: 2px solid var(--lh-line-g7b); border-radius: 30px; font-weight: 600; font-size: 14px;">
         🎬 图解 · 部署
       </a>
-      <span style="color: #a7c4b1; font-size: 13px;">先进各工程目录单独 configure</span>
+      <span style="color: var(--lh-ink-g7b); font-size: 13px;">先进各工程目录单独 configure</span>
     </div>
   </div>
 

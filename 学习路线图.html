@@ -3,8 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>(function(){var d=document.documentElement,p="auto",t;try{p=localStorage.getItem("lh-theme")||"auto";}catch(e){}if(p!=="light"&&p!=="dark")p="auto";try{t=p==="auto"?(window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"):p;}catch(e){t="dark";}d.setAttribute("data-theme",t);d.setAttribute("data-theme-pref",p);})();</script>
 <title>Qt 工程师修炼路线图 · 从入门到资深</title>
 <link rel="stylesheet" href="_assets/module.css">
+<link rel="stylesheet" href="_assets/theme.css">
 <style>
   /* ---------- 顶部 ---------- */
   .top-links {
@@ -16,34 +18,34 @@
   .top-link {
     display: inline-block;
     padding: 8px 16px;
-    background: rgba(255,255,255,.10);
-    border: 1px solid rgba(255,255,255,.22);
-    color: #e6f5ec;
+    background: var(--lh-bg-n9-a10b);
+    border: 1px solid var(--lh-line-n9-a22b);
+    color: var(--lh-ink-n9c);
     text-decoration: none;
     border-radius: 8px;
     font-size: 13px;
     transition: background .2s, border-color .2s;
   }
-  .top-link:hover { background: rgba(65,205,82,.30); border-color: rgba(65,205,82,.55); }
+  .top-link:hover { background: var(--lh-bg-g7-a30b); border-color: var(--lh-line-g7-a55b); }
 
-  .hero { text-align: center; color: #fff; padding: 10px 0 26px; }
+  .hero { text-align: center; color: var(--lh-ink-n9b); padding: 10px 0 26px; }
   .hero .kicker {
     display: inline-block;
     font-size: 12px;
     letter-spacing: .22em;
-    color: #8fe3a6;
+    color: var(--lh-ink-g8c);
     margin-bottom: 12px;
   }
   .hero h1 {
     font-size: 38px;
     line-height: 1.25;
     margin-bottom: 12px;
-    text-shadow: 2px 2px 10px rgba(0,0,0,.40);
+    text-shadow: 2px 2px 10px var(--lh-shd-n1-a40b);
   }
   .hero .sub {
     font-size: 15.5px;
     line-height: 1.85;
-    color: #d7e8dd;
+    color: var(--lh-ink-n8b);
     max-width: 860px;
     margin: 0 auto 20px;
   }
@@ -54,30 +56,30 @@
     flex-wrap: wrap;
   }
   .stat {
-    background: rgba(255,255,255,.08);
-    border: 1px solid rgba(255,255,255,.16);
+    background: var(--lh-bg-n9-a8b);
+    border: 1px solid var(--lh-line-n9-a16b);
     border-radius: 12px;
     padding: 10px 20px;
-    color: #d7e8dd;
+    color: var(--lh-ink-n8b);
     font-size: 12.5px;
     line-height: 1.5;
   }
-  .stat strong { display: block; color: #6ee7a0; font-size: 22px; }
+  .stat strong { display: block; color: var(--lh-ink-g8d); font-size: 22px; }
 
   /* ---------- 诚实标注 ---------- */
   .notice {
-    background: rgba(255,247,237,.97);
-    border-left: 4px solid #f59e0b;
+    background: var(--lh-bg-n9-a97b);
+    border-left: 4px solid var(--lh-line-o7b);
     border-radius: 0 14px 14px 0;
     padding: 18px 22px;
     margin-bottom: 22px;
-    box-shadow: 0 8px 26px rgba(0,0,0,.20);
+    box-shadow: 0 8px 26px var(--lh-shd-n1-a20b);
   }
-  .notice h2 { font-size: 16px; color: #92400e; margin-bottom: 8px; }
-  .notice p { font-size: 13px; color: #78533a; line-height: 1.85; }
+  .notice h2 { font-size: 16px; color: var(--lh-ink-or4b); margin-bottom: 8px; }
+  .notice p { font-size: 13px; color: var(--lh-ink-or4c); line-height: 1.85; }
   .notice p + p { margin-top: 6px; }
   .notice code {
-    background: rgba(146,64,14,.10);
+    background: var(--lh-bg-or4-a10b);
     padding: 1px 5px;
     border-radius: 4px;
     font-size: 12px;
@@ -92,10 +94,10 @@
   }
   .band {
     position: relative;
-    background: #fff;
+    background: var(--lh-bg-n9b);
     border-radius: 14px;
     padding: 16px 16px 14px;
-    box-shadow: 0 8px 26px rgba(0,0,0,.22);
+    box-shadow: 0 8px 26px var(--lh-shd-n1-a22b);
   }
   .band::before {
     content: '';
@@ -103,34 +105,34 @@
     inset: 0 0 auto;
     height: 3px;
     border-radius: 14px 14px 0 0;
-    background: linear-gradient(90deg, #41cd52, #15803d);
+    background: linear-gradient(90deg, var(--lh-bg-g7b), var(--lh-bg-g5b));
   }
-  .band.phase-2::before { background: linear-gradient(90deg, #34d399, #0d9488); }
-  .band.phase-3::before { background: linear-gradient(90deg, #38bdf8, #0e7490); }
-  .band.phase-4::before { background: linear-gradient(90deg, #a78bfa, #6d28d9); }
+  .band.phase-2::before { background: linear-gradient(90deg, var(--lh-bg-tg7b), var(--lh-bg-tc5b)); }
+  .band.phase-3::before { background: linear-gradient(90deg, var(--lh-bg-cb7b), var(--lh-bg-cb5b)); }
+  .band.phase-4::before { background: linear-gradient(90deg, var(--lh-bg-pb6b), var(--lh-bg-p4b)); }
   .band-head {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: .12em;
-    color: #15803d;
+    color: var(--lh-ink-g5b);
     margin-bottom: 4px;
   }
-  .band h3 { font-size: 15px; color: #14532d; margin-bottom: 6px; }
-  .band p { font-size: 12px; color: #667; line-height: 1.7; margin-bottom: 10px; min-height: 42px; }
+  .band h3 { font-size: 15px; color: var(--lh-ink-g3b); margin-bottom: 6px; }
+  .band p { font-size: 12px; color: var(--lh-ink-n4e); line-height: 1.7; margin-bottom: 10px; min-height: 42px; }
   .band-chips { display: flex; flex-direction: column; gap: 6px; }
   .band-chips a {
     display: block;
     font-size: 12.5px;
-    color: #166534;
+    color: var(--lh-ink-g4b);
     text-decoration: none;
-    background: #f0fdf4;
-    border: 1px solid #dcfce7;
+    background: var(--lh-bg-n9c);
+    border: 1px solid var(--lh-line-g9b);
     border-radius: 8px;
     padding: 5px 9px;
     transition: background .2s, border-color .2s, transform .2s;
   }
-  .band-chips a:hover { background: #dcfce7; border-color: #86efac; transform: translateX(2px); }
-  .band-chips a span { color: #94a3b8; font-size: 11px; }
+  .band-chips a:hover { background: var(--lh-bg-g9b); border-color: var(--lh-line-g8b); transform: translateX(2px); }
+  .band-chips a span { color: var(--lh-ink-b6b); font-size: 11px; }
 
   .band-final {
     display: flex;
@@ -138,34 +140,34 @@
     justify-content: space-between;
     gap: 14px;
     flex-wrap: wrap;
-    background: linear-gradient(135deg, #f0fdf4, #dcfce7);
-    border: 1px solid #bbf7d0;
+    background: linear-gradient(135deg, var(--lh-bg-n9c), var(--lh-bg-g9b));
+    border: 1px solid var(--lh-line-g8c);
     border-radius: 14px;
     padding: 16px 20px;
     margin-top: 16px;
-    box-shadow: 0 8px 26px rgba(0,0,0,.18);
+    box-shadow: 0 8px 26px var(--lh-shd-n1-a18b);
   }
-  .band-final strong { color: #14532d; font-size: 15px; }
-  .band-final p { color: #3f5a49; font-size: 12.5px; line-height: 1.7; margin-top: 4px; }
+  .band-final strong { color: var(--lh-ink-g3b); font-size: 15px; }
+  .band-final p { color: var(--lh-ink-g4c); font-size: 12.5px; line-height: 1.7; margin-top: 4px; }
   .band-final a {
     flex: none;
-    background: #15803d;
-    color: #fff;
+    background: var(--lh-bg-g5b);
+    color: var(--lh-ink-n9b);
     text-decoration: none;
     font-size: 13px;
     padding: 9px 18px;
     border-radius: 999px;
   }
-  .band-final a:hover { background: #166534; }
+  .band-final a:hover { background: var(--lh-bg-g4b); }
 
   /* ---------- 阶段卡片 ---------- */
   .stage {
     position: relative;
-    background: #fff;
+    background: var(--lh-bg-n9b);
     border-radius: 16px;
     padding: 22px 24px 20px 92px;
     margin-bottom: 16px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.20);
+    box-shadow: 0 8px 30px var(--lh-shd-n1-a20b);
   }
   .stage-badge {
     position: absolute;
@@ -179,9 +181,9 @@
     justify-content: center;
     font-size: 23px;
     font-weight: 700;
-    color: #fff;
-    background: linear-gradient(135deg, #41cd52, #15803d);
-    box-shadow: 0 6px 16px rgba(21,128,61,.28);
+    color: var(--lh-ink-n9b);
+    background: linear-gradient(135deg, var(--lh-bg-g7b), var(--lh-bg-g5b));
+    box-shadow: 0 6px 16px var(--lh-shd-g5-a28b);
   }
   .stage-head {
     display: flex;
@@ -190,35 +192,35 @@
     flex-wrap: wrap;
     margin-bottom: 4px;
   }
-  .stage-title { font-size: 19px; font-weight: 700; color: #14532d; }
+  .stage-title { font-size: 19px; font-weight: 700; color: var(--lh-ink-g3b); }
   .stage-dir {
     font-family: Consolas, 'Courier New', monospace;
     font-size: 12px;
-    color: #8aa39a;
+    color: var(--lh-ink-tg6c);
   }
   .stage-level {
     font-size: 11px;
     font-weight: 700;
     padding: 2px 9px;
     border-radius: 999px;
-    background: #eef2f0;
-    color: #4b6357;
+    background: var(--lh-bg-n9n);
+    color: var(--lh-ink-tg4c);
   }
-  .stage-meta { font-size: 12px; color: #94a3b8; margin-bottom: 10px; }
-  .stage-desc { font-size: 13.5px; color: #555; line-height: 1.8; margin-bottom: 10px; }
+  .stage-meta { font-size: 12px; color: var(--lh-ink-b6b); margin-bottom: 10px; }
+  .stage-desc { font-size: 13.5px; color: var(--lh-ink-n4b); line-height: 1.8; margin-bottom: 10px; }
   .stage-points {
     margin: 0 0 12px 18px;
-    color: #475569;
+    color: var(--lh-ink-b4b);
     font-size: 13px;
     line-height: 1.9;
   }
-  .stage-points li::marker { color: #16a34a; }
+  .stage-points li::marker { color: var(--lh-ink-g6b); }
   .pitfall {
     font-size: 12.5px;
     line-height: 1.75;
-    color: #8a5a12;
-    background: #fffbeb;
-    border-left: 3px solid #fbbf24;
+    color: var(--lh-ink-o4b);
+    background: var(--lh-bg-n9o);
+    border-left: 3px solid var(--lh-line-o7c);
     border-radius: 0 8px 8px 0;
     padding: 8px 12px;
     margin-bottom: 12px;
@@ -226,9 +228,9 @@
   .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
   .chip {
     font-size: 11.5px;
-    color: #166534;
-    background: #f0fdf4;
-    border: 1px solid #dcfce7;
+    color: var(--lh-ink-g4b);
+    background: var(--lh-bg-n9c);
+    border: 1px solid var(--lh-line-g9b);
     padding: 2px 9px;
     border-radius: 999px;
   }
@@ -239,17 +241,17 @@
     padding: 6px 14px;
     border-radius: 999px;
     text-decoration: none;
-    background: #15803d;
-    color: #fff;
+    background: var(--lh-bg-g5b);
+    color: var(--lh-ink-n9b);
     transition: background .2s;
   }
-  .slink:hover { background: #166534; }
+  .slink:hover { background: var(--lh-bg-g4b); }
   .slink.ghost {
-    background: #fff;
-    color: #15803d;
-    border: 1px solid #86efac;
+    background: var(--lh-bg-n9b);
+    color: var(--lh-ink-g5b);
+    border: 1px solid var(--lh-line-g8b);
   }
-  .slink.ghost:hover { background: #f0fdf4; }
+  .slink.ghost:hover { background: var(--lh-bg-n9c); }
 
   /* ---------- 图解网格 ---------- */
   .vgrid {
@@ -260,53 +262,53 @@
   }
   .vcard {
     display: block;
-    background: #fff;
+    background: var(--lh-bg-n9b);
     border-radius: 14px;
     padding: 16px 18px;
     text-decoration: none;
     color: inherit;
-    box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    box-shadow: 0 8px 24px var(--lh-shd-n1-a18b);
     transition: transform .2s, box-shadow .2s;
   }
-  .vcard:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(0,0,0,.26); }
-  .vcard .vstage { font-size: 11px; font-weight: 700; color: #15803d; letter-spacing: .06em; }
-  .vcard h3 { font-size: 14.5px; color: #222; margin: 5px 0 6px; }
-  .vcard p { font-size: 12px; color: #667; line-height: 1.7; }
+  .vcard:hover { transform: translateY(-3px); box-shadow: 0 14px 32px var(--lh-shd-n1-a26c); }
+  .vcard .vstage { font-size: 11px; font-weight: 700; color: var(--lh-ink-g5b); letter-spacing: .06em; }
+  .vcard h3 { font-size: 14.5px; color: var(--lh-ink-n2b); margin: 5px 0 6px; }
+  .vcard p { font-size: 12px; color: var(--lh-ink-n4e); line-height: 1.7; }
 
   /* ---------- 表格 ---------- */
   .tbl-wrap {
-    background: rgba(255,255,255,.97);
+    background: var(--lh-bg-n9-a97c);
     border-radius: 14px;
     padding: 6px;
-    box-shadow: 0 8px 30px rgba(0,0,0,.22);
+    box-shadow: 0 8px 30px var(--lh-shd-n1-a22b);
     overflow-x: auto;
     margin-bottom: 8px;
   }
   table { width: 100%; border-collapse: collapse; font-size: 12.8px; }
   th, td { padding: 10px 12px; text-align: left; vertical-align: top; line-height: 1.75; }
   thead th {
-    background: #f0fdf4;
-    color: #14532d;
+    background: var(--lh-bg-n9c);
+    color: var(--lh-ink-g3b);
     font-size: 12px;
     letter-spacing: .04em;
-    border-bottom: 2px solid #dcfce7;
+    border-bottom: 2px solid var(--lh-line-g9b);
     white-space: nowrap;
   }
-  tbody tr + tr td { border-top: 1px solid #eef3f0; }
-  tbody tr:hover td { background: #fbfdfb; }
+  tbody tr + tr td { border-top: 1px solid var(--lh-line-n9c); }
+  tbody tr:hover td { background: var(--lh-bg-n9p); }
   td code {
     font-size: 12px;
-    background: #f1f5f3;
+    background: var(--lh-bg-n9q);
     padding: 1px 5px;
     border-radius: 4px;
-    color: #14532d;
+    color: var(--lh-ink-g3b);
   }
-  td:first-child { white-space: nowrap; font-weight: 700; color: #15803d; }
+  td:first-child { white-space: nowrap; font-weight: 700; color: var(--lh-ink-g5b); }
 
   /* ---------- 命令块 ---------- */
   pre {
-    background: #0f172a;
-    color: #e2e8f0;
+    background: var(--lh-bg-b2b);
+    color: var(--lh-ink-n8c);
     border-radius: 12px;
     padding: 16px 18px;
     font-family: Consolas, 'Courier New', monospace;
@@ -315,8 +317,8 @@
     overflow-x: auto;
     margin: 12px 0 4px;
   }
-  pre .c { color: #7c8ea8; }
-  pre .p { color: #6ee7a0; }
+  pre .c { color: var(--lh-ink-b6c); }
+  pre .p { color: var(--lh-ink-g8d); }
 
   .step-list { counter-reset: s; padding-left: 0; list-style: none; }
   .step-list > li {
@@ -324,7 +326,7 @@
     position: relative;
     padding-left: 42px;
     margin-bottom: 14px;
-    color: #46544b;
+    color: var(--lh-ink-n4d);
     font-size: 13.5px;
     line-height: 1.85;
   }
@@ -336,25 +338,25 @@
     width: 26px;
     height: 26px;
     border-radius: 50%;
-    background: #dcfce7;
-    color: #15803d;
+    background: var(--lh-bg-g9b);
+    color: var(--lh-ink-g5b);
     font-weight: 700;
     font-size: 13px;
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .step-list strong { color: #14532d; }
+  .step-list strong { color: var(--lh-ink-g3b); }
 
   .page-foot {
-    color: #a9c9b8;
+    color: var(--lh-ink-tg7b);
     font-size: 12.5px;
     line-height: 1.9;
     margin-top: 22px;
     padding: 14px 4px 0;
-    border-top: 1px solid rgba(255,255,255,.12);
+    border-top: 1px solid var(--lh-line-n9-a12b);
   }
-  .page-foot a { color: #8fe3a6; }
+  .page-foot a { color: var(--lh-ink-g8c); }
 
   @media (max-width: 900px) {
     .bands { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -371,6 +373,8 @@
     * { transition: none !important; animation: none !important; }
   }
 </style>
+
+<script src="_assets/theme.js" defer></script>
 </head>
 <body>
 <div class="container">
